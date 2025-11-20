@@ -12,6 +12,7 @@ from .models import (
     MonitoringConfig,
 )
 from .parser import Config, ConfigValidationError
+from .monorepo import MonorepoDetector
 
 __all__ = [
     "AgentConfig",
@@ -25,4 +26,5 @@ __all__ = [
     "MonitoringConfig",
     "Config",
     "ConfigValidationError",
+    "MonorepoDetector",
 ]

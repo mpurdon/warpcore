@@ -19,7 +19,7 @@
     - Add configuration file validation with detailed error messages
     - _Requirements: 6.1, 6.2, 6.4_
   
-  - [ ] 2.3 Add monorepo support for multiple agents
+  - [x] 2.3 Add monorepo support for multiple agents
     - Implement agent detection from monorepo structure
     - Add selective agent filtering for deployment
     - _Requirements: 16.1, 16.2_

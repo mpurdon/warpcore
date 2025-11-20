@@ -17,6 +17,7 @@ from .models import (
     SharedConfig,
     VPCConfig,
 )
+from .monorepo import MonorepoDetector
 
 
 class ConfigValidationError(Exception):
@@ -56,6 +57,7 @@ class Config:
         self.agents: List[AgentConfig] = []
         self.shared: Optional[SharedConfig] = None
         self.environments: Dict[str, EnvironmentConfig] = {}
+        self.monorepo_detector = MonorepoDetector(self.config_path.parent)
 
     def load(self) -> "Config":
         """Load and validate configuration from YAML file.
@@ -172,18 +174,19 @@ class Config:
 
         return errors
 
-    def get_agents(self, agent_filter: Optional[str] = None) -> List[AgentConfig]:
-        """Get list of agent configurations.
+    def get_agents(
+        self, agent_filter: Optional[str] = None, tags: Optional[dict] = None
+    ) -> List[AgentConfig]:
+        """Get list of agent configurations with optional filtering.
 
         Args:
-            agent_filter: Optional agent name to filter by
+            agent_filter: Optional agent name or comma-separated names to filter by
+            tags: Optional dictionary of tags to filter by
 
         Returns:
             List of agent configurations
         """
-        if agent_filter:
-            return [agent for agent in self.agents if agent.name == agent_filter]
-        return self.agents
+        return self.monorepo_detector.filter_agents(self.agents, agent_filter, tags)
 
     def get_environment(self, env_name: str) -> EnvironmentConfig:
         """Get environment-specific configuration with overrides applied.
@@ -225,9 +228,16 @@ class Config:
             self.project = ProjectConfig(**self.data["project"])
 
     def _parse_agents(self):
-        """Parse agent configurations."""
+        """Parse agent configurations and validate uniqueness."""
         if "agents" in self.data and isinstance(self.data["agents"], list):
             self.agents = [AgentConfig(**agent_data) for agent_data in self.data["agents"]]
+
+            # Validate agent names are unique in monorepo
+            duplicates = self.monorepo_detector.validate_agent_names_unique(self.agents)
+            if duplicates:
+                raise ConfigValidationError(
+                    f"Duplicate agent names found in monorepo: {', '.join(duplicates)}"
+                )
 
     def _parse_shared(self):
         """Parse shared infrastructure configuration."""
@@ -296,6 +306,41 @@ class Config:
                 )
 
             self.environments[env_name] = EnvironmentConfig(**env_config_data)
+
+    def get_changed_agents(self, changed_files: List[str]) -> List[AgentConfig]:
+        """Get agents affected by changed files (useful for CI/CD).
+
+        Args:
+            changed_files: List of changed file paths relative to config root
+
+        Returns:
+            List of agents that should be redeployed
+        """
+        return self.monorepo_detector.get_changed_agents(self.agents, changed_files)
+
+    def group_agents_by_path(self) -> Dict[str, List[AgentConfig]]:
+        """Group agents by their parent directory.
+
+        Returns:
+            Dictionary mapping parent directory to list of agents
+        """
+        return self.monorepo_detector.group_agents_by_path(self.agents)
+
+    def detect_agent_directories(
+        self,
+        search_paths: Optional[List[str]] = None,
+        exclude_patterns: Optional[List[str]] = None,
+    ) -> List[Path]:
+        """Detect agent directories in monorepo structure.
+
+        Args:
+            search_paths: Optional list of paths to search
+            exclude_patterns: Optional list of directory patterns to exclude
+
+        Returns:
+            List of detected agent directory paths
+        """
+        return self.monorepo_detector.detect_agents(search_paths, exclude_patterns)
 
     def to_dict(self) -> Dict:
         """Convert configuration to dictionary.
