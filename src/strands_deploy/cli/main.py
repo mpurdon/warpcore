@@ -14,6 +14,13 @@ from rich.panel import Panel
 from strands_deploy.utils.logging import setup_logging, get_logger
 from strands_deploy.cli.costs import costs
 from strands_deploy.cli.agentic import agentic
+from strands_deploy.cli.diff import diff
+from strands_deploy.cli.validate import validate
+from strands_deploy.cli.graph import graph
+from strands_deploy.cli.output import output
+from strands_deploy.cli.forecast import forecast
+from strands_deploy.cli.limits import limits
+from strands_deploy.cli.notifications import notifications
 from strands_deploy.config.parser import Config, ConfigValidationError
 from strands_deploy.state.manager import StateManager, StateNotFoundError
 from strands_deploy.state.checkpoint import CheckpointManager
@@ -59,6 +66,15 @@ cli.add_command(costs)
 
 # Add agentic reconciliation commands
 cli.add_command(agentic)
+
+# Add quick win commands
+cli.add_command(diff)
+cli.add_command(validate)
+cli.add_command(graph)
+cli.add_command(output)
+cli.add_command(forecast)
+cli.add_command(limits)
+cli.add_command(notifications)
 
 
 def load_config(config_path: str = "strands.yaml") -> Config:
