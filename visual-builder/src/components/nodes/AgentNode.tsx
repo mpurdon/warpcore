@@ -1,44 +1,53 @@
-import { Handle, Position } from 'reactflow';
 import { Bot } from 'lucide-react';
 import { NodeStatus } from '../../store/useStore';
+import NodeWrapper from './NodeWrapper';
+import BidirectionalHandles from './BidirectionalHandles';
 
 interface AgentNodeData {
   label: string;
   status?: NodeStatus;
   runtime?: string;
   memory?: number;
+  config?: {
+    name?: string;
+    [key: string]: any;
+  };
 }
 
 interface Props {
+  id: string;
   data: AgentNodeData;
   selected: boolean;
 }
 
-export default function AgentNode({ data, selected }: Props) {
+export default function AgentNode({ id, data, selected }: Props) {
   const statusClass = data.status ? `node-${data.status}` : '';
-  
+  const displayName = data.config?.name || data.label;
+  const hasCustomName = !!data.config?.name;
+
   return (
-    <div className={`px-4 py-3 min-w-[180px] ${statusClass} ${selected ? 'ring-2 ring-blue-500' : ''}`}>
-      <Handle type="target" position={Position.Left} />
-      
-      <div className="flex items-center gap-2 mb-2">
-        <Bot size={20} className="text-blue-600" />
-        <div className="font-semibold text-sm">{data.label}</div>
+    <NodeWrapper nodeId={id} selected={selected}>
+      <div className={`node-inner px-4 py-3 min-w-[180px] ${statusClass}`}>
+        <BidirectionalHandles nodeId={id} />
+
+        <div className="flex items-center gap-2">
+          <Bot size={20} className="text-blue-600" />
+          <div>
+            <div className="font-semibold text-sm">{displayName}</div>
+            {hasCustomName && (
+              <div className="text-xs text-gray-500">Agent</div>
+            )}
+          </div>
+        </div>
+
+        {(data.runtime || data.memory) && (
+          <div className="mt-1 text-xs text-gray-600">
+            {data.runtime && <span>Runtime: {data.runtime}</span>}
+            {data.runtime && data.memory && <span> · </span>}
+            {data.memory && <span>{data.memory}MB</span>}
+          </div>
+        )}
       </div>
-      
-      {data.runtime && (
-        <div className="text-xs text-gray-600">
-          Runtime: {data.runtime}
-        </div>
-      )}
-      
-      {data.memory && (
-        <div className="text-xs text-gray-600">
-          Memory: {data.memory}MB
-        </div>
-      )}
-      
-      <Handle type="source" position={Position.Right} />
-    </div>
+    </NodeWrapper>
   );
 }

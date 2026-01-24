@@ -178,9 +178,9 @@ npm run tauri:build
 
 The Visual Builder integrates with the Python CLI through:
 
-1. **File System**: Reads/writes `strands.yaml`
-2. **Process Execution**: Executes `strands` CLI commands
+1. **File System**: Reads/writes `warpcore.yaml`
+2. **Process Execution**: Executes `warpcore` CLI commands
 3. **Event Streaming**: Listens for CLI output events
-4. **State Files**: Reads deployment state from `.strands/state.json`
+4. **State Files**: Reads deployment state from `.warpcore/state/{project}-{env}.json`
 
 This allows the Visual Builder to work seamlessly with the existing CLI infrastructure.

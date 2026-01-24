@@ -23,15 +23,15 @@ export function validateCanvas(nodes: Node[], edges: Edge[]): ValidationError[] 
     });
   }
 
-  // Check for agents without API Gateway or Lambda URL
-  const apiNodes = nodes.filter(n => n.type === 'api-gateway' || n.type === 'lambda-url');
-  
+  // Check for agents without API Gateway or API Route
+  const apiNodes = nodes.filter(n => n.type === 'api-gateway' || n.type === 'api-route');
+
   if (agentNodes.length > 0 && apiNodes.length === 0) {
     agentNodes.forEach(agent => {
       errors.push({
         nodeId: agent.id,
         severity: 'warning',
-        message: 'Agent has no API Gateway or Lambda URL configured',
+        message: 'Agent has no API Gateway or API Route configured',
       });
     });
   }

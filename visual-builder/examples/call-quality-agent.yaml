@@ -1,0 +1,347 @@
+project:
+  name: call-quality-agent-dev
+  region: us-east-1
+  cost_estimation:
+    executions_per_month: 50000
+agents:
+  - name: call-quality-agent-dev
+    path: ./agents/call-quality-agent
+    runtime: python3.11
+    memory: 3008
+    timeout: 900
+    environment: {}
+resources:
+  - name: POST /evaluate
+    type: api-route
+    config: &a1
+      method: POST
+      path: /evaluate
+  - name: GET /health
+    type: api-route
+    config: &a2
+      method: GET
+      path: /health
+  - name: call-quality-input-dev
+    type: s3
+    config: &a3
+      name: call-quality-input-dev
+      versioning: true
+  - name: call-quality-output-dev
+    type: s3
+    config: &a4
+      name: call-quality-output-dev
+      versioning: true
+  - name: call-quality-config-dev
+    type: s3
+    config: &a5
+      name: call-quality-config-dev
+      versioning: true
+  - name: call-quality-agent/dev/credentials
+    type: secrets-manager
+    config: &a6
+      name: call-quality-agent/dev/credentials
+  - name: Nova Lite
+    type: bedrock
+    config: &a7
+      modelId: amazon.nova-lite-v1:0
+  - name: Nova Pro
+    type: bedrock
+    config: &a8
+      modelId: amazon.nova-pro-v1:0
+  - name: Claude Haiku
+    type: bedrock
+    config: &a9
+      modelId: anthropic.claude-3-haiku-20240307-v1:0
+  - name: call-quality-agent-dlq-dev
+    type: sqs
+    config: &a10
+      name: call-quality-agent-dlq-dev
+      retentionPeriod: 1209600
+  - name: call-quality-agent-dev
+    type: ecr
+    config: &a11
+      name: call-quality-agent-dev
+  - name: Lambda Logs
+    type: log-group
+    config: &a12
+      logGroupName: /aws/lambda/call-quality-agent-dev
+      retentionDays: 7
+  - name: call-quality-agent-alarms-dev
+    type: sns
+    config: &a13
+      name: call-quality-agent-alarms-dev
+  - name: CallQualityAgent-dev
+    type: cloudwatch-dashboard
+    config: &a14
+      name: CallQualityAgent-dev
+roles:
+  - name: call-quality-lambda-dev
+    description: Execution role for Call Quality Agent Lambda
+connections:
+  - from: call-quality-agent-dev
+    to: POST /evaluate
+  - from: call-quality-agent-dev
+    to: GET /health
+  - from: POST /evaluate
+    to: call-quality-agent-dev
+    config: &a15
+      method: POST
+      path: /evaluate
+  - from: GET /health
+    to: call-quality-agent-dev
+    config: &a16
+      method: GET
+      path: /health
+  - from: LambdaExecutionRole
+    to: call-quality-agent-dev
+    role: LambdaExecutionRole
+  - from: call-quality-agent-dev
+    to: call-quality-input-dev
+    role: LambdaExecutionRole
+    config: &a17
+      readAccess: true
+      writeAccess: false
+  - from: call-quality-agent-dev
+    to: call-quality-output-dev
+    role: LambdaExecutionRole
+    config: &a18
+      readAccess: true
+      writeAccess: true
+  - from: call-quality-agent-dev
+    to: call-quality-config-dev
+    role: LambdaExecutionRole
+    config: &a19
+      readAccess: true
+      writeAccess: false
+  - from: call-quality-agent-dev
+    to: call-quality-agent/dev/credentials
+    role: LambdaExecutionRole
+  - from: call-quality-agent-dev
+    to: Nova Lite
+    role: LambdaExecutionRole
+  - from: call-quality-agent-dev
+    to: Nova Pro
+    role: LambdaExecutionRole
+  - from: call-quality-agent-dev
+    to: Claude Haiku
+    role: LambdaExecutionRole
+  - from: call-quality-agent-dev
+    to: call-quality-agent-dlq-dev
+    role: LambdaExecutionRole
+  - from: call-quality-agent-dev
+    to: Lambda Logs
+    role: LambdaExecutionRole
+shared:
+  api_gateway:
+    type: http
+    cors: true
+environments:
+  dev:
+    account: "123456789012"
+    region: us-east-1
+  prod:
+    account: "987654321098"
+    region: us-east-1
+canvas:
+  nodes:
+    - id: api-gateway
+      type: api-gateway
+      x: 378.2574422937855
+      y: -37.643512863778355
+      label: Call Quality API
+      config:
+        name: call-quality-agent-dev
+        type: HTTP
+        cors: true
+    - id: route-evaluate
+      type: api-route
+      x: 262.1518439928859
+      y: 127.58416025486505
+      label: POST /evaluate
+      config: *a1
+    - id: route-health
+      type: api-route
+      x: 546.7062350726088
+      y: 129.19472008495504
+      label: GET /health
+      config: *a2
+    - id: lambda-role
+      type: iam-role
+      x: -80.81859080915592
+      y: 212.64627045492858
+      label: LambdaExecutionRole
+      config:
+        roleName: call-quality-lambda-dev
+        description: Execution role for Call Quality Agent Lambda
+    - id: agent-main
+      type: agent
+      x: 391.9472008495502
+      y: 292.88447864071964
+      label: call-quality-agent
+      config:
+        name: call-quality-agent-dev
+        runtime: python3.11
+        memory: 3008
+        timeout: 900
+    - id: s3-input
+      type: s3
+      x: 3.498408070726896
+      y: 399.0627222088305
+      label: Input Bucket
+      config: *a3
+    - id: s3-output
+      type: s3
+      x: 375.0790972418429
+      y: -142.69922649218336
+      label: Output Bucket
+      config: *a4
+    - id: s3-config
+      type: s3
+      x: 61.593955986409924
+      y: -244.8141035060636
+      label: Config Bucket
+      config: *a5
+    - id: secrets
+      type: secrets-manager
+      x: 26.098465222967207
+      y: -140.47905814913264
+      label: Agent Credentials
+      config: *a6
+    - id: bedrock-nova-lite
+      type: bedrock
+      x: 869.7242755946987
+      y: 229.89764140570185
+      label: Nova Lite
+      config: *a7
+    - id: bedrock-nova-pro
+      type: bedrock
+      x: 882.3010105570942
+      y: 339.854697308369
+      label: Nova Pro
+      config: *a8
+    - id: bedrock-haiku
+      type: bedrock
+      x: 898.0598738562511
+      y: 444.99683934915333
+      label: Claude Haiku
+      config: *a9
+    - id: sqs-dlq
+      type: sqs
+      x: 604.8449721485676
+      y: 544.013106916927
+      label: Dead Letter Queue
+      config: *a10
+    - id: ecr-repo
+      type: ecr
+      x: 697.0119812101121
+      y: -144.14457036565983
+      label: ECR Repository
+      config: *a11
+    - id: log-group
+      type: log-group
+      x: 145.95483015781122
+      y: 580.8076416704284
+      label: Lambda Logs
+      config: *a12
+    - id: sns-alarms
+      type: sns
+      x: 664.7255186379024
+      y: -246.74474319637864
+      label: Alarm Topic
+      config: *a13
+    - id: cw-dashboard
+      type: cloudwatch-dashboard
+      x: 356.16503026405815
+      y: -254.08709062488464
+      label: Monitoring Dashboard
+      config: *a14
+  edges:
+    - id: edge-api-to-evaluate
+      source: api-gateway
+      target: route-evaluate
+      sourceHandle: bottom-1
+      targetHandle: top-2
+      isResourceBased: true
+    - id: edge-api-to-health
+      source: api-gateway
+      target: route-health
+      sourceHandle: bottom-3
+      targetHandle: top-2
+      isResourceBased: true
+    - id: edge-evaluate-to-agent
+      source: route-evaluate
+      target: agent-main
+      sourceHandle: bottom-2
+      targetHandle: top-1
+      isResourceBased: true
+      config: *a15
+    - id: edge-health-to-agent
+      source: route-health
+      target: agent-main
+      sourceHandle: bottom-2
+      targetHandle: top-3
+      isResourceBased: true
+      config: *a16
+    - id: edge-role-to-agent
+      source: lambda-role
+      target: agent-main
+      sourceHandle: right-2
+      targetHandle: left-2
+      roleId: lambda-role
+    - id: edge-agent-to-input
+      source: agent-main
+      target: s3-input
+      sourceHandle: bottom-1
+      targetHandle: top-2
+      roleId: lambda-role
+      config: *a17
+    - id: edge-agent-to-output
+      source: agent-main
+      target: s3-output
+      sourceHandle: left-1
+      targetHandle: right-2
+      roleId: lambda-role
+      config: *a18
+    - id: edge-agent-to-config
+      source: agent-main
+      target: s3-config
+      sourceHandle: left-3
+      targetHandle: right-2
+      roleId: lambda-role
+      config: *a19
+    - id: edge-agent-to-secrets
+      source: agent-main
+      target: secrets
+      sourceHandle: left-2
+      targetHandle: right-2
+      roleId: lambda-role
+    - id: edge-agent-to-nova-lite
+      source: agent-main
+      target: bedrock-nova-lite
+      sourceHandle: right-1
+      targetHandle: left-2
+      roleId: lambda-role
+    - id: edge-agent-to-nova-pro
+      source: agent-main
+      target: bedrock-nova-pro
+      sourceHandle: right-2
+      targetHandle: left-2
+      roleId: lambda-role
+    - id: edge-agent-to-haiku
+      source: agent-main
+      target: bedrock-haiku
+      sourceHandle: right-3
+      targetHandle: left-2
+      roleId: lambda-role
+    - id: edge-agent-to-dlq
+      source: agent-main
+      target: sqs-dlq
+      sourceHandle: bottom-3
+      targetHandle: left-2
+      roleId: lambda-role
+    - id: edge-agent-to-logs
+      source: agent-main
+      target: log-group
+      sourceHandle: bottom-2
+      targetHandle: top-2
+      roleId: lambda-role

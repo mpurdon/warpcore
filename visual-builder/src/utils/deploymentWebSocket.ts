@@ -1,5 +1,3 @@
-import { NodeStatus, ExecutionLog, ExecutionStep, LogEntry, APICall } from '../store/useStore';
-
 export interface DeploymentUpdate {
   type: 'resource_status' | 'log_entry' | 'step_complete' | 'api_call' | 'deployment_complete';
   resourceId: string;
@@ -90,7 +88,7 @@ export function createMockDeploymentUpdates(
       onUpdate({
         type: 'deployment_complete',
         resourceId: 'all',
-        data: { status: 'success', duration: resourceIds.length * 3 },
+        data: { status: 'deployed', duration: resourceIds.length * 3 },
       });
       return;
     }
@@ -110,7 +108,7 @@ export function createMockDeploymentUpdates(
         type: 'step_complete',
         resourceId,
         data: {
-          step: { id: '1', name: 'Validate configuration', status: 'success', duration: 0.5 },
+          step: { id: '1', name: 'Validate configuration', status: 'deployed', duration: 0.5 },
         },
       });
     }, 500);
@@ -120,7 +118,7 @@ export function createMockDeploymentUpdates(
         type: 'step_complete',
         resourceId,
         data: {
-          step: { id: '2', name: 'Create resource', status: 'success', duration: 2.0 },
+          step: { id: '2', name: 'Create resource', status: 'deployed', duration: 2.0 },
         },
       });
     }, 1500);
@@ -129,7 +127,7 @@ export function createMockDeploymentUpdates(
       onUpdate({
         type: 'resource_status',
         resourceId,
-        data: { status: 'success', duration: 3.0 },
+        data: { status: 'deployed', duration: 3.0 },
       });
     }, 3000);
 

@@ -1,4 +1,4 @@
-import { X, FileText, Rocket, Star, Plus, Trash2 } from 'lucide-react';
+import { X, FileText, Rocket, Star, Plus, Trash2, Brain } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import { builtInTemplates, loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, Template } from '../utils/templates';
@@ -43,6 +43,7 @@ export default function TemplateModal({ onClose }: Props) {
   const categoryIcons = {
     starter: FileText,
     production: Rocket,
+    'ai-ml': Brain,
     custom: Star,
   };
 

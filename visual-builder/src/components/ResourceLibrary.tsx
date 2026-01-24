@@ -1,7 +1,6 @@
-import { Bot, Database, Mail, Cloud, Lock, Globe } from 'lucide-react';
+import { useState } from 'react';
+import { Bot, Database, Mail, Cloud, Lock, Globe, Zap, Activity, Filter, FileText, Radio, Key, Settings, Workflow, Brain, Package, LayoutDashboard, ChevronDown, ChevronRight, Cpu } from 'lucide-react';
 import { useStore } from '../store/useStore';
-
-import { Zap, Activity } from 'lucide-react';
 
 const resourceCategories = [
   {
@@ -26,7 +25,9 @@ const resourceCategories = [
     resources: [
       { type: 'sqs', label: 'SQS Queue', icon: Mail },
       { type: 'sns', label: 'SNS Topic', icon: Mail },
+      { type: 'kinesis', label: 'Kinesis Stream', icon: Radio },
       { type: 'eventbridge', label: 'EventBridge', icon: Zap },
+      { type: 'eventbridge-rule', label: 'EventBridge Rule', icon: Filter },
     ],
   },
   {
@@ -34,14 +35,26 @@ const resourceCategories = [
     icon: Globe,
     resources: [
       { type: 'api-gateway', label: 'API Gateway', icon: Globe },
-      { type: 'lambda-url', label: 'Lambda URL', icon: Globe },
+      { type: 'api-route', label: 'API Route', icon: Globe },
+    ],
+  },
+  {
+    name: 'Compute',
+    icon: Workflow,
+    resources: [
+      { type: 'lambda', label: 'Lambda Function', icon: Cpu },
+      { type: 'step-functions', label: 'Step Functions', icon: Workflow },
+      { type: 'bedrock', label: 'Bedrock Model', icon: Brain },
+      { type: 'ecr', label: 'ECR Repository', icon: Package },
     ],
   },
   {
     name: 'Security',
     icon: Lock,
     resources: [
-      { type: 'iam-role', label: 'IAM Role', icon: Lock },
+      // IAM Roles are managed via the Roles panel (not draggable)
+      { type: 'secrets-manager', label: 'Secrets Manager', icon: Key },
+      { type: 'ssm-parameter', label: 'SSM Parameter', icon: Settings },
       { type: 'security-group', label: 'Security Group', icon: Lock },
     ],
   },
@@ -57,57 +70,107 @@ const resourceCategories = [
     icon: Activity,
     resources: [
       { type: 'cloudwatch-alarm', label: 'CloudWatch Alarm', icon: Activity },
+      { type: 'cloudwatch-dashboard', label: 'CloudWatch Dashboard', icon: LayoutDashboard },
+      { type: 'log-group', label: 'Log Group', icon: FileText },
     ],
   },
 ];
 
 export default function ResourceLibrary() {
-  const { nodes, setNodes } = useStore();
+  const { setDraggedItem } = useStore();
+  // Initialize with first category (Agents) expanded
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
+    new Set(['Agents'])
+  );
 
-  const handleDragStart = (event: React.DragEvent, resourceType: string, label: string) => {
-    event.dataTransfer.setData('application/reactflow', JSON.stringify({ type: resourceType, label }));
-    event.dataTransfer.effectAllowed = 'move';
+  const handleMouseDown = (resourceType: string, label: string) => {
+    setDraggedItem({ type: resourceType, label });
   };
 
-  const addNode = (resourceType: string, label: string) => {
-    const newNode = {
-      id: `${resourceType}-${Date.now()}`,
-      type: resourceType,
-      position: { x: 250, y: 100 + nodes.length * 100 },
-      data: { label, status: 'pending' },
-    };
-    
-    setNodes([...nodes, newNode]);
+  const toggleCategory = (categoryName: string) => {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryName)) {
+        next.delete(categoryName);
+      } else {
+        next.add(categoryName);
+      }
+      return next;
+    });
+  };
+
+  const expandAll = () => {
+    setExpandedCategories(new Set(resourceCategories.map((c) => c.name)));
+  };
+
+  const collapseAll = () => {
+    setExpandedCategories(new Set());
   };
 
   return (
     <div className="w-64 bg-gray-50 border-r border-gray-200 overflow-y-auto">
       <div className="p-4">
-        <h2 className="text-sm font-semibold text-gray-700 mb-4">Resource Library</h2>
-        
-        {resourceCategories.map((category) => (
-          <div key={category.name} className="mb-6">
-            <div className="flex items-center gap-2 mb-2">
-              <category.icon size={16} className="text-gray-600" />
-              <h3 className="text-xs font-medium text-gray-600 uppercase">{category.name}</h3>
-            </div>
-            
-            <div className="space-y-1">
-              {category.resources.map((resource) => (
-                <div
-                  key={resource.label}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, resource.type, resource.label)}
-                  onClick={() => addNode(resource.type, resource.label)}
-                  className="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded cursor-move hover:border-blue-400 hover:bg-blue-50 transition-colors"
-                >
-                  <resource.icon size={16} className="text-gray-500" />
-                  <span className="text-sm text-gray-700">{resource.label}</span>
-                </div>
-              ))}
-            </div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-gray-700">Resources</h2>
+          <div className="flex gap-1">
+            <button
+              onClick={expandAll}
+              className="text-xs text-gray-500 hover:text-gray-700 px-1"
+              title="Expand all"
+            >
+              +
+            </button>
+            <button
+              onClick={collapseAll}
+              className="text-xs text-gray-500 hover:text-gray-700 px-1"
+              title="Collapse all"
+            >
+              −
+            </button>
           </div>
-        ))}
+        </div>
+
+        <div className="space-y-1">
+          {resourceCategories.map((category) => {
+            const isExpanded = expandedCategories.has(category.name);
+            const ChevronIcon = isExpanded ? ChevronDown : ChevronRight;
+
+            return (
+              <div key={category.name} className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+                {/* Accordion Header */}
+                <button
+                  onClick={() => toggleCategory(category.name)}
+                  className="w-full flex items-center gap-2 p-2.5 hover:bg-gray-50 transition-colors"
+                >
+                  <ChevronIcon size={14} className="text-gray-400" />
+                  <category.icon size={16} className="text-gray-600" />
+                  <span className="text-sm font-medium text-gray-700 flex-1 text-left">
+                    {category.name}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    {category.resources.length}
+                  </span>
+                </button>
+
+                {/* Accordion Content */}
+                {isExpanded && (
+                  <div className="border-t border-gray-100 p-2 pt-1 space-y-1">
+                    {category.resources.map((resource) => (
+                      <div
+                        key={resource.label}
+                        onMouseDown={() => handleMouseDown(resource.type, resource.label)}
+                        className="flex items-center gap-2 p-2 rounded cursor-grab active:cursor-grabbing hover:bg-blue-50 transition-colors select-none"
+                      >
+                        <resource.icon size={14} className="text-gray-500" />
+                        <span className="text-sm text-gray-700">{resource.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

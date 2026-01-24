@@ -17,61 +17,141 @@ code {
 }
 
 /* React Flow custom styles */
+.react-flow {
+  width: 100%;
+  height: 100%;
+}
+
+.react-flow__renderer {
+  width: 100%;
+  height: 100%;
+}
+
+/* Remove React Flow default node background/borders but keep selection visible */
 .react-flow__node {
-  border-radius: 8px;
-  padding: 10px;
-  border: 2px solid #e5e7eb;
-  background: white;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-  transition: all 0.2s ease;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  outline: none !important;
 }
 
-.react-flow__node:hover {
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+/* Selection ring - applied to the outer wrapper */
+.react-flow__node.selected {
+  outline: none !important;
 }
 
-/* Node status styles */
-.node-success {
-  border-color: #22c55e;
-  box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.6);
+/* Selection styling on the inner node content */
+.react-flow__node.selected .node-inner {
+  box-shadow: 0 0 0 2px #3b82f6, 0 4px 6px -1px rgb(0 0 0 / 0.1) !important;
 }
 
-.node-deploying {
-  border-color: #3b82f6;
-  animation: pulse-glow 1.5s ease-in-out infinite;
+/* Multi-selection - slightly different style */
+.react-flow__node.selected.selectable .node-inner {
+  box-shadow: 0 0 0 2px #3b82f6, 0 4px 6px -1px rgb(0 0 0 / 0.1) !important;
 }
 
-.node-failed {
-  border-color: #ef4444;
-  box-shadow: 0 0 10px 3px rgba(239, 68, 68, 0.8);
+/* Ensure no borders on node wrapper */
+.react-flow__node > div {
+  border: none !important;
 }
 
-.node-warning {
-  border-color: #eab308;
-  box-shadow: 0 0 8px 2px rgba(234, 179, 8, 0.6);
+/* Style the inner node content */
+.react-flow__node .node-inner {
+  border-radius: 8px !important;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1) !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+  background-color: #f3f4f6 !important; /* Default to draft gray */
 }
 
-.node-pending {
-  border: 2px dashed #9ca3af;
-  opacity: 0.6;
+.react-flow__node:hover .node-inner {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1) !important;
 }
 
-/* Validation styles */
+/* Node status styles - Background colors (high specificity to override defaults) */
+
+/* Draft: Light gray - New node, not yet configured */
+.react-flow__node .node-inner.node-draft,
+.node-inner.node-draft {
+  background-color: #f3f4f6 !important;
+}
+
+/* Warning: Light amber - Missing optional config or needs attention */
+.react-flow__node .node-inner.node-warning,
+.node-inner.node-warning {
+  background-color: #fef3c7 !important;
+}
+
+/* Configured: Light blue - Ready to deploy */
+.react-flow__node .node-inner.node-configured,
+.node-inner.node-configured {
+  background-color: #dbeafe !important;
+}
+
+/* Deploying: Light blue with pulse - Currently deploying */
+.react-flow__node .node-inner.node-deploying,
+.node-inner.node-deploying {
+  background-color: #dbeafe !important;
+  animation: pulse-bg 1.5s ease-in-out infinite;
+}
+
+/* Deployed: Light green - Successfully deployed */
+.react-flow__node .node-inner.node-deployed,
+.node-inner.node-deployed {
+  background-color: #dcfce7 !important;
+}
+
+/* Failed: Light red - Deployment failed or errors */
+.react-flow__node .node-inner.node-failed,
+.node-inner.node-failed {
+  background-color: #fee2e2 !important;
+}
+
+@keyframes pulse-bg {
+  0%, 100% {
+    background-color: #dbeafe;
+  }
+  50% {
+    background-color: #bfdbfe;
+  }
+}
+
+/* Validation styles - now use background colors instead of borders */
 .validation-error {
-  border-color: #ef4444 !important;
-  border-width: 3px !important;
+  background: #fee2e2 !important;
 }
 
 .validation-warning {
-  border-color: #eab308 !important;
-  border-width: 2px !important;
-  border-style: dashed !important;
+  background: #fef3c7 !important;
 }
 
 /* Edge status styles */
 .react-flow__edge-path {
   stroke-width: 2;
   transition: stroke 0.2s ease;
+}
+
+/* Edge reconnection - make edge endpoints draggable */
+.react-flow__edge {
+  pointer-events: visibleStroke;
+}
+
+/* Edge endpoint circles for reconnection */
+.react-flow__edge .react-flow__edge-interaction {
+  stroke-width: 20;
+  stroke: transparent;
+  pointer-events: stroke;
+}
+
+/* Make the edge path wider for easier clicking */
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+/* Style for when edge is being reconnected */
+.react-flow__edge.updating .react-flow__edge-path {
+  stroke: #3b82f6;
+  stroke-dasharray: 5 5;
+  animation: dash 0.5s linear infinite;
 }
 
 .edge-success {
@@ -90,6 +170,15 @@ code {
 @keyframes dash {
   to {
     stroke-dashoffset: -20;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px 2px rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px rgba(59, 130, 246, 0.8);
   }
 }
 
@@ -124,4 +213,122 @@ code {
 .timeline-bar:hover {
   opacity: 0.8;
   transform: scaleY(1.1);
+}
+
+/* Handle positioning for multiple attachment points */
+/* Default handle styles */
+.react-flow__handle {
+  width: 12px;
+  height: 12px;
+  background: #3b82f6;
+  border: 2px solid white;
+  transition: box-shadow 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+  opacity: 0;
+}
+
+/* Larger hit area for handles during connection */
+.react-flow.connecting .react-flow__handle::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+}
+
+/* Show handles on node hover */
+.react-flow__node:hover .react-flow__handle,
+.react-flow__node.selected .react-flow__handle {
+  opacity: 1;
+}
+
+/* Show handles when connecting (dragging a connection) */
+.react-flow__handle.connecting,
+.react-flow__handle.connectingfrom,
+.react-flow__handle.connectingto,
+.react-flow.connecting .react-flow__handle {
+  opacity: 1;
+}
+
+/* Show handles that have connections (valid targets during connection) */
+.react-flow__handle.valid,
+.react-flow__handle-connecting {
+  opacity: 1;
+}
+
+/* Show handles that are connected to edges */
+.react-flow__handle.connected {
+  opacity: 1;
+}
+
+.react-flow__handle:hover {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.4);
+  background: #2563eb;
+  opacity: 1;
+}
+
+.react-flow__handle-target {
+  background: #10b981;
+}
+
+.react-flow__handle-target:hover {
+  background: #059669;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.4);
+}
+
+/* When connecting (dragging a line), target handles should be on top to receive drops */
+.react-flow.connecting .react-flow__handle-target {
+  z-index: 10;
+}
+
+/* Source handles should not block drops during connection */
+.react-flow.connecting .react-flow__handle-source {
+  pointer-events: none;
+}
+
+/* Handle positions are now set via inline styles in ConnectedHandle.tsx */
+
+/* Radial menu styles */
+.radial-menu-backdrop {
+  pointer-events: auto;
+}
+
+.radial-menu {
+  animation: radialFadeIn 0.15s ease-out;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1));
+}
+
+@keyframes radialFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.radial-slice {
+  transition: transform 0.1s ease, opacity 0.1s ease;
+  cursor: pointer;
+}
+
+.radial-slice:hover path {
+  filter: brightness(0.95);
+}
+
+.radial-outer-ring {
+  animation: outerRingExpand 0.15s ease-out;
+}
+
+@keyframes outerRingExpand {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

@@ -1,7 +1,7 @@
 {
-  "name": "strands-visual-builder",
+  "name": "warpcore-visual-builder",
   "version": "1.0.0",
-  "description": "Visual Infrastructure Builder for Strands AWS Deployment System",
+  "description": "Visual Infrastructure Builder for Warpcore AWS Deployment System",
   "type": "module",
   "scripts": {
     "dev": "vite",

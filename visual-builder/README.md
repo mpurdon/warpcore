@@ -1,6 +1,6 @@
-# Strands Visual Infrastructure Builder
+# Warpcore Visual Infrastructure Builder
 
-A cross-platform desktop application for visually designing, deploying, and monitoring Strands AWS infrastructure.
+A cross-platform desktop application for visually designing, deploying, and monitoring Warpcore AWS infrastructure.
 
 ## Features
 
@@ -10,14 +10,32 @@ A cross-platform desktop application for visually designing, deploying, and moni
 - **Real-Time Deployment**: Watch deployments execute with live status updates
 - **Execution Logs**: Detailed logs for each resource with step-by-step progress
 - **Deployment Timeline**: Visualize parallel execution and performance
-- **Bidirectional Sync**: Automatically sync with `strands.yaml` configuration
+- **Bidirectional Sync**: Automatically sync with `warpcore.yaml` configuration
 - **Multi-Environment**: Switch between dev, staging, and production environments
+
+## Quick Install (macOS)
+
+```bash
+cd visual-builder
+./install-app.sh
+```
+
+This will build and install the app to your Applications folder. You can then:
+- Open "Warpcore Visual Builder" from Applications
+- Or run: `open -a 'Warpcore Visual Builder'`
+
+To create a CLI launcher:
+```bash
+sudo ln -sf '/Applications/Warpcore Visual Builder.app/Contents/MacOS/warpcore-visual-builder' /usr/local/bin/warpcore-ui
+```
+
+Then launch with: `warpcore-ui`
 
 ## Prerequisites
 
 - Node.js 18+ and npm
 - Rust and Cargo (for Tauri)
-- Python 3.11+ with `strands` CLI installed
+- Python 3.11+ with `warpcore` CLI installed
 
 ## Installation
 
@@ -80,7 +98,7 @@ visual-builder/
 1. **Drag Resources**: Drag resources from the left sidebar onto the canvas
 2. **Connect Resources**: Click and drag from one node to another to create connections
 3. **Configure**: Click nodes to edit their properties
-4. **Save**: Click "Save" to generate `strands.yaml`
+4. **Save**: Click "Save" to generate `warpcore.yaml`
 5. **Deploy**: Click "Deploy" to deploy to AWS
 
 ### Monitoring Deployments
@@ -116,9 +134,9 @@ visual-builder/
 
 ## Integration with CLI
 
-The Visual Builder integrates seamlessly with the Strands CLI:
+The Visual Builder integrates seamlessly with the Warpcore CLI:
 
-- **Reads/Writes**: Same `strands.yaml` configuration file
+- **Reads/Writes**: Same `warpcore.yaml` configuration file
 - **Executes**: Uses CLI commands for deployment
 - **Monitors**: Streams CLI output in real-time
 - **Compatible**: Can use CLI in CI/CD, Visual Builder for development
@@ -143,9 +161,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### CLI Commands Not Working
 
-Ensure the `strands` CLI is installed and in your PATH:
+Ensure the `warpcore` CLI is installed and in your PATH:
 ```bash
-which strands
+which warpcore
 ```
 
 ### File Watching Not Working

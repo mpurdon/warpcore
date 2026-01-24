@@ -7,7 +7,7 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "Strands Visual Builder",
+    "productName": "Warpcore Visual Builder",
     "version": "1.0.0"
   },
   "tauri": {
@@ -31,13 +31,13 @@
     "bundle": {
       "active": true,
       "targets": "all",
-      "identifier": "com.strands.visual-builder",
+      "identifier": "com.warpcore.visual-builder",
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",
         "icons/128x128@2x.png",
         "icons/icon.icns",
-        "icons/icon.ico"
+        "icons/icon.png"
       ]
     },
     "security": {
@@ -47,7 +47,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "Strands Visual Builder",
+        "title": "Warpcore Visual Builder",
         "width": 1400,
         "height": 900,
         "minWidth": 1200,

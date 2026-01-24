@@ -27,19 +27,21 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
   }
 
   const StatusIcon = {
-    success: CheckCircle,
+    deployed: CheckCircle,
     failed: XCircle,
     deploying: Clock,
     warning: AlertTriangle,
-    pending: Clock,
+    configured: CheckCircle,
+    draft: Clock,
   }[log.status];
 
   const statusColor = {
-    success: 'text-green-600',
+    deployed: 'text-green-600',
     failed: 'text-red-600',
     deploying: 'text-blue-600',
     warning: 'text-yellow-600',
-    pending: 'text-gray-600',
+    configured: 'text-blue-600',
+    draft: 'text-gray-600',
   }[log.status];
 
   return (
@@ -51,11 +53,12 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
           <div className={`flex items-center gap-2 mt-1 ${statusColor}`}>
             <StatusIcon size={16} />
             <span className="text-sm font-medium">
-              {log.status === 'success' && 'Deployed Successfully'}
+              {log.status === 'deployed' && 'Deployed Successfully'}
               {log.status === 'failed' && 'Deployment Failed'}
               {log.status === 'deploying' && 'Deploying...'}
               {log.status === 'warning' && 'Deployed with Warnings'}
-              {log.status === 'pending' && 'Pending'}
+              {log.status === 'configured' && 'Ready to Deploy'}
+              {log.status === 'draft' && 'Not Configured'}
             </span>
           </div>
           {log.duration && (
@@ -84,18 +87,22 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
         <div className="space-y-2">
           {log.steps.map((step, index) => {
             const StepIcon = {
-              success: CheckCircle,
+              deployed: CheckCircle,
               failed: XCircle,
-              running: Clock,
-              pending: Clock,
-            }[step.status];
+              deploying: Clock,
+              warning: AlertTriangle,
+              configured: CheckCircle,
+              draft: Clock,
+            }[step.status] || Clock;
 
             const stepColor = {
-              success: 'text-green-600',
+              deployed: 'text-green-600',
               failed: 'text-red-600',
-              running: 'text-blue-600',
-              pending: 'text-gray-400',
-            }[step.status];
+              deploying: 'text-blue-600',
+              warning: 'text-yellow-600',
+              configured: 'text-blue-600',
+              draft: 'text-gray-400',
+            }[step.status] || 'text-gray-400';
 
             return (
               <div key={step.id} className="flex items-center gap-2">

@@ -38,17 +38,18 @@ export default function DeploymentTimeline() {
         
         {/* Timeline bars */}
         <div className="absolute top-6 left-0 right-0 bottom-0 px-2">
-          {logs.map((log, index) => {
+          {logs.map((log) => {
             const startOffset = 0; // Simplified - would calculate based on actual start time
             const duration = log.duration || 0;
             const width = (duration / maxDuration) * 100;
             
             const bgColor = {
-              success: 'bg-green-500',
+              deployed: 'bg-green-500',
               failed: 'bg-red-500',
               deploying: 'bg-blue-500',
               warning: 'bg-yellow-500',
-              pending: 'bg-gray-300',
+              configured: 'bg-blue-300',
+              draft: 'bg-gray-300',
             }[log.status];
             
             return (
