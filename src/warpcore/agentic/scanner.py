@@ -1,265 +1,451 @@
-"""AWS resource scanner for drift detection."""
+"""AWS resource scanner for drift detection and account discovery.
 
-from typing import Dict, List, Optional, Set
+Two scopes are supported:
+
+* ``ScanScope.PROJECT`` - only resources carrying this project's warpcore tags,
+  read from the Resource Groups Tagging API. This is what drift detection
+  uses; it must not see unrelated resources.
+* ``ScanScope.ACCOUNT`` - everything the caller's credentials can enumerate,
+  used to reverse-engineer an account that warpcore did not deploy.
+
+Account scope does NOT use the tagging API to find resources, because that API
+only returns resources that are or once were tagged - a bucket nobody ever
+tagged is invisible to it. Instead it walks each service's own list API and
+then overlays tags from the tagging API. Getting this wrong makes discovery
+quietly incomplete rather than visibly broken, which is worse.
+
+Hydration (fetching each resource's real configuration) is opt-in because it
+costs one API call per resource.
+"""
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, List, Optional, Sequence, Set
+
 import boto3
 from botocore.exceptions import ClientError
 
-from warpcore.state.models import Resource, State
+from warpcore.state.models import Resource
+from warpcore.utils.arn import logical_id_from_arn, resource_type_from_arn, service_identifier
 from warpcore.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
+class ScanScope(Enum):
+    """How wide to cast the net when scanning."""
+
+    PROJECT = "project"
+    ACCOUNT = "account"
+
+
+@dataclass
+class ScanError:
+    """A resource that was found but could not be fully read."""
+
+    physical_id: str
+    resource_type: str
+    stage: str
+    message: str
+
+
 class ScannedState:
     """Represents the actual state of resources in AWS."""
-    
+
     def __init__(self):
         """Initialize scanned state."""
         self.resources: Dict[str, Resource] = {}
         self.resource_arns: Set[str] = set()
-    
+        self.errors: List[ScanError] = []
+        self.truncated: bool = False
+
     def add_resource(self, resource: Resource):
         """Add a scanned resource."""
         self.resources[resource.id] = resource
         if resource.physical_id:
             self.resource_arns.add(resource.physical_id)
-    
+
+    def add_error(self, error: ScanError) -> None:
+        """Record a resource that could not be read."""
+        self.errors.append(error)
+
     def has_resource(self, physical_id: str) -> bool:
         """Check if a resource exists by physical ID."""
         return physical_id in self.resource_arns
-    
+
     def get_resource_by_physical_id(self, physical_id: str) -> Optional[Resource]:
         """Get resource by physical ID."""
         for resource in self.resources.values():
             if resource.physical_id == physical_id:
                 return resource
         return None
-    
+
     def get_all_resources(self) -> List[Resource]:
         """Get all scanned resources."""
         return list(self.resources.values())
 
+    def count_by_type(self) -> Dict[str, int]:
+        """Count scanned resources grouped by resource type."""
+        counts: Dict[str, int] = {}
+        for resource in self.resources.values():
+            counts[resource.type] = counts.get(resource.type, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
 
 class AWSScanner:
-    """Scans AWS account for resources matching project tags."""
-    
+    """Scans an AWS account for resources."""
+
     def __init__(
         self,
         boto_session: boto3.Session,
         project_name: str,
         environment: str,
-        region: str
+        region: str,
+        account: Optional[str] = None
     ):
         """Initialize AWS scanner.
-        
+
         Args:
             boto_session: Boto3 session
             project_name: Project name to filter resources
             environment: Environment name to filter resources
             region: AWS region
+            account: AWS account id. Looked up via STS when omitted; only
+                needed to synthesise ARNs during account-wide enumeration.
         """
         self.session = boto_session
         self.project_name = project_name
         self.environment = environment
         self.region = region
+        self._account = account
         self.logger = get_logger(__name__)
-        
+
         # Initialize AWS clients
         self.resource_groups_tagging = self.session.client(
             'resourcegroupstaggingapi',
             region_name=region
         )
-    
-    def scan_resources(self) -> ScannedState:
-        """Scan AWS account for resources matching project tags.
-        
+
+    @property
+    def account(self) -> str:
+        """AWS account id, resolved lazily and cached."""
+        if self._account is None:
+            try:
+                self._account = self.session.client(
+                    "sts", region_name=self.region
+                ).get_caller_identity()["Account"]
+            except Exception as e:  # noqa: BLE001 - only affects synthesised ARNs
+                self.logger.warning(f"Could not resolve account id: {e}")
+                self._account = ""
+        return self._account
+
+    def scan_resources(
+        self,
+        scope: ScanScope = ScanScope.PROJECT,
+        hydrate: bool = False,
+        resource_types: Optional[Sequence[str]] = None,
+        max_resources: Optional[int] = None,
+        max_workers: int = 8,
+    ) -> ScannedState:
+        """Scan AWS for resources.
+
+        Args:
+            scope: PROJECT restricts to this project's warpcore tags; ACCOUNT
+                enumerates everything the credentials can see.
+            hydrate: Fetch each resource's real configuration. Costs one API
+                call per resource, so it is off by default.
+            resource_types: Optional CloudFormation-style type allowlist
+                (e.g. ``["AWS::Lambda::Function"]``) applied after ARN parsing.
+            max_resources: Stop after this many resources. Guards against
+                walking an enormous account by accident.
+            max_workers: Parallelism for hydration.
+
         Returns:
             ScannedState containing all found resources
         """
-        self.logger.info(
-            f"Scanning AWS resources for project={self.project_name}, "
-            f"environment={self.environment}"
-        )
-        
-        scanned_state = ScannedState()
-        
-        try:
-            # Use Resource Groups Tagging API to find all resources with our tags
-            tag_filters = [
-                {
-                    'Key': 'warpcore:project',
-                    'Values': [self.project_name]
-                },
-                {
-                    'Key': 'warpcore:environment',
-                    'Values': [self.environment]
-                }
-            ]
-            
-            paginator = self.resource_groups_tagging.get_paginator('get_resources')
-            page_iterator = paginator.paginate(
-                TagFilters=tag_filters,
-                ResourcesPerPage=100
+        if scope is ScanScope.PROJECT:
+            self.logger.info(
+                f"Scanning AWS resources for project={self.project_name}, "
+                f"environment={self.environment}"
             )
-            
-            resource_count = 0
-            for page in page_iterator:
+        else:
+            self.logger.info(
+                f"Scanning all resources in region={self.region} (account-wide scope)"
+            )
+
+        scanned_state = ScannedState()
+        wanted_types = set(resource_types) if resource_types else None
+
+        if scope is ScanScope.PROJECT:
+            self._scan_by_tags(scanned_state, wanted_types, max_resources)
+        else:
+            self._scan_by_enumeration(scanned_state, wanted_types, max_resources)
+
+        self.logger.info(f"Scanned {len(scanned_state.resources)} resources from AWS")
+
+        if hydrate:
+            self.hydrate(scanned_state, max_workers=max_workers)
+
+        return scanned_state
+
+    def _scan_by_tags(
+        self,
+        scanned_state: ScannedState,
+        wanted_types: Optional[Set[str]],
+        max_resources: Optional[int],
+    ) -> None:
+        """Find resources via the tagging API, filtered to this project."""
+        tag_filters = [
+            {'Key': 'warpcore:project', 'Values': [self.project_name]},
+            {'Key': 'warpcore:environment', 'Values': [self.environment]},
+        ]
+
+        try:
+            paginator = self.resource_groups_tagging.get_paginator('get_resources')
+            for page in paginator.paginate(TagFilters=tag_filters, ResourcesPerPage=100):
                 for resource_info in page.get('ResourceTagMappingList', []):
                     arn = resource_info['ResourceARN']
-                    tags = {tag['Key']: tag['Value'] for tag in resource_info.get('Tags', [])}
-                    
-                    # Parse resource type from ARN
-                    resource_type = self._parse_resource_type_from_arn(arn)
-                    
-                    # Create resource object
-                    resource = Resource(
-                        id=tags.get('Name', arn.split('/')[-1]),
+                    tags = {t['Key']: t['Value'] for t in resource_info.get('Tags', [])}
+
+                    resource_type = resource_type_from_arn(arn)
+                    if wanted_types and resource_type not in wanted_types:
+                        continue
+
+                    scanned_state.add_resource(Resource(
+                        id=tags.get('Name') or logical_id_from_arn(arn),
                         type=resource_type,
                         physical_id=arn,
-                        properties={},  # Would need service-specific API calls to get full properties
+                        properties={},
                         dependencies=[],
-                        tags=tags
-                    )
-                    
-                    scanned_state.add_resource(resource)
-                    resource_count += 1
-            
-            self.logger.info(f"Scanned {resource_count} resources from AWS")
-            
+                        tags=tags,
+                    ))
+
+                    if max_resources and len(scanned_state.resources) >= max_resources:
+                        scanned_state.truncated = True
+                        self.logger.warning(
+                            f"Stopped scanning at max_resources={max_resources}; "
+                            f"results are incomplete"
+                        )
+                        return
         except ClientError as e:
             self.logger.error(f"Error scanning AWS resources: {e}")
             raise
-        
+
+    def _scan_by_enumeration(
+        self,
+        scanned_state: ScannedState,
+        wanted_types: Optional[Set[str]],
+        max_resources: Optional[int],
+    ) -> None:
+        """Find every resource by walking each service's own list API."""
+        from warpcore.discovery.enumerator import ServiceEnumerator
+
+        enumerator = ServiceEnumerator(
+            boto_session=self.session, region=self.region, account=self.account
+        )
+        resources = enumerator.enumerate()
+
+        for error in enumerator.errors:
+            scanned_state.add_error(ScanError(
+                physical_id=f"(service: {error.service})",
+                resource_type=error.service,
+                stage="enumerate",
+                message=error.message,
+            ))
+
+        tags_by_arn = self._tags_by_arn()
+
+        for resource in resources:
+            if wanted_types and resource.type not in wanted_types:
+                continue
+            resource.tags = tags_by_arn.get(resource.physical_id or "", {})
+            if resource.tags.get("Name"):
+                resource.id = resource.tags["Name"]
+            scanned_state.add_resource(resource)
+
+            if max_resources and len(scanned_state.resources) >= max_resources:
+                scanned_state.truncated = True
+                self.logger.warning(
+                    f"Stopped scanning at max_resources={max_resources}; "
+                    f"results are incomplete"
+                )
+                return
+
+    def _tags_by_arn(self) -> Dict[str, Dict[str, str]]:
+        """Tags for every tagged resource in the region, keyed by ARN.
+
+        Used to decorate enumerated resources. Failure is non-fatal: an
+        inventory without tags is still an inventory.
+        """
+        tags: Dict[str, Dict[str, str]] = {}
+        try:
+            paginator = self.resource_groups_tagging.get_paginator('get_resources')
+            for page in paginator.paginate(ResourcesPerPage=100):
+                for entry in page.get('ResourceTagMappingList', []):
+                    tags[entry['ResourceARN']] = {
+                        t['Key']: t['Value'] for t in entry.get('Tags', [])
+                    }
+        except ClientError as e:
+            self.logger.warning(f"Could not read tags: {e}")
+        return tags
+
+    def hydrate(self, scanned_state: ScannedState, max_workers: int = 8) -> ScannedState:
+        """Fill in each resource's ``properties`` from its owning service.
+
+        The tagging API returns only ARNs and tags. Without this step every
+        scanned resource has empty properties, which makes drift detection
+        blind to configuration changes and makes config emission useless.
+
+        Failures are recorded on the ScannedState rather than raised: a single
+        resource the caller lacks read permission on should not abort an
+        otherwise useful inventory.
+        """
+        resources = [r for r in scanned_state.resources.values() if r.physical_id]
+        if not resources:
+            return scanned_state
+
+        self.logger.info(f"Hydrating {len(resources)} resources ({max_workers} workers)...")
+
+        def _fetch(resource: Resource):
+            return resource, self.get_resource_details(resource.type, resource.physical_id)
+
+        hydrated = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_fetch, r): r for r in resources}
+            for future in as_completed(futures):
+                resource = futures[future]
+                try:
+                    _, details = future.result()
+                except Exception as e:  # noqa: BLE001 - recorded, not raised
+                    scanned_state.add_error(ScanError(
+                        physical_id=resource.physical_id or resource.id,
+                        resource_type=resource.type,
+                        stage="hydrate",
+                        message=str(e),
+                    ))
+                    continue
+
+                if details is None:
+                    scanned_state.add_error(ScanError(
+                        physical_id=resource.physical_id or resource.id,
+                        resource_type=resource.type,
+                        stage="hydrate",
+                        message="no detail reader for this resource type",
+                    ))
+                    continue
+
+                resource.properties = _json_safe(details)
+                hydrated += 1
+
+        self.logger.info(
+            f"Hydrated {hydrated}/{len(resources)} resources "
+            f"({len(scanned_state.errors)} could not be read)"
+        )
         return scanned_state
-    
+
     def get_resource_details(
         self,
         resource_type: str,
         physical_id: str
     ) -> Optional[Dict]:
         """Get detailed properties for a specific resource.
-        
+
         Args:
             resource_type: AWS resource type
             physical_id: Physical resource ID/ARN
-            
+
         Returns:
-            Dictionary of resource properties or None if not found
+            Dictionary of resource properties or None if unsupported
         """
-        try:
-            # Route to appropriate service-specific method
-            if resource_type == 'AWS::Lambda::Function':
-                return self._get_lambda_details(physical_id)
-            elif resource_type == 'AWS::IAM::Role':
-                return self._get_iam_role_details(physical_id)
-            elif resource_type == 'AWS::EC2::VPC':
-                return self._get_vpc_details(physical_id)
-            elif resource_type == 'AWS::EC2::SecurityGroup':
-                return self._get_security_group_details(physical_id)
-            elif resource_type == 'AWS::S3::Bucket':
-                return self._get_s3_bucket_details(physical_id)
-            elif resource_type == 'AWS::DynamoDB::Table':
-                return self._get_dynamodb_table_details(physical_id)
-            elif resource_type == 'AWS::SQS::Queue':
-                return self._get_sqs_queue_details(physical_id)
-            elif resource_type == 'AWS::SNS::Topic':
-                return self._get_sns_topic_details(physical_id)
-            else:
-                self.logger.warning(f"Unsupported resource type for details: {resource_type}")
-                return None
-                
-        except ClientError as e:
-            self.logger.error(f"Error getting resource details: {e}")
+        reader = self._DETAIL_READERS.get(resource_type)
+        if reader is None:
+            self.logger.debug(f"No detail reader for resource type: {resource_type}")
             return None
-    
-    def _parse_resource_type_from_arn(self, arn: str) -> str:
-        """Parse AWS resource type from ARN.
-        
-        Args:
-            arn: AWS ARN
-            
-        Returns:
-            CloudFormation resource type (e.g., AWS::Lambda::Function)
-        """
-        # ARN format: arn:aws:service:region:account:resource-type/resource-id
-        parts = arn.split(':')
-        if len(parts) < 6:
-            return "AWS::Unknown::Resource"
-        
-        service = parts[2]
-        
-        # Map service to CloudFormation resource type
-        service_mapping = {
-            'lambda': 'AWS::Lambda::Function',
-            'iam': 'AWS::IAM::Role',  # Simplified, could be Policy, User, etc.
-            'ec2': 'AWS::EC2::Instance',  # Simplified, could be VPC, SecurityGroup, etc.
-            's3': 'AWS::S3::Bucket',
-            'dynamodb': 'AWS::DynamoDB::Table',
-            'sqs': 'AWS::SQS::Queue',
-            'sns': 'AWS::SNS::Topic',
-            'apigateway': 'AWS::ApiGateway::RestApi',
-            'apigatewayv2': 'AWS::ApiGatewayV2::Api',
-        }
-        
-        # Try to be more specific based on ARN structure
-        if service == 'ec2':
-            if '/vpc/' in arn or ':vpc/' in arn:
-                return 'AWS::EC2::VPC'
-            elif '/security-group/' in arn or ':security-group/' in arn:
-                return 'AWS::EC2::SecurityGroup'
-            elif '/subnet/' in arn or ':subnet/' in arn:
-                return 'AWS::EC2::Subnet'
-        
-        return service_mapping.get(service, f"AWS::{service.upper()}::Resource")
-    
-    def _get_lambda_details(self, function_arn: str) -> Dict:
+
+        # Each service wants its own identifier shape, not the raw ARN.
+        identifier = service_identifier(physical_id)
+
+        try:
+            return reader(self, identifier)
+        except ClientError as e:
+            self.logger.warning(f"Error reading {resource_type} {identifier}: {e}")
+            raise
+
+    def _get_lambda_details(self, function_name: str) -> Dict:
         """Get Lambda function details."""
         lambda_client = self.session.client('lambda', region_name=self.region)
-        function_name = function_arn.split(':')[-1]
         response = lambda_client.get_function(FunctionName=function_name)
-        return response.get('Configuration', {})
-    
-    def _get_iam_role_details(self, role_arn: str) -> Dict:
-        """Get IAM role details."""
+        details = dict(response.get('Configuration', {}))
+        # Layers/env come back nested; keep them, drop the presigned code URL
+        # which is a short-lived credential and must not land in a config file.
+        details.pop('Code', None)
+        return details
+
+    def _get_iam_role_details(self, role_name: str) -> Dict:
+        """Get IAM role details, including attached and inline policies."""
         iam_client = self.session.client('iam')
-        role_name = role_arn.split('/')[-1]
-        response = iam_client.get_role(RoleName=role_name)
-        return response.get('Role', {})
-    
+        details = dict(iam_client.get_role(RoleName=role_name).get('Role', {}))
+
+        attached = iam_client.list_attached_role_policies(RoleName=role_name)
+        details['AttachedPolicies'] = attached.get('AttachedPolicies', [])
+
+        inline = iam_client.list_role_policies(RoleName=role_name)
+        details['InlinePolicyNames'] = inline.get('PolicyNames', [])
+        return details
+
     def _get_vpc_details(self, vpc_id: str) -> Dict:
         """Get VPC details."""
         ec2_client = self.session.client('ec2', region_name=self.region)
         response = ec2_client.describe_vpcs(VpcIds=[vpc_id])
         vpcs = response.get('Vpcs', [])
         return vpcs[0] if vpcs else {}
-    
+
+    def _get_subnet_details(self, subnet_id: str) -> Dict:
+        """Get subnet details."""
+        ec2_client = self.session.client('ec2', region_name=self.region)
+        response = ec2_client.describe_subnets(SubnetIds=[subnet_id])
+        subnets = response.get('Subnets', [])
+        return subnets[0] if subnets else {}
+
     def _get_security_group_details(self, sg_id: str) -> Dict:
         """Get security group details."""
         ec2_client = self.session.client('ec2', region_name=self.region)
         response = ec2_client.describe_security_groups(GroupIds=[sg_id])
         sgs = response.get('SecurityGroups', [])
         return sgs[0] if sgs else {}
-    
+
     def _get_s3_bucket_details(self, bucket_name: str) -> Dict:
-        """Get S3 bucket details."""
+        """Get S3 bucket details.
+
+        Each sub-call is individually optional: a bucket with no encryption
+        configuration raises rather than returning an empty result.
+        """
         s3_client = self.session.client('s3', region_name=self.region)
-        try:
-            location = s3_client.get_bucket_location(Bucket=bucket_name)
-            encryption = s3_client.get_bucket_encryption(Bucket=bucket_name)
-            return {
-                'BucketName': bucket_name,
-                'Location': location.get('LocationConstraint'),
-                'Encryption': encryption.get('ServerSideEncryptionConfiguration')
-            }
-        except ClientError:
-            return {'BucketName': bucket_name}
-    
+        details: Dict = {'BucketName': bucket_name}
+
+        def _try(key: str, fn):
+            try:
+                details[key] = fn()
+            except ClientError:
+                details[key] = None
+
+        _try('Location', lambda: s3_client.get_bucket_location(
+            Bucket=bucket_name).get('LocationConstraint'))
+        _try('Encryption', lambda: s3_client.get_bucket_encryption(
+            Bucket=bucket_name).get('ServerSideEncryptionConfiguration'))
+        _try('Versioning', lambda: s3_client.get_bucket_versioning(
+            Bucket=bucket_name).get('Status'))
+        _try('PublicAccessBlock', lambda: s3_client.get_public_access_block(
+            Bucket=bucket_name).get('PublicAccessBlockConfiguration'))
+        return details
+
     def _get_dynamodb_table_details(self, table_name: str) -> Dict:
         """Get DynamoDB table details."""
         dynamodb_client = self.session.client('dynamodb', region_name=self.region)
         response = dynamodb_client.describe_table(TableName=table_name)
         return response.get('Table', {})
-    
+
     def _get_sqs_queue_details(self, queue_url: str) -> Dict:
         """Get SQS queue details."""
         sqs_client = self.session.client('sqs', region_name=self.region)
@@ -268,9 +454,89 @@ class AWSScanner:
             AttributeNames=['All']
         )
         return response.get('Attributes', {})
-    
+
     def _get_sns_topic_details(self, topic_arn: str) -> Dict:
         """Get SNS topic details."""
         sns_client = self.session.client('sns', region_name=self.region)
         response = sns_client.get_topic_attributes(TopicArn=topic_arn)
         return response.get('Attributes', {})
+
+    def _get_log_group_details(self, log_group_name: str) -> Dict:
+        """Get CloudWatch log group details."""
+        logs_client = self.session.client('logs', region_name=self.region)
+        response = logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)
+        for group in response.get('logGroups', []):
+            if group.get('logGroupName') == log_group_name:
+                return group
+        return {}
+
+    def _get_events_rule_details(self, rule_name: str) -> Dict:
+        """Get EventBridge rule details, including its targets."""
+        events_client = self.session.client('events', region_name=self.region)
+        details = dict(events_client.describe_rule(Name=rule_name))
+        details.pop('ResponseMetadata', None)
+        targets = events_client.list_targets_by_rule(Rule=rule_name)
+        details['Targets'] = targets.get('Targets', [])
+        return details
+
+    def _get_secret_details(self, secret_arn: str) -> Dict:
+        """Get Secrets Manager secret metadata.
+
+        Deliberately uses describe_secret, never get_secret_value - warpcore
+        must never read a secret's plaintext into state or a config file.
+        """
+        secrets_client = self.session.client('secretsmanager', region_name=self.region)
+        details = dict(secrets_client.describe_secret(SecretId=secret_arn))
+        details.pop('ResponseMetadata', None)
+        return details
+
+    def _get_state_machine_details(self, state_machine_arn: str) -> Dict:
+        """Get Step Functions state machine details."""
+        sfn_client = self.session.client('stepfunctions', region_name=self.region)
+        details = dict(sfn_client.describe_state_machine(stateMachineArn=state_machine_arn))
+        details.pop('ResponseMetadata', None)
+        return details
+
+    # Dispatch table, consulted by get_resource_details. Adding a service means
+    # adding a reader and one row here.
+    _DETAIL_READERS = {
+        'AWS::Lambda::Function': _get_lambda_details,
+        'AWS::IAM::Role': _get_iam_role_details,
+        'AWS::EC2::VPC': _get_vpc_details,
+        'AWS::EC2::Subnet': _get_subnet_details,
+        'AWS::EC2::SecurityGroup': _get_security_group_details,
+        'AWS::S3::Bucket': _get_s3_bucket_details,
+        'AWS::DynamoDB::Table': _get_dynamodb_table_details,
+        'AWS::SQS::Queue': _get_sqs_queue_details,
+        'AWS::SNS::Topic': _get_sns_topic_details,
+        'AWS::Logs::LogGroup': _get_log_group_details,
+        'AWS::Events::Rule': _get_events_rule_details,
+        'AWS::SecretsManager::Secret': _get_secret_details,
+        'AWS::StepFunctions::StateMachine': _get_state_machine_details,
+    }
+
+    def supported_detail_types(self) -> List[str]:
+        """Resource types this scanner can hydrate."""
+        return sorted(self._DETAIL_READERS)
+
+
+def _json_safe(value):
+    """Coerce boto3 responses into JSON-serialisable values.
+
+    boto3 returns datetimes and, for some services, Decimal - both of which
+    break json.dump when the scan result is written to a state file.
+    """
+    from datetime import date, datetime
+    from decimal import Decimal
+
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
