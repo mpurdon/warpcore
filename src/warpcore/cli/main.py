@@ -22,12 +22,17 @@ from warpcore.cli.output import output
 from warpcore.cli.forecast import forecast
 from warpcore.cli.limits import limits
 from warpcore.cli.notifications import notifications
+from warpcore.cli.discover import discover
+from warpcore.cli.audit import audit as audit_cmd
+from warpcore.cli.debug import debug as debug_cmd
 from warpcore.config.parser import Config, ConfigValidationError
 from warpcore.state.manager import StateManager, StateNotFoundError
 from warpcore.state.checkpoint import CheckpointManager
 from warpcore.orchestrator.orchestrator import DeploymentOrchestrator
 from warpcore.orchestrator.rollback import RollbackStrategy
 from warpcore.orchestrator.executor import ExecutionStatus, ProgressCallback
+from warpcore.audit.recorder import AuditRecorder
+from warpcore.devmode import get_dev_mode, init_dev_mode
 from warpcore.utils.aws_client import AWSClientManager
 from warpcore.utils.errors import DeploymentError
 from warpcore.provisioners import (
@@ -50,16 +55,49 @@ logger = get_logger(__name__)
 @click.option('--profile', help='AWS profile to use')
 @click.option('--region', help='AWS region')
 @click.option('--log-level', default='info', type=click.Choice(['debug', 'info', 'warning', 'error']))
+@click.option('--dev', is_flag=True, envvar='WARPCORE_DEV',
+              help='Developer mode: debug logging, AWS API tracing, session capture')
 @click.pass_context
-def cli(ctx, profile, region, log_level):
+def cli(ctx, profile, region, log_level, dev):
     """Warpcore."""
     ctx.ensure_object(dict)
     ctx.obj['profile'] = profile
     ctx.obj['region'] = region
     ctx.obj['log_level'] = log_level
+    ctx.obj['dev'] = dev
     
     # Setup logging
-    setup_logging(log_level)
+    setup_logging('debug' if dev else log_level)
+    
+    # Developer mode owns API tracing and the session manifest; the audit trail
+    # itself is always on for mutating commands, dev or not.
+    dev_mode = init_dev_mode(
+        enabled=dev,
+        command=' '.join(sys.argv[1:]),
+        profile=profile,
+        region=region or '',
+    )
+    ctx.obj['dev_mode'] = dev_mode
+    
+    if dev_mode.enabled:
+        console.print(f"[dim]developer mode - session {dev_mode.session_id}[/dim]")
+        ctx.call_on_close(lambda: _finish_dev_session(dev_mode))
+
+
+def _finish_dev_session(dev_mode) -> None:
+    """Persist the dev session manifest when the command finishes."""
+    try:
+        path = dev_mode.write_manifest()
+    except Exception as e:  # noqa: BLE001 - never fail a command over telemetry
+        logger.debug(f"could not write dev session manifest: {e}")
+        return
+    if path:
+        stats = dev_mode.tracer.stats() if dev_mode.tracer else None
+        if stats and stats.total:
+            console.print(
+                f"[dim]{stats.total} AWS API call(s), {stats.errors} error(s), "
+                f"{stats.total_duration_ms:.0f} ms - warpcore debug session[/dim]"
+            )
 
 
 # Add cost management commands
@@ -76,6 +114,11 @@ cli.add_command(output)
 cli.add_command(forecast)
 cli.add_command(limits)
 cli.add_command(notifications)
+
+# Discovery, audit trail and developer-mode introspection
+cli.add_command(discover)
+cli.add_command(audit_cmd, name='audit')
+cli.add_command(debug_cmd, name='debug')
 
 
 def load_config(config_path: str = "warpcore.yaml") -> Config:
@@ -103,6 +146,65 @@ def get_state_path(environment: str, project_name: str) -> Path:
     return state_dir / f"{project_name}-{environment}.json"
 
 
+def build_provisioners(
+    profile: Optional[str] = None,
+    region: Optional[str] = None,
+):
+    """Build the provisioner registry and its boto3 session.
+
+    Shared by deploy/destroy and by `warpcore audit undo`, which needs the same
+    provisioners to reverse an operation.
+    """
+    try:
+        client_manager = AWSClientManager(profile=profile, region=region)
+        boto_session = get_dev_mode().attach_session(client_manager.session)
+    except Exception as e:
+        console.print(f"[red]Error creating AWS session:[/red] {e}")
+        sys.exit(1)
+
+    provisioners = {
+        "AWS::IAM::Role": IAMRoleProvisioner(boto_session),
+        "AWS::Lambda::Function": LambdaProvisioner(boto_session),
+        "AWS::ApiGatewayV2::Api": APIGatewayProvisioner(boto_session),
+        "AWS::EC2::VPC": VPCProvisioner(boto_session),
+        "AWS::EC2::SecurityGroup": SecurityGroupProvisioner(boto_session),
+        "AWS::S3::Bucket": S3Provisioner(boto_session),
+        "AWS::DynamoDB::Table": DynamoDBProvisioner(boto_session),
+        "AWS::SQS::Queue": SQSProvisioner(boto_session),
+        "AWS::SNS::Topic": SNSProvisioner(boto_session),
+    }
+    return provisioners, boto_session
+
+
+def create_audit_recorder(
+    config: Config,
+    environment: str,
+    region: str,
+    boto_session=None,
+) -> AuditRecorder:
+    """Create the audit recorder for a mutating command.
+
+    Recording is unconditional: knowing what was changed in AWS is worth having
+    on every run, not only in developer mode. The IAM identity is looked up
+    best-effort so a credentials hiccup cannot block a deployment.
+    """
+    actor = ""
+    if boto_session is not None:
+        try:
+            actor = boto_session.client("sts").get_caller_identity().get("Arn", "")
+        except Exception:  # noqa: BLE001 - actor is metadata, not a gate
+            actor = ""
+
+    recorder = AuditRecorder(
+        environment=environment,
+        project_name=config.project.name,
+        region=region,
+        actor=actor,
+        command=" ".join(sys.argv[1:]),
+    )
+    return get_dev_mode().bind_recorder(recorder)
+
+
 def create_orchestrator(
     config: Config,
     environment: str,
@@ -116,13 +218,7 @@ def create_orchestrator(
     # Use environment region if not overridden
     aws_region = region or env_config.region
     
-    # Create boto3 session
-    try:
-        client_manager = AWSClientManager(profile=profile, region=aws_region)
-        boto_session = client_manager.session
-    except Exception as e:
-        console.print(f"[red]Error creating AWS session:[/red] {e}")
-        sys.exit(1)
+    provisioners, boto_session = build_provisioners(profile=profile, region=aws_region)
     
     # Create state manager
     state_path = get_state_path(environment, config.project.name)
@@ -142,26 +238,19 @@ def create_orchestrator(
     checkpoint_path = state_path.parent / f"{config.project.name}-{environment}.checkpoint"
     checkpoint_manager = CheckpointManager(str(checkpoint_path))
     
-    # Create provisioners
-    provisioners = {
-        "AWS::IAM::Role": IAMRoleProvisioner(boto_session),
-        "AWS::Lambda::Function": LambdaProvisioner(boto_session),
-        "AWS::ApiGatewayV2::Api": APIGatewayProvisioner(boto_session),
-        "AWS::EC2::VPC": VPCProvisioner(boto_session),
-        "AWS::EC2::SecurityGroup": SecurityGroupProvisioner(boto_session),
-        "AWS::S3::Bucket": S3Provisioner(boto_session),
-        "AWS::DynamoDB::Table": DynamoDBProvisioner(boto_session),
-        "AWS::SQS::Queue": SQSProvisioner(boto_session),
-        "AWS::SNS::Topic": SNSProvisioner(boto_session),
-    }
-    
     # Create orchestrator
     orchestrator = DeploymentOrchestrator(
         config=config,
         state_manager=state_manager,
         provisioners=provisioners,
         boto_session=boto_session,
-        checkpoint_manager=checkpoint_manager
+        checkpoint_manager=checkpoint_manager,
+        audit_recorder=create_audit_recorder(
+            config=config,
+            environment=environment,
+            region=aws_region,
+            boto_session=boto_session,
+        ),
     )
     
     return orchestrator

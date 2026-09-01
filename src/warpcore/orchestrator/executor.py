@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, field
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+from contextlib import contextmanager, nullcontext
 from enum import Enum
 import time
 
@@ -12,6 +13,8 @@ from warpcore.provisioners.base import BaseProvisioner, ChangeType, ProvisionPla
 from warpcore.state.models import Resource, State
 from warpcore.state.manager import StateManager
 from warpcore.state.checkpoint import CheckpointManager
+from warpcore.audit.models import AuditOperation
+from warpcore.audit.recorder import AuditRecorder
 from warpcore.utils.logging import get_logger
 from warpcore.utils.errors import DeploymentError, ProvisioningError, ErrorContext
 
@@ -139,7 +142,8 @@ class DeploymentExecutor:
         provisioners: Dict[str, BaseProvisioner],
         state_manager: StateManager,
         checkpoint_manager: Optional[CheckpointManager] = None,
-        max_workers: int = 10
+        max_workers: int = 10,
+        audit_recorder: Optional[AuditRecorder] = None
     ):
         """Initialize deployment executor.
         
@@ -148,13 +152,57 @@ class DeploymentExecutor:
             state_manager: State manager for updating state
             checkpoint_manager: Optional checkpoint manager for recovery
             max_workers: Maximum number of parallel workers
+            audit_recorder: Optional audit recorder. When supplied, every
+                provision and destroy is written to the append-only audit
+                trail with before/after snapshots so it can be undone.
         """
         self.provisioners = provisioners
         self.state_manager = state_manager
         self.checkpoint_manager = checkpoint_manager
         self.max_workers = max_workers
+        self.audit_recorder = audit_recorder
         self.logger = get_logger(__name__)
     
+    # Maps a planned change onto the audit operation that records it.
+    _AUDIT_OPERATIONS = {
+        ChangeType.CREATE: AuditOperation.CREATE,
+        ChangeType.UPDATE: AuditOperation.UPDATE,
+        ChangeType.DELETE: AuditOperation.DELETE,
+    }
+
+    @contextmanager
+    def _audit_context(
+        self,
+        operation: Optional[AuditOperation],
+        resource_id: str,
+        resource_type: str,
+        stack: str,
+        before: Optional[Resource]
+    ):
+        """Record an operation to the audit trail, if auditing is enabled.
+
+        Yields the mutable OperationRecord, or None when there is no recorder,
+        so call sites read the same either way.
+        """
+        if self.audit_recorder is None or operation is None:
+            with nullcontext(None) as record:
+                yield record
+            return
+
+        with self.audit_recorder.operation(
+            operation=operation,
+            resource_id=resource_id,
+            resource_type=resource_type,
+            stack=stack,
+            before=before,
+        ) as record:
+            yield record
+
+    @staticmethod
+    def _stack_for(resource: Resource) -> str:
+        """Stack a resource is filed under, matching _update_state."""
+        return (resource.tags or {}).get('warpcore:agent', 'shared-infrastructure')
+
     def execute_deployment(
         self,
         plan: DeploymentPlan,
@@ -548,18 +596,30 @@ class DeploymentExecutor:
             
             # Execute provisioning
             self.logger.info(f"Provisioning {resource_id} ({change.change_type.value})...")
-            result_resource = provisioner.provision(plan)
             
-            # Convert back to state Resource format
             from warpcore.state.models import Resource as StateResource
-            state_resource = StateResource(
-                id=result_resource.id,
-                type=result_resource.type,
-                physical_id=result_resource.physical_id,
-                properties=result_resource.properties,
-                dependencies=result_resource.dependencies,
-                tags=result_resource.tags
-            )
+            
+            with self._audit_context(
+                operation=self._AUDIT_OPERATIONS.get(change.change_type),
+                resource_id=resource_id,
+                resource_type=resource.type,
+                stack=self._stack_for(resource),
+                before=change.current_resource,
+            ) as audit_record:
+                result_resource = provisioner.provision(plan)
+                
+                # Convert back to state Resource format
+                state_resource = StateResource(
+                    id=result_resource.id,
+                    type=result_resource.type,
+                    physical_id=result_resource.physical_id,
+                    properties=result_resource.properties,
+                    dependencies=result_resource.dependencies,
+                    tags=result_resource.tags
+                )
+                
+                if audit_record is not None:
+                    audit_record.after = state_resource
             
             end_time = datetime.utcnow()
             duration = (end_time - start_time).total_seconds()
@@ -648,7 +708,15 @@ class DeploymentExecutor:
             
             # Execute destruction
             self.logger.info(f"Destroying {resource_id}...")
-            provisioner.destroy(prov_resource)
+            
+            with self._audit_context(
+                operation=AuditOperation.DELETE,
+                resource_id=resource_id,
+                resource_type=resource.type,
+                stack=self._stack_for(resource),
+                before=resource,
+            ):
+                provisioner.destroy(prov_resource)
             
             end_time = datetime.utcnow()
             duration = (end_time - start_time).total_seconds()
@@ -709,11 +777,12 @@ class DeploymentExecutor:
             # Determine stack name from resource tags or use default
             stack_name = resource.tags.get('warpcore:agent', 'shared-infrastructure')
             
-            # Add resource to state
-            self.state_manager.add_resource(stack_name, resource)
-            
-            # Save state
-            self.state_manager.save()
+            # Load first: add_resource requires a loaded state, and save()
+            # takes the state to write. Called from the result-collection loop,
+            # so this is single-threaded even during a parallel wave.
+            state = self.state_manager.load()
+            state.add_resource(stack_name, resource)
+            self.state_manager.save(state)
             
             self.logger.debug(f"Updated state for resource: {resource.id}")
         
@@ -734,8 +803,8 @@ class DeploymentExecutor:
             
             if result:
                 stack_name, _ = result
-                self.state_manager.remove_resource(stack_name, resource.id)
-                self.state_manager.save()
+                state.remove_resource(stack_name, resource.id)
+                self.state_manager.save(state)
                 self.logger.debug(f"Removed resource from state: {resource.id}")
         
         except Exception as e:

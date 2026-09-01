@@ -99,8 +99,10 @@ def setup_logging(log_level: str = 'info') -> None:
     # Remove existing handlers
     root_logger.handlers.clear()
     
-    # Console handler with human-readable format
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Console handler with human-readable format.
+    # Diagnostics go to stderr so that stdout stays clean for machine-readable
+    # output - `warpcore discover inventory --json | jq` has to work.
+    console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(level)
     console_handler.setFormatter(ConsoleFormatter())
     root_logger.addHandler(console_handler)

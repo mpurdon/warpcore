@@ -9,6 +9,7 @@ from warpcore.state.models import Resource, State
 from warpcore.state.manager import StateManager
 from warpcore.state.checkpoint import CheckpointManager
 from warpcore.orchestrator.planner import DeploymentPlanner, DeploymentPlan, DestructionPlan
+from warpcore.audit.recorder import AuditRecorder
 from warpcore.orchestrator.executor import (
     DeploymentExecutor,
     DeploymentResult,
@@ -39,6 +40,7 @@ class DeploymentOrchestrator:
         provisioners: Dict[str, BaseProvisioner],
         boto_session: boto3.Session,
         checkpoint_manager: Optional[CheckpointManager] = None,
+        audit_recorder: Optional["AuditRecorder"] = None,
         max_workers: int = 10
     ):
         """Initialize deployment orchestrator.
@@ -49,6 +51,8 @@ class DeploymentOrchestrator:
             provisioners: Dictionary of provisioners by resource type
             boto_session: Boto3 session
             checkpoint_manager: Optional checkpoint manager
+            audit_recorder: Optional audit recorder, passed to the executor so
+                every provision and destroy lands in the audit trail
             max_workers: Maximum parallel workers
         """
         self.config = config
@@ -56,6 +60,7 @@ class DeploymentOrchestrator:
         self.provisioners = provisioners
         self.boto_session = boto_session
         self.checkpoint_manager = checkpoint_manager
+        self.audit_recorder = audit_recorder
         self.max_workers = max_workers
         
         # Initialize components
@@ -64,6 +69,7 @@ class DeploymentOrchestrator:
             provisioners=provisioners,
             state_manager=state_manager,
             checkpoint_manager=checkpoint_manager,
+            audit_recorder=audit_recorder,
             max_workers=max_workers
         )
         self.rollback_manager = RollbackManager(
