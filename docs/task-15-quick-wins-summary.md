@@ -6,7 +6,7 @@ Implemented 7 quick win features to enhance developer experience and operational
 
 ## Implemented Features
 
-### 1. Diff Command (`strands diff`)
+### 1. Diff Command (`warpcore diff`)
 
 Shows what would change in a deployment without executing it.
 
@@ -20,13 +20,13 @@ Shows what would change in a deployment without executing it.
 **Usage:**
 ```bash
 # Show diff for environment
-strands diff --env dev
+warpcore diff --env dev
 
 # Show diff for specific agent
-strands diff --env prod --agent customer-support
+warpcore diff --env prod --agent customer-support
 
 # JSON output
-strands diff --env dev --json-output
+warpcore diff --env dev --json-output
 ```
 
 **Benefits:**
@@ -34,7 +34,7 @@ strands diff --env dev --json-output
 - Understand deployment impact
 - Integrate with approval workflows
 
-### 2. Validate Command (`strands validate`)
+### 2. Validate Command (`warpcore validate`)
 
 Validates configuration file without deploying.
 
@@ -50,16 +50,16 @@ Validates configuration file without deploying.
 **Usage:**
 ```bash
 # Validate configuration
-strands validate
+warpcore validate
 
 # Validate specific environment
-strands validate --env prod
+warpcore validate --env prod
 
 # Strict mode
-strands validate --strict
+warpcore validate --strict
 
 # JSON output
-strands validate --json-output
+warpcore validate --json-output
 ```
 
 **Validation Checks:**
@@ -76,7 +76,7 @@ strands validate --json-output
 - Enforce organizational standards
 - CI/CD integration
 
-### 3. Graph Command (`strands graph`)
+### 3. Graph Command (`warpcore graph`)
 
 Visualizes resource dependency graph.
 
@@ -91,19 +91,19 @@ Visualizes resource dependency graph.
 **Usage:**
 ```bash
 # Show tree format
-strands graph --env dev --format tree
+warpcore graph --env dev --format tree
 
 # Show ASCII format
-strands graph --env dev --format ascii
+warpcore graph --env dev --format ascii
 
 # Generate DOT file
-strands graph --env dev --format dot --output graph.dot
+warpcore graph --env dev --format dot --output graph.dot
 
 # Open in browser (auto-render)
-strands graph --env dev --format dot
+warpcore graph --env dev --format dot
 
 # Filter by agent
-strands graph --env prod --agent customer-support
+warpcore graph --env prod --agent customer-support
 ```
 
 **Resource Colors:**
@@ -121,7 +121,7 @@ strands graph --env prod --agent customer-support
 - Debug deployment issues
 - Documentation and architecture diagrams
 
-### 4. Output Command (`strands output`)
+### 4. Output Command (`warpcore output`)
 
 Shows stack outputs (endpoints, ARNs, etc.).
 
@@ -135,19 +135,19 @@ Shows stack outputs (endpoints, ARNs, etc.).
 **Usage:**
 ```bash
 # Show all outputs
-strands output --env dev
+warpcore output --env dev
 
 # Show outputs for specific agent
-strands output --env prod --agent customer-support
+warpcore output --env prod --agent customer-support
 
 # JSON format
-strands output --env dev --format json
+warpcore output --env dev --format json
 
 # Environment variable format
-strands output --env dev --format env
+warpcore output --env dev --format env
 
 # Get specific output
-strands output --env dev --output-name customer-support-agent_url
+warpcore output --env dev --output-name customer-support-agent_url
 ```
 
 **Output Types:**
@@ -166,7 +166,7 @@ strands output --env dev --output-name customer-support-agent_url
 - Shell script integration
 - CI/CD pipeline integration
 
-### 5. Forecast Command (`strands forecast`)
+### 5. Forecast Command (`warpcore forecast`)
 
 Predicts costs before deployment based on configuration.
 
@@ -180,19 +180,19 @@ Predicts costs before deployment based on configuration.
 **Usage:**
 ```bash
 # Monthly forecast
-strands forecast
+warpcore forecast
 
 # Daily forecast
-strands forecast --period daily
+warpcore forecast --period daily
 
 # Yearly forecast
-strands forecast --period yearly
+warpcore forecast --period yearly
 
 # JSON output
-strands forecast --json-output
+warpcore forecast --json-output
 
 # Specific environment
-strands forecast --env prod
+warpcore forecast --env prod
 ```
 
 **Cost Estimates:**
@@ -214,7 +214,7 @@ strands forecast --env prod
 - Cost optimization
 - Prevent cost surprises
 
-### 6. Limits Command (`strands limits`)
+### 6. Limits Command (`warpcore limits`)
 
 Manages organizational resource limits.
 
@@ -228,19 +228,19 @@ Manages organizational resource limits.
 **Usage:**
 ```bash
 # Show limits
-strands limits show
+warpcore limits show
 
 # Set a limit
-strands limits set lambda max_memory_mb 2048
+warpcore limits set lambda max_memory_mb 2048
 
 # Reset to defaults
-strands limits reset
+warpcore limits reset
 
 # Check configuration
-strands limits check --config strands.yaml
+warpcore limits check --config warpcore.yaml
 
 # Check specific environment
-strands limits check --env prod
+warpcore limits check --env prod
 ```
 
 **Default Limits:**
@@ -267,7 +267,7 @@ strands limits check --env prod
 - Standardize configurations
 - Compliance
 
-### 7. Notifications Command (`strands notifications`)
+### 7. Notifications Command (`warpcore notifications`)
 
 Manages deployment notifications.
 
@@ -281,30 +281,30 @@ Manages deployment notifications.
 **Usage:**
 ```bash
 # Show configuration
-strands notifications show
+warpcore notifications show
 
 # Configure Slack
-strands notifications configure --slack-webhook https://hooks.slack.com/...
+warpcore notifications configure --slack-webhook https://hooks.slack.com/...
 
 # Configure Discord
-strands notifications configure --discord-webhook https://discord.com/api/webhooks/...
+warpcore notifications configure --discord-webhook https://discord.com/api/webhooks/...
 
 # Configure email
-strands notifications configure --email [email]
+warpcore notifications configure --email [email]
 
 # Configure PagerDuty
-strands notifications configure --pagerduty-key your-integration-key
+warpcore notifications configure --pagerduty-key your-integration-key
 
 # Enable/disable channel
-strands notifications toggle slack on
-strands notifications toggle discord off
+warpcore notifications toggle slack on
+warpcore notifications toggle discord off
 
 # Enable/disable events
-strands notifications event deployment_success on
-strands notifications event cost_alert off
+warpcore notifications event deployment_success on
+warpcore notifications event cost_alert off
 
 # Test notifications
-strands notifications test --message "Test notification"
+warpcore notifications test --message "Test notification"
 ```
 
 **Supported Events:**
@@ -332,7 +332,7 @@ strands notifications test --message "Test notification"
 The notification system is integrated into the deployment orchestrator:
 
 ```python
-from strands_deploy.cli.notifications import send_deployment_notification
+from warpcore.cli.notifications import send_deployment_notification
 
 # At deployment start
 send_deployment_notification('deployment_start', {
@@ -363,7 +363,7 @@ The validate command can be used in CI/CD pipelines:
 ```yaml
 # GitHub Actions example
 - name: Validate configuration
-  run: strands validate --strict --json-output
+  run: warpcore validate --strict --json-output
 ```
 
 ### Diff Integration
@@ -373,7 +373,7 @@ The diff command can be used for approval workflows:
 ```yaml
 # GitHub Actions example
 - name: Show deployment diff
-  run: strands diff --env prod --json-output > diff.json
+  run: warpcore diff --env prod --json-output > diff.json
 
 - name: Create PR comment
   uses: actions/github-script@v6
@@ -386,23 +386,23 @@ The diff command can be used for approval workflows:
 
 ## Files Created
 
-1. `src/strands_deploy/cli/diff.py` - Diff command implementation
-2. `src/strands_deploy/cli/validate.py` - Validate command implementation
-3. `src/strands_deploy/cli/graph.py` - Graph command implementation
-4. `src/strands_deploy/cli/output.py` - Output command implementation
-5. `src/strands_deploy/cli/forecast.py` - Cost forecasting implementation
-6. `src/strands_deploy/cli/limits.py` - Resource limits management
-7. `src/strands_deploy/cli/notifications.py` - Notification system
+1. `src/warpcore/cli/diff.py` - Diff command implementation
+2. `src/warpcore/cli/validate.py` - Validate command implementation
+3. `src/warpcore/cli/graph.py` - Graph command implementation
+4. `src/warpcore/cli/output.py` - Output command implementation
+5. `src/warpcore/cli/forecast.py` - Cost forecasting implementation
+6. `src/warpcore/cli/limits.py` - Resource limits management
+7. `src/warpcore/cli/notifications.py` - Notification system
 8. `ROADMAP.md` - Comprehensive roadmap for future enhancements
 9. `docs/task-15-quick-wins-summary.md` - This document
 
 ## Files Modified
 
-1. `src/strands_deploy/cli/main.py` - Added new command imports and registrations
+1. `src/warpcore/cli/main.py` - Added new command imports and registrations
 
 ## Configuration Files
 
-### Limits Configuration (`.strands/limits.json`)
+### Limits Configuration (`.warpcore/limits.json`)
 
 ```json
 {
@@ -430,7 +430,7 @@ The diff command can be used for approval workflows:
 }
 ```
 
-### Notifications Configuration (`.strands/notifications.json`)
+### Notifications Configuration (`.warpcore/notifications.json`)
 
 ```json
 {
@@ -475,27 +475,27 @@ No new dependencies required. All features use existing dependencies:
 
 ```bash
 # Test diff command
-strands diff --env dev
+warpcore diff --env dev
 
 # Test validate command
-strands validate --strict
+warpcore validate --strict
 
 # Test graph command
-strands graph --env dev --format tree
+warpcore graph --env dev --format tree
 
 # Test output command
-strands output --env dev --format table
+warpcore output --env dev --format table
 
 # Test forecast command
-strands forecast --period monthly
+warpcore forecast --period monthly
 
 # Test limits command
-strands limits show
-strands limits check
+warpcore limits show
+warpcore limits check
 
 # Test notifications command
-strands notifications show
-strands notifications test --message "Test"
+warpcore notifications show
+warpcore notifications test --message "Test"
 ```
 
 ### CI/CD Integration Example
@@ -516,17 +516,17 @@ jobs:
       - uses: actions/checkout@v3
       
       - name: Validate configuration
-        run: strands validate --strict
+        run: warpcore validate --strict
       
       - name: Check limits
-        run: strands limits check
+        run: warpcore limits check
       
       - name: Forecast costs
-        run: strands forecast --json-output > forecast.json
+        run: warpcore forecast --json-output > forecast.json
       
       - name: Show diff
         if: github.event_name == 'pull_request'
-        run: strands diff --env dev --json-output > diff.json
+        run: warpcore diff --env dev --json-output > diff.json
       
       - name: Comment on PR
         if: github.event_name == 'pull_request'
@@ -556,7 +556,7 @@ jobs:
       - uses: actions/checkout@v3
       
       - name: Deploy
-        run: strands deploy --env dev
+        run: warpcore deploy --env dev
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

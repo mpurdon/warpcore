@@ -1,8 +1,8 @@
 [package]
-name = "strands-visual-builder"
+name = "warpcore-visual-builder"
 version = "1.0.0"
-description = "Visual Infrastructure Builder for Strands AWS Deployment System"
-authors = ["Strands Team"]
+description = "Visual Infrastructure Builder for Warpcore"
+authors = ["Warpcore Team"]
 license = ""
 repository = ""
 edition = "2021"

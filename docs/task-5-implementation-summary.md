@@ -2,13 +2,13 @@
 
 ## Overview
 
-Successfully implemented AWS client management and error handling for the Strands deployment system.
+Successfully implemented AWS client management and error handling for the Warpcore.
 
 ## Completed Subtasks
 
 ### 5.1 Create AWS client factory with credential management ✅
 
-**File**: `src/strands_deploy/utils/aws_client.py`
+**File**: `src/warpcore/utils/aws_client.py`
 
 **Implemented Features**:
 - ✅ Boto3 session management with profile support
@@ -28,7 +28,7 @@ Successfully implemented AWS client management and error handling for the Strand
 
 ### 5.2 Implement retry strategy with exponential backoff ✅
 
-**File**: `src/strands_deploy/utils/retry.py`
+**File**: `src/warpcore/utils/retry.py`
 
 **Implemented Features**:
 - ✅ RetryStrategy class for transient error handling
@@ -54,7 +54,7 @@ Successfully implemented AWS client management and error handling for the Strand
 
 ### 5.3 Create error handling framework ✅
 
-**File**: `src/strands_deploy/utils/errors.py`
+**File**: `src/warpcore/utils/errors.py`
 
 **Implemented Features**:
 - ✅ ErrorHandler class for AWS and network errors
@@ -89,15 +89,15 @@ Successfully implemented AWS client management and error handling for the Strand
 ## Files Created/Modified
 
 ### Created Files
-1. `src/strands_deploy/utils/retry.py` - Retry strategy implementation
-2. `src/strands_deploy/utils/errors.py` - Error handling framework
+1. `src/warpcore/utils/retry.py` - Retry strategy implementation
+2. `src/warpcore/utils/errors.py` - Error handling framework
 3. `examples/aws_client_example.py` - Usage examples
 4. `docs/aws-client-error-handling.md` - Comprehensive documentation
 5. `docs/task-5-implementation-summary.md` - This summary
 
 ### Modified Files
-1. `src/strands_deploy/utils/aws_client.py` - Enhanced with full credential management
-2. `src/strands_deploy/utils/__init__.py` - Added exports for new modules
+1. `src/warpcore/utils/aws_client.py` - Enhanced with full credential management
+2. `src/warpcore/utils/__init__.py` - Added exports for new modules
 
 ## Code Statistics
 
@@ -136,7 +136,7 @@ The implementation integrates with:
 ## Usage Example
 
 ```python
-from strands_deploy.utils import (
+from warpcore.utils import (
     AWSClientManager,
     with_retry,
     error_handler,

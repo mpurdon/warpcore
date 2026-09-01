@@ -2710,7 +2710,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strands-visual-builder"
+name = "warpcore-visual-builder"
 version = "1.0.0"
 dependencies = [
  "chrono",

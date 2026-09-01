@@ -1,13 +1,13 @@
 """Example of using the agentic reconciliation system programmatically."""
 
 import boto3
-from strands_deploy.agentic import (
+from warpcore.agentic import (
     AgenticReconciler,
     LLMClient,
     LLMProvider,
 )
-from strands_deploy.state.manager import StateManager
-from strands_deploy.utils.errors import DeploymentError, ErrorCategory, ErrorContext
+from warpcore.state.manager import StateManager
+from warpcore.utils.errors import DeploymentError, ErrorCategory, ErrorContext
 
 
 def example_drift_detection():
@@ -18,7 +18,7 @@ def example_drift_detection():
     
     # Setup
     boto_session = boto3.Session(profile_name='default', region_name='us-east-1')
-    state_manager = StateManager('.strands/state/my-project-dev.json')
+    state_manager = StateManager('.warpcore/state/my-project-dev.json')
     
     # Create LLM client (optional - will use fallback if no API key)
     llm_client = LLMClient(provider=LLMProvider.OPENAI)
@@ -71,7 +71,7 @@ def example_failure_analysis():
     
     # Setup
     boto_session = boto3.Session(profile_name='default', region_name='us-east-1')
-    state_manager = StateManager('.strands/state/my-project-dev.json')
+    state_manager = StateManager('.warpcore/state/my-project-dev.json')
     llm_client = LLMClient(provider=LLMProvider.OPENAI)
     
     reconciler = AgenticReconciler(
@@ -125,7 +125,7 @@ def example_missing_resources():
     
     # Setup
     boto_session = boto3.Session(profile_name='default', region_name='us-east-1')
-    state_manager = StateManager('.strands/state/my-project-dev.json')
+    state_manager = StateManager('.warpcore/state/my-project-dev.json')
     llm_client = LLMClient(provider=LLMProvider.OPENAI)
     
     reconciler = AgenticReconciler(
@@ -164,7 +164,7 @@ def example_recovery_plan():
     
     # Setup
     boto_session = boto3.Session(profile_name='default', region_name='us-east-1')
-    state_manager = StateManager('.strands/state/my-project-dev.json')
+    state_manager = StateManager('.warpcore/state/my-project-dev.json')
     llm_client = LLMClient(provider=LLMProvider.OPENAI)
     
     reconciler = AgenticReconciler(

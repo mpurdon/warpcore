@@ -2,7 +2,7 @@
 
 ## Overview
 
-Successfully implemented a complete Visual Infrastructure Builder for the Strands AWS Deployment System using Tauri, React, TypeScript, and React Flow. This cross-platform desktop application provides a visual, node-based interface for designing, deploying, and monitoring Strands infrastructure.
+Successfully implemented a complete Visual Infrastructure Builder for the Warpcore using Tauri, React, TypeScript, and React Flow. This cross-platform desktop application provides a visual, node-based interface for designing, deploying, and monitoring Warpcore-managed infrastructure.
 
 ## Completed Subtasks
 
@@ -115,7 +115,7 @@ visual-builder/
 - Conflict resolution with user prompt
 
 **Config Sync Features:**
-- `generateYAMLFromCanvas()` - Converts nodes/edges to strands.yaml
+- `generateYAMLFromCanvas()` - Converts nodes/edges to warpcore.yaml
 - `parseYAMLToCanvas()` - Converts YAML to visual representation
 - File watching with Tauri backend
 - Event listener for file changes
@@ -381,10 +381,10 @@ visual-builder/
 
 The Visual Builder integrates seamlessly with the Python CLI:
 
-1. **File System**: Reads/writes `strands.yaml`
-2. **Process Execution**: Executes `strands` CLI commands
+1. **File System**: Reads/writes `warpcore.yaml`
+2. **Process Execution**: Executes `warpcore` CLI commands
 3. **Event Streaming**: Listens for CLI output events
-4. **State Files**: Reads deployment state from `.strands/state.json`
+4. **State Files**: Reads deployment state from `.warpcore/state.json`
 
 This allows developers to:
 - Use Visual Builder for design and development
@@ -474,7 +474,7 @@ Potential improvements for future iterations:
 
 ## Conclusion
 
-Successfully implemented a complete Visual Infrastructure Builder with all 10 subtasks completed. The application provides a modern, intuitive interface for designing, deploying, and monitoring Strands AWS infrastructure. The use of Tauri, React, and React Flow creates a performant, cross-platform desktop application that integrates seamlessly with the existing Python CLI.
+Successfully implemented a complete Visual Infrastructure Builder with all 10 subtasks completed. The application provides a modern, intuitive interface for designing, deploying, and monitoring Warpcore-managed AWS infrastructure. The use of Tauri, React, and React Flow creates a performant, cross-platform desktop application that integrates seamlessly with the existing Python CLI.
 
 The Visual Builder significantly improves the developer experience by:
 - Making infrastructure design visual and intuitive
@@ -484,4 +484,4 @@ The Visual Builder significantly improves the developer experience by:
 - Validating configurations automatically
 - Providing templates for common patterns
 
-This completes Task 13 of the Strands AWS Deployment System implementation plan.
+This completes Task 13 of the Warpcore implementation plan.

@@ -1,4 +1,4 @@
-# Strands Deploy - Quick Reference Guide
+# Warpcore - Quick Reference Guide
 
 ## Quick Win Commands
 
@@ -8,13 +8,13 @@ Show what would change without deploying:
 
 ```bash
 # Show diff for environment
-strands diff --env dev
+warpcore diff --env dev
 
 # Show diff for specific agent
-strands diff --env prod --agent customer-support
+warpcore diff --env prod --agent customer-support
 
 # JSON output for CI/CD
-strands diff --env dev --json-output
+warpcore diff --env dev --json-output
 ```
 
 **Output:**
@@ -32,16 +32,16 @@ Validate configuration before deploying:
 
 ```bash
 # Validate configuration
-strands validate
+warpcore validate
 
 # Validate specific environment
-strands validate --env prod
+warpcore validate --env prod
 
 # Strict mode (warnings as errors)
-strands validate --strict
+warpcore validate --strict
 
 # JSON output
-strands validate --json-output
+warpcore validate --json-output
 ```
 
 **Checks:**
@@ -59,22 +59,22 @@ Visualize resource dependency graph:
 
 ```bash
 # Tree format (terminal)
-strands graph --env dev --format tree
+warpcore graph --env dev --format tree
 
 # ASCII format (levels)
-strands graph --env dev --format ascii
+warpcore graph --env dev --format ascii
 
 # DOT format (Graphviz)
-strands graph --env dev --format dot
+warpcore graph --env dev --format dot
 
 # Save to file
-strands graph --env dev --format dot --output graph.dot
+warpcore graph --env dev --format dot --output graph.dot
 
 # Open in browser (auto-render)
-strands graph --env dev --format dot
+warpcore graph --env dev --format dot
 
 # Filter by agent
-strands graph --env prod --agent customer-support
+warpcore graph --env prod --agent customer-support
 ```
 
 **Formats:**
@@ -90,19 +90,19 @@ Show deployed resource outputs (endpoints, ARNs):
 
 ```bash
 # Show all outputs
-strands output --env dev
+warpcore output --env dev
 
 # Filter by agent
-strands output --env prod --agent customer-support
+warpcore output --env prod --agent customer-support
 
 # JSON format
-strands output --env dev --format json
+warpcore output --env dev --format json
 
 # Environment variable format
-strands output --env dev --format env
+warpcore output --env dev --format env
 
 # Get specific output
-strands output --env dev --output-name customer-support-agent_url
+warpcore output --env dev --output-name customer-support-agent_url
 ```
 
 **Output Types:**
@@ -119,10 +119,10 @@ strands output --env dev --output-name customer-support-agent_url
 **Use Cases:**
 ```bash
 # Export to environment variables
-eval $(strands output --env dev --format env)
+eval $(warpcore output --env dev --format env)
 
 # Get API endpoint for testing
-API_URL=$(strands output --env dev --output-name api_endpoint)
+API_URL=$(warpcore output --env dev --output-name api_endpoint)
 curl $API_URL
 ```
 
@@ -134,19 +134,19 @@ Predict costs before deployment:
 
 ```bash
 # Monthly forecast (default)
-strands forecast
+warpcore forecast
 
 # Daily forecast
-strands forecast --period daily
+warpcore forecast --period daily
 
 # Yearly forecast
-strands forecast --period yearly
+warpcore forecast --period yearly
 
 # JSON output
-strands forecast --json-output
+warpcore forecast --json-output
 
 # Specific environment
-strands forecast --env prod
+warpcore forecast --env prod
 ```
 
 **Cost Breakdown:**
@@ -171,20 +171,20 @@ Set and enforce organizational resource limits:
 
 ```bash
 # Show current limits
-strands limits show
+warpcore limits show
 
 # Set a limit
-strands limits set lambda max_memory_mb 2048
-strands limits set cost max_monthly_cost_usd 5000
+warpcore limits set lambda max_memory_mb 2048
+warpcore limits set cost max_monthly_cost_usd 5000
 
 # Reset to defaults
-strands limits reset
+warpcore limits reset
 
 # Check configuration against limits
-strands limits check
+warpcore limits check
 
 # Check specific environment
-strands limits check --env prod
+warpcore limits check --env prod
 ```
 
 **Default Limits:**
@@ -219,30 +219,30 @@ Configure deployment notifications:
 
 ```bash
 # Show configuration
-strands notifications show
+warpcore notifications show
 
 # Configure Slack
-strands notifications configure --slack-webhook https://hooks.slack.com/...
+warpcore notifications configure --slack-webhook https://hooks.slack.com/...
 
 # Configure Discord
-strands notifications configure --discord-webhook https://discord.com/api/webhooks/...
+warpcore notifications configure --discord-webhook https://discord.com/api/webhooks/...
 
 # Configure email
-strands notifications configure --email [email]
+warpcore notifications configure --email [email]
 
 # Configure PagerDuty
-strands notifications configure --pagerduty-key your-integration-key
+warpcore notifications configure --pagerduty-key your-integration-key
 
 # Enable/disable channels
-strands notifications toggle slack on
-strands notifications toggle discord off
+warpcore notifications toggle slack on
+warpcore notifications toggle discord off
 
 # Enable/disable events
-strands notifications event deployment_success on
-strands notifications event cost_alert off
+warpcore notifications event deployment_success on
+warpcore notifications event cost_alert off
 
 # Test notifications
-strands notifications test --message "Test notification"
+warpcore notifications test --message "Test notification"
 ```
 
 **Supported Events:**
@@ -267,16 +267,16 @@ Deploy infrastructure to AWS:
 
 ```bash
 # Deploy to environment
-strands deploy --env dev
+warpcore deploy --env dev
 
 # Deploy specific agent
-strands deploy --env prod --agent customer-support
+warpcore deploy --env prod --agent customer-support
 
 # Sequential deployment
-strands deploy --env dev --sequential
+warpcore deploy --env dev --sequential
 
 # Auto-rollback on failure
-strands deploy --env prod --auto-rollback
+warpcore deploy --env prod --auto-rollback
 ```
 
 ---
@@ -287,13 +287,13 @@ Remove deployed infrastructure:
 
 ```bash
 # Destroy all resources
-strands destroy --env dev
+warpcore destroy --env dev
 
 # Destroy specific agent
-strands destroy --env prod --agent customer-support
+warpcore destroy --env prod --agent customer-support
 
 # Skip confirmation
-strands destroy --env dev --yes
+warpcore destroy --env dev --yes
 ```
 
 ---
@@ -304,16 +304,16 @@ Show deployed resources:
 
 ```bash
 # List all resources
-strands list --env dev
+warpcore list --env dev
 
 # Filter by agent
-strands list --env prod --agent customer-support
+warpcore list --env prod --agent customer-support
 
 # Filter by type
-strands list --env dev --type AWS::Lambda::Function
+warpcore list --env dev --type AWS::Lambda::Function
 
 # Filter by tag
-strands list --env prod --tag team=platform
+warpcore list --env prod --tag team=platform
 ```
 
 ---
@@ -324,7 +324,7 @@ Show detailed resource information:
 
 ```bash
 # Describe resource
-strands describe customer-support-agent --env dev
+warpcore describe customer-support-agent --env dev
 ```
 
 ---
@@ -335,7 +335,7 @@ Start local development server:
 
 ```bash
 # Start dev server
-strands dev --env dev --agent customer-support
+warpcore dev --env dev --agent customer-support
 ```
 
 ---
@@ -346,10 +346,10 @@ Initialize new project:
 
 ```bash
 # Interactive initialization
-strands init
+warpcore init
 
 # With options
-strands init --name my-project --region us-east-1
+warpcore init --name my-project --region us-east-1
 ```
 
 ---
@@ -358,13 +358,13 @@ strands init --name my-project --region us-east-1
 
 ```bash
 # List environments
-strands env list
+warpcore env list
 
 # Show environment details
-strands env show dev
+warpcore env show dev
 
 # Compare environments
-strands env diff dev prod
+warpcore env diff dev prod
 ```
 
 ---
@@ -373,19 +373,19 @@ strands env diff dev prod
 
 ```bash
 # List deployment history
-strands history list --env dev
+warpcore history list --env dev
 
 # Show deployment details
-strands history show <deployment-id> --env dev
+warpcore history show <deployment-id> --env dev
 
 # View logs
-strands history logs --env dev --lines 100
+warpcore history logs --env dev --lines 100
 
 # Compare deployments
-strands history compare <id1> <id2> --env dev
+warpcore history compare <id1> <id2> --env dev
 
 # Rollback to previous deployment
-strands history rollback <deployment-id> --env dev
+warpcore history rollback <deployment-id> --env dev
 ```
 
 ---
@@ -394,16 +394,16 @@ strands history rollback <deployment-id> --env dev
 
 ```bash
 # View costs by environment
-strands costs --by environment
+warpcore costs --by environment
 
 # View costs by agent
-strands costs --by agent
+warpcore costs --by agent
 
 # View costs for period
-strands costs --project my-project --period last-month
+warpcore costs --project my-project --period last-month
 
 # Set budget alert
-strands budget set --environment prod --limit 1000 --alert-threshold 80
+warpcore budget set --environment prod --limit 1000 --alert-threshold 80
 ```
 
 ---
@@ -412,13 +412,13 @@ strands budget set --environment prod --limit 1000 --alert-threshold 80
 
 ```bash
 # Detect drift
-strands agentic drift --env dev
+warpcore agentic drift --env dev
 
 # Analyze failures
-strands agentic analyze --env dev
+warpcore agentic analyze --env dev
 
 # Reconcile infrastructure
-strands agentic reconcile --env dev
+warpcore agentic reconcile --env dev
 ```
 
 ---
@@ -443,17 +443,17 @@ jobs:
       - uses: actions/checkout@v3
       
       - name: Validate
-        run: strands validate --strict
+        run: warpcore validate --strict
       
       - name: Check limits
-        run: strands limits check
+        run: warpcore limits check
       
       - name: Forecast costs
-        run: strands forecast --json-output > forecast.json
+        run: warpcore forecast --json-output > forecast.json
       
       - name: Show diff
         if: github.event_name == 'pull_request'
-        run: strands diff --env dev --json-output > diff.json
+        run: warpcore diff --env dev --json-output > diff.json
       
       - name: Comment on PR
         if: github.event_name == 'pull_request'
@@ -475,7 +475,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Deploy
-        run: strands deploy --env dev
+        run: warpcore deploy --env dev
 ```
 
 ### GitLab CI
@@ -488,10 +488,10 @@ stages:
 validate:
   stage: validate
   script:
-    - strands validate --strict
-    - strands limits check
-    - strands forecast --json-output > forecast.json
-    - strands diff --env dev --json-output > diff.json
+    - warpcore validate --strict
+    - warpcore limits check
+    - warpcore forecast --json-output > forecast.json
+    - warpcore diff --env dev --json-output > diff.json
   artifacts:
     reports:
       dotenv: forecast.json
@@ -499,7 +499,7 @@ validate:
 deploy:
   stage: deploy
   script:
-    - strands deploy --env dev
+    - warpcore deploy --env dev
   only:
     - main
 ```
@@ -512,18 +512,18 @@ Add to your `.bashrc` or `.zshrc`:
 
 ```bash
 # Quick aliases
-alias sd='strands deploy'
-alias sde='strands destroy'
-alias sl='strands list'
-alias sv='strands validate'
-alias sf='strands forecast'
-alias so='strands output'
+alias sd='warpcore deploy'
+alias sde='warpcore destroy'
+alias sl='warpcore list'
+alias sv='warpcore validate'
+alias sf='warpcore forecast'
+alias so='warpcore output'
 
 # Environment-specific
-alias sd-dev='strands deploy --env dev'
-alias sd-prod='strands deploy --env prod'
-alias sl-dev='strands list --env dev'
-alias sl-prod='strands list --env prod'
+alias sd-dev='warpcore deploy --env dev'
+alias sd-prod='warpcore deploy --env prod'
+alias sl-dev='warpcore list --env dev'
+alias sl-prod='warpcore list --env prod'
 ```
 
 ---
@@ -535,9 +535,9 @@ alias sl-prod='strands list --env prod'
 Always validate and diff before deploying:
 
 ```bash
-strands validate --strict && \
-strands diff --env prod && \
-strands deploy --env prod
+warpcore validate --strict && \
+warpcore diff --env prod && \
+warpcore deploy --env prod
 ```
 
 ### 2. Export Outputs
@@ -545,7 +545,7 @@ strands deploy --env prod
 Export outputs as environment variables:
 
 ```bash
-eval $(strands output --env dev --format env)
+eval $(warpcore output --env dev --format env)
 echo $CUSTOMER_SUPPORT_AGENT_URL
 ```
 
@@ -555,14 +555,14 @@ Set up cost alerts and check forecasts:
 
 ```bash
 # Set budget
-strands limits set cost max_monthly_cost_usd 1000
+warpcore limits set cost max_monthly_cost_usd 1000
 
 # Check forecast
-strands forecast --period monthly
+warpcore forecast --period monthly
 
 # Configure alerts
-strands notifications configure --slack-webhook <url>
-strands notifications event cost_alert on
+warpcore notifications configure --slack-webhook <url>
+warpcore notifications event cost_alert on
 ```
 
 ### 4. Visualize Architecture
@@ -571,13 +571,13 @@ Generate architecture diagrams:
 
 ```bash
 # Generate graph
-strands graph --env prod --format dot --output architecture.dot
+warpcore graph --env prod --format dot --output architecture.dot
 
 # Render to PNG
 dot -Tpng architecture.dot -o architecture.png
 
 # Or auto-open in browser
-strands graph --env prod --format dot
+warpcore graph --env prod --format dot
 ```
 
 ### 5. CI/CD Integration
@@ -586,12 +586,12 @@ Use JSON outputs in pipelines:
 
 ```bash
 # Get deployment summary
-DIFF=$(strands diff --env prod --json-output)
+DIFF=$(warpcore diff --env prod --json-output)
 TO_ADD=$(echo $DIFF | jq '.summary.to_add')
 TO_CHANGE=$(echo $DIFF | jq '.summary.to_change')
 
 # Get cost forecast
-COST=$(strands forecast --json-output | jq '.total_cost')
+COST=$(warpcore forecast --json-output | jq '.total_cost')
 
 # Fail if cost too high
 if (( $(echo "$COST > 1000" | bc -l) )); then
@@ -606,13 +606,13 @@ Keep team informed:
 
 ```bash
 # Configure Slack for team channel
-strands notifications configure --slack-webhook <team-webhook>
+warpcore notifications configure --slack-webhook <team-webhook>
 
 # Enable all events
-strands notifications event deployment_start on
-strands notifications event deployment_success on
-strands notifications event deployment_failure on
-strands notifications event cost_alert on
+warpcore notifications event deployment_start on
+warpcore notifications event deployment_success on
+warpcore notifications event deployment_failure on
+warpcore notifications event cost_alert on
 ```
 
 ---
@@ -623,50 +623,50 @@ strands notifications event cost_alert on
 
 ```bash
 # See detailed errors
-strands validate --strict
+warpcore validate --strict
 
 # Check specific environment
-strands validate --env prod
+warpcore validate --env prod
 ```
 
 ### Deployment Fails
 
 ```bash
 # Check logs
-strands history logs --env dev --lines 100
+warpcore history logs --env dev --lines 100
 
 # Analyze with AI
-strands agentic analyze --env dev
+warpcore agentic analyze --env dev
 
 # View failed resources
-strands list --env dev
+warpcore list --env dev
 ```
 
 ### Cost Too High
 
 ```bash
 # Check forecast
-strands forecast --period monthly
+warpcore forecast --period monthly
 
 # Check limits
-strands limits show
+warpcore limits show
 
 # Adjust configuration
-# Edit strands.yaml to reduce memory, timeout, etc.
+# Edit warpcore.yaml to reduce memory, timeout, etc.
 
 # Validate changes
-strands validate
-strands forecast
+warpcore validate
+warpcore forecast
 ```
 
 ### Dependency Issues
 
 ```bash
 # Visualize dependencies
-strands graph --env dev --format tree
+warpcore graph --env dev --format tree
 
 # Check for circular dependencies
-strands validate
+warpcore validate
 ```
 
 ---
@@ -675,34 +675,34 @@ strands validate
 
 ```bash
 # General help
-strands --help
+warpcore --help
 
 # Command help
-strands deploy --help
-strands diff --help
-strands validate --help
+warpcore deploy --help
+warpcore diff --help
+warpcore validate --help
 
 # Version
-strands --version
+warpcore --version
 ```
 
 ---
 
 ## Configuration Files
 
-### Project Configuration (`strands.yaml`)
+### Project Configuration (`warpcore.yaml`)
 
 Main configuration file for your project.
 
-### Limits Configuration (`.strands/limits.json`)
+### Limits Configuration (`.warpcore/limits.json`)
 
 Organizational resource limits.
 
-### Notifications Configuration (`.strands/notifications.json`)
+### Notifications Configuration (`.warpcore/notifications.json`)
 
 Notification channel and event configuration.
 
-### State Files (`.strands/state/*.json`)
+### State Files (`.warpcore/state/*.json`)
 
 Deployment state for each environment.
 
@@ -712,34 +712,34 @@ Deployment state for each environment.
 
 1. **Always validate before deploying**
    ```bash
-   strands validate --strict && strands deploy --env prod
+   warpcore validate --strict && warpcore deploy --env prod
    ```
 
 2. **Preview changes with diff**
    ```bash
-   strands diff --env prod
+   warpcore diff --env prod
    ```
 
 3. **Monitor costs**
    ```bash
-   strands forecast --period monthly
-   strands limits set cost max_monthly_cost_usd 1000
+   warpcore forecast --period monthly
+   warpcore limits set cost max_monthly_cost_usd 1000
    ```
 
 4. **Set up notifications**
    ```bash
-   strands notifications configure --slack-webhook <url>
+   warpcore notifications configure --slack-webhook <url>
    ```
 
 5. **Use limits to enforce standards**
    ```bash
-   strands limits set lambda max_memory_mb 2048
-   strands limits check
+   warpcore limits set lambda max_memory_mb 2048
+   warpcore limits check
    ```
 
 6. **Document architecture**
    ```bash
-   strands graph --env prod --format dot --output docs/architecture.dot
+   warpcore graph --env prod --format dot --output docs/architecture.dot
    ```
 
 7. **Integrate with CI/CD**

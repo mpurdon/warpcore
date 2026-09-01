@@ -2,12 +2,12 @@
 
 ## Overview
 
-Successfully implemented 7 quick win features to enhance the Strands AWS Deployment System with better developer experience, cost management, and operational capabilities. Also created a comprehensive roadmap for future development.
+Successfully implemented 7 quick win features to enhance the Warpcore with better developer experience, cost management, and operational capabilities. Also created a comprehensive roadmap for future development.
 
 ## Completed Features
 
 ### 1. ✅ Diff Command
-**File:** `src/strands_deploy/cli/diff.py`
+**File:** `src/warpcore/cli/diff.py`
 
 Shows deployment changes before execution with:
 - Resource creation, update, and deletion preview
@@ -17,7 +17,7 @@ Shows deployment changes before execution with:
 - JSON output for CI/CD integration
 
 ### 2. ✅ Validate Command
-**File:** `src/strands_deploy/cli/validate.py`
+**File:** `src/warpcore/cli/validate.py`
 
 Validates configuration without deploying:
 - Configuration structure validation
@@ -27,7 +27,7 @@ Validates configuration without deploying:
 - Detailed error messages with field paths
 
 ### 3. ✅ Graph Command
-**File:** `src/strands_deploy/cli/graph.py`
+**File:** `src/warpcore/cli/graph.py`
 
 Visualizes resource dependencies:
 - Tree format (Rich terminal visualization)
@@ -38,7 +38,7 @@ Visualizes resource dependencies:
 - Color-coded by resource type
 
 ### 4. ✅ Output Command
-**File:** `src/strands_deploy/cli/output.py`
+**File:** `src/warpcore/cli/output.py`
 
 Shows stack outputs (endpoints, ARNs):
 - Table format (human-readable)
@@ -48,7 +48,7 @@ Shows stack outputs (endpoints, ARNs):
 - Get specific output values
 
 ### 5. ✅ Forecast Command
-**File:** `src/strands_deploy/cli/forecast.py`
+**File:** `src/warpcore/cli/forecast.py`
 
 Predicts costs before deployment:
 - Cost breakdown by agent and service
@@ -58,24 +58,24 @@ Predicts costs before deployment:
 - Lambda, API Gateway, CloudWatch, X-Ray, NAT Gateway, VPC Endpoint costs
 
 ### 6. ✅ Limits Command
-**File:** `src/strands_deploy/cli/limits.py`
+**File:** `src/warpcore/cli/limits.py`
 
 Manages organizational resource limits:
 - Show, set, reset limits
 - Check configuration against limits
 - Violation and warning detection
 - Lambda, DynamoDB, API Gateway, VPC, Cost limits
-- Stored in `.strands/limits.json`
+- Stored in `.warpcore/limits.json`
 
 ### 7. ✅ Notifications Command
-**File:** `src/strands_deploy/cli/notifications.py`
+**File:** `src/warpcore/cli/notifications.py`
 
 Deployment notification system:
 - Multiple channels (Slack, Discord, Email, PagerDuty)
 - Event-based notifications (start, success, failure, cost alerts)
 - Test functionality
 - Enable/disable channels and events
-- Stored in `.strands/notifications.json`
+- Stored in `.warpcore/notifications.json`
 
 ## Documentation Created
 
@@ -117,17 +117,17 @@ User-friendly reference with:
 ## Integration
 
 ### CLI Integration
-**File:** `src/strands_deploy/cli/main.py` (modified)
+**File:** `src/warpcore/cli/main.py` (modified)
 
 Added imports and command registrations:
 ```python
-from strands_deploy.cli.diff import diff
-from strands_deploy.cli.validate import validate
-from strands_deploy.cli.graph import graph
-from strands_deploy.cli.output import output
-from strands_deploy.cli.forecast import forecast
-from strands_deploy.cli.limits import limits
-from strands_deploy.cli.notifications import notifications
+from warpcore.cli.diff import diff
+from warpcore.cli.validate import validate
+from warpcore.cli.graph import graph
+from warpcore.cli.output import output
+from warpcore.cli.forecast import forecast
+from warpcore.cli.limits import limits
+from warpcore.cli.notifications import notifications
 
 cli.add_command(diff)
 cli.add_command(validate)
@@ -142,28 +142,28 @@ cli.add_command(notifications)
 
 ```bash
 # Preview changes
-strands diff --env dev
+warpcore diff --env dev
 
 # Validate configuration
-strands validate --strict
+warpcore validate --strict
 
 # Visualize dependencies
-strands graph --env dev --format tree
+warpcore graph --env dev --format tree
 
 # Show outputs
-strands output --env dev --format table
+warpcore output --env dev --format table
 
 # Forecast costs
-strands forecast --period monthly
+warpcore forecast --period monthly
 
 # Manage limits
-strands limits show
-strands limits set lambda max_memory_mb 2048
-strands limits check
+warpcore limits show
+warpcore limits set lambda max_memory_mb 2048
+warpcore limits check
 
 # Configure notifications
-strands notifications configure --slack-webhook <url>
-strands notifications test --message "Test"
+warpcore notifications configure --slack-webhook <url>
+warpcore notifications test --message "Test"
 ```
 
 ## CI/CD Integration Example
@@ -181,10 +181,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: strands validate --strict
-      - run: strands limits check
-      - run: strands forecast --json-output > forecast.json
-      - run: strands diff --env dev --json-output > diff.json
+      - run: warpcore validate --strict
+      - run: warpcore limits check
+      - run: warpcore forecast --json-output > forecast.json
+      - run: warpcore diff --env dev --json-output > diff.json
       
   deploy:
     needs: validate
@@ -192,13 +192,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: strands deploy --env dev
+      - run: warpcore deploy --env dev
 ```
 
 ## Configuration Files
 
 ### Limits Configuration
-**Location:** `.strands/limits.json`
+**Location:** `.warpcore/limits.json`
 
 ```json
 {
@@ -219,7 +219,7 @@ jobs:
 ```
 
 ### Notifications Configuration
-**Location:** `.strands/notifications.json`
+**Location:** `.warpcore/notifications.json`
 
 ```json
 {
@@ -280,13 +280,13 @@ No new dependencies required. Uses existing:
 
 ## Files Created (11 total)
 
-1. `src/strands_deploy/cli/diff.py` - Diff command
-2. `src/strands_deploy/cli/validate.py` - Validate command
-3. `src/strands_deploy/cli/graph.py` - Graph command
-4. `src/strands_deploy/cli/output.py` - Output command
-5. `src/strands_deploy/cli/forecast.py` - Forecast command
-6. `src/strands_deploy/cli/limits.py` - Limits command
-7. `src/strands_deploy/cli/notifications.py` - Notifications command
+1. `src/warpcore/cli/diff.py` - Diff command
+2. `src/warpcore/cli/validate.py` - Validate command
+3. `src/warpcore/cli/graph.py` - Graph command
+4. `src/warpcore/cli/output.py` - Output command
+5. `src/warpcore/cli/forecast.py` - Forecast command
+6. `src/warpcore/cli/limits.py` - Limits command
+7. `src/warpcore/cli/notifications.py` - Notifications command
 8. `ROADMAP.md` - Future enhancements roadmap
 9. `docs/task-15-quick-wins-summary.md` - Detailed documentation
 10. `docs/QUICK_REFERENCE.md` - User reference guide
@@ -294,8 +294,8 @@ No new dependencies required. Uses existing:
 
 ## Files Modified (2 total)
 
-1. `src/strands_deploy/cli/main.py` - Added command imports and registrations
-2. `.kiro/specs/strands-aws-deployment-system/tasks.md` - Marked task 15 complete
+1. `src/warpcore/cli/main.py` - Added command imports and registrations
+2. `.kiro/specs/warpcore/tasks.md` - Marked task 15 complete
 
 ## Next Steps
 
@@ -327,6 +327,6 @@ See `ROADMAP.md` for comprehensive list of future enhancements organized by phas
 
 ## Conclusion
 
-Task 15 successfully delivered 7 high-value quick win features that immediately enhance the Strands AWS Deployment System. These features improve developer experience, enable cost management, support operational excellence, and provide a foundation for CI/CD integration. The comprehensive roadmap ensures continued evolution of the platform with clear priorities and phases.
+Task 15 successfully delivered 7 high-value quick win features that immediately enhance the Warpcore. These features improve developer experience, enable cost management, support operational excellence, and provide a foundation for CI/CD integration. The comprehensive roadmap ensures continued evolution of the platform with clear priorities and phases.
 
 The implementation is production-ready, well-documented, and follows all project conventions. All features include both human-readable terminal output and machine-readable JSON output for automation.

@@ -2,11 +2,11 @@
 
 ## Overview
 
-Implemented comprehensive monitoring and observability features for the Strands AWS Deployment System, including CloudWatch integration for alarms and metrics, and X-Ray tracing configuration for distributed tracing.
+Implemented comprehensive monitoring and observability features for the Warpcore, including CloudWatch integration for alarms and metrics, and X-Ray tracing configuration for distributed tracing.
 
 ## Components Implemented
 
-### 1. CloudWatch Provisioner (`src/strands_deploy/provisioners/cloudwatch.py`)
+### 1. CloudWatch Provisioner (`src/warpcore/provisioners/cloudwatch.py`)
 
 A full-featured provisioner for managing CloudWatch resources:
 
@@ -37,7 +37,7 @@ alarm_config = CloudWatchProvisioner.build_lambda_error_alarm(
 )
 ```
 
-### 2. Alarm Manager (`src/strands_deploy/monitoring/alarm_manager.py`)
+### 2. Alarm Manager (`src/warpcore/monitoring/alarm_manager.py`)
 
 High-level manager for creating and managing alarms:
 
@@ -69,7 +69,7 @@ provisioned = alarm_manager.provision_alarms(alarms)
 2. **Throttle Alarm**: Triggers when Lambda function is throttled
 3. **Duration Alarm**: Triggers when Lambda duration exceeds 80% of timeout
 
-### 3. Metrics Collector (`src/strands_deploy/monitoring/metrics_collector.py`)
+### 3. Metrics Collector (`src/warpcore/monitoring/metrics_collector.py`)
 
 Collects and publishes custom metrics for deployment operations:
 
@@ -87,7 +87,7 @@ Collects and publishes custom metrics for deployment operations:
 
 **Usage:**
 ```python
-with MetricsCollector(cloudwatch_client, namespace='StrandsDeployment') as metrics:
+with MetricsCollector(cloudwatch_client, namespace='Warpcore') as metrics:
     metrics.record_deployment_start(
         project_name='my-project',
         environment='prod',
@@ -113,7 +113,7 @@ with MetricsCollector(cloudwatch_client, namespace='StrandsDeployment') as metri
 - Dimensional metrics for filtering and aggregation
 - Best-effort delivery (doesn't fail deployments)
 
-### 4. X-Ray Configuration (`src/strands_deploy/monitoring/xray_config.py`)
+### 4. X-Ray Configuration (`src/warpcore/monitoring/xray_config.py`)
 
 Comprehensive X-Ray tracing configuration and management:
 
@@ -215,7 +215,7 @@ metrics_collector.record_deployment_complete(...)
 
 ### 2. Configuration File Integration
 
-Monitoring can be configured in `strands.yaml`:
+Monitoring can be configured in `warpcore.yaml`:
 
 ```yaml
 monitoring:
@@ -232,7 +232,7 @@ monitoring:
   log_retention_days: 7
   
   metrics:
-    namespace: StrandsDeployment
+    namespace: Warpcore
     enabled: true
 ```
 
@@ -242,16 +242,16 @@ New CLI commands can be added:
 
 ```bash
 # View CloudWatch metrics
-strands metrics --project my-project --environment prod
+warpcore metrics --project my-project --environment prod
 
 # View X-Ray traces
-strands traces --service customer-support-agent --errors-only
+warpcore traces --service customer-support-agent --errors-only
 
 # Create alarms
-strands alarms create --agent customer-support-agent
+warpcore alarms create --agent customer-support-agent
 
 # View service graph
-strands xray service-graph
+warpcore xray service-graph
 ```
 
 ## Example Usage
@@ -311,17 +311,17 @@ See `examples/monitoring_example.py` for comprehensive examples:
 
 ## Files Created
 
-1. `src/strands_deploy/provisioners/cloudwatch.py` - CloudWatch provisioner
-2. `src/strands_deploy/monitoring/__init__.py` - Monitoring module
-3. `src/strands_deploy/monitoring/alarm_manager.py` - Alarm management
-4. `src/strands_deploy/monitoring/metrics_collector.py` - Metrics collection
-5. `src/strands_deploy/monitoring/xray_config.py` - X-Ray configuration
+1. `src/warpcore/provisioners/cloudwatch.py` - CloudWatch provisioner
+2. `src/warpcore/monitoring/__init__.py` - Monitoring module
+3. `src/warpcore/monitoring/alarm_manager.py` - Alarm management
+4. `src/warpcore/monitoring/metrics_collector.py` - Metrics collection
+5. `src/warpcore/monitoring/xray_config.py` - X-Ray configuration
 6. `examples/monitoring_example.py` - Usage examples
 7. `docs/task-14-monitoring-observability-summary.md` - This document
 
 ## Files Modified
 
-1. `src/strands_deploy/provisioners/__init__.py` - Added CloudWatch provisioner export
+1. `src/warpcore/provisioners/__init__.py` - Added CloudWatch provisioner export
 
 ## Testing Recommendations
 
@@ -347,7 +347,7 @@ See `examples/monitoring_example.py` for comprehensive examples:
 
 1. **Integrate with Orchestrator**: Add monitoring to deployment flow
 2. **Add CLI Commands**: Create commands for viewing metrics and traces
-3. **Configuration Support**: Add monitoring section to strands.yaml
+3. **Configuration Support**: Add monitoring section to warpcore.yaml
 4. **Dashboard Creation**: Create CloudWatch dashboards automatically
 5. **Cost Optimization**: Implement intelligent sampling based on traffic
 6. **Anomaly Detection**: Use CloudWatch Anomaly Detection for alarms

@@ -1,6 +1,6 @@
 """Example usage of AWS client management and error handling."""
 
-from strands_deploy.utils import (
+from warpcore.utils import (
     AWSClientManager,
     AssumeRoleConfig,
     RetryStrategy,
@@ -45,7 +45,7 @@ def example_assume_role():
     # Configure role assumption
     assume_role_config = AssumeRoleConfig(
         role_arn='arn:aws:iam::123456789012:role/DeploymentRole',
-        session_name='strands-deployment',
+        session_name='warpcore-deployment',
         duration_seconds=3600
     )
     

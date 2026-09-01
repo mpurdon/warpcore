@@ -1,11 +1,11 @@
 # Task 9: CLI Commands Implementation Summary
 
 ## Overview
-Implemented comprehensive CLI commands for the Strands AWS Deployment System using Click framework and Rich library for enhanced user experience.
+Implemented comprehensive CLI commands for the Warpcore using Click framework and Rich library for enhanced user experience.
 
 ## Implemented Commands
 
-### 9.1 Deploy Command (`strands deploy`)
+### 9.1 Deploy Command (`warpcore deploy`)
 - **Features:**
   - Environment selection with `--env` flag
   - Agent filtering with `--agent` flag for selective deployment
@@ -17,10 +17,10 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands deploy --env dev --agent my-agent --parallel --auto-rollback
+  warpcore deploy --env dev --agent my-agent --parallel --auto-rollback
   ```
 
-### 9.2 Destroy Command (`strands destroy`)
+### 9.2 Destroy Command (`warpcore destroy`)
 - **Features:**
   - Resource destruction with dependency ordering
   - Confirmation prompt (can be skipped with `-y` flag)
@@ -31,12 +31,12 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands destroy --env dev --agent my-agent -y
+  warpcore destroy --env dev --agent my-agent -y
   ```
 
 ### 9.3 List and Describe Commands
 
-#### List Command (`strands list`)
+#### List Command (`warpcore list`)
 - **Features:**
   - Display all deployed resources in tables grouped by stack
   - Filter by agent name with `--agent` flag
@@ -47,10 +47,10 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands list --env prod --agent my-agent --type AWS::Lambda::Function
+  warpcore list --env prod --agent my-agent --type AWS::Lambda::Function
   ```
 
-#### Describe Command (`strands describe`)
+#### Describe Command (`warpcore describe`)
 - **Features:**
   - Detailed resource information display
   - Shows basic info (ID, type, physical ID, dependencies)
@@ -60,12 +60,12 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands describe my-lambda-function --env prod
+  warpcore describe my-lambda-function --env prod
   ```
 
-### 9.4 Environment Management Commands (`strands env`)
+### 9.4 Environment Management Commands (`warpcore env`)
 
-#### List Environments (`strands env list`)
+#### List Environments (`warpcore env list`)
 - **Features:**
   - Display all configured environments in a table
   - Shows account ID, region, and deployment status
@@ -73,10 +73,10 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands env list
+  warpcore env list
   ```
 
-#### Show Environment (`strands env show`)
+#### Show Environment (`warpcore env show`)
 - **Features:**
   - Detailed environment configuration display
   - Shows deployment status and resource counts
@@ -85,10 +85,10 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands env show prod
+  warpcore env show prod
   ```
 
-#### Compare Environments (`strands env diff`)
+#### Compare Environments (`warpcore env diff`)
 - **Features:**
   - Side-by-side comparison of two environments
   - Compares configuration (account, region, VPC settings)
@@ -97,14 +97,14 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands env diff dev prod
+  warpcore env diff dev prod
   ```
 
-### 9.5 History Commands (`strands history`)
+### 9.5 History Commands (`warpcore history`)
 
 **Note:** These commands provide basic functionality with local logs. Full S3-based deployment history will be implemented in task 10.
 
-#### List History (`strands history list`)
+#### List History (`warpcore history list`)
 - **Features:**
   - Lists recent deployment log files
   - Shows file dates and sizes
@@ -112,10 +112,10 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands history list --env prod --limit 10
+  warpcore history list --env prod --limit 10
   ```
 
-#### View Logs (`strands history logs`)
+#### View Logs (`warpcore history logs`)
 - **Features:**
   - Display structured JSON logs
   - Color-coded by log level (DEBUG, INFO, WARNING, ERROR)
@@ -124,27 +124,27 @@ Implemented comprehensive CLI commands for the Strands AWS Deployment System usi
 
 - **Usage:**
   ```bash
-  strands history logs --env prod --lines 100
+  warpcore history logs --env prod --lines 100
   ```
 
 #### Show/Compare/Rollback Commands
 - Placeholder implementations with informative messages
 - Will be fully implemented with S3-based deployment history in task 10
 
-### 9.6 Init Command (`strands init`)
+### 9.6 Init Command (`warpcore init`)
 - **Features:**
   - Interactive project initialization
   - Prompts for project configuration (name, region, agent details)
-  - Generates complete `strands.yaml` configuration file
+  - Generates complete `warpcore.yaml` configuration file
   - Creates agent directory structure
   - Generates sample Lambda handler code
-  - Creates `.strands` directory
+  - Creates `.warpcore` directory
   - Updates or creates `.gitignore` file
   - Displays helpful next steps
 
 - **Usage:**
   ```bash
-  strands init --name my-project --region us-east-1
+  warpcore init --name my-project --region us-east-1
   ```
 
 ## Technical Implementation Details
@@ -210,23 +210,23 @@ The CLI commands are now ready for:
 
 ```bash
 # Main commands
-strands deploy --env <env> [--agent <name>] [--parallel] [--auto-rollback]
-strands destroy --env <env> [--agent <name>] [-y]
-strands list --env <env> [--agent <name>] [--type <type>] [--tag key=value]
-strands describe <resource-id> --env <env>
+warpcore deploy --env <env> [--agent <name>] [--parallel] [--auto-rollback]
+warpcore destroy --env <env> [--agent <name>] [-y]
+warpcore list --env <env> [--agent <name>] [--type <type>] [--tag key=value]
+warpcore describe <resource-id> --env <env>
 
 # Environment management
-strands env list
-strands env show <environment>
-strands env diff <env1> <env2>
+warpcore env list
+warpcore env show <environment>
+warpcore env diff <env1> <env2>
 
 # History (basic implementation)
-strands history list --env <env>
-strands history logs --env <env> [--lines <n>]
+warpcore history list --env <env>
+warpcore history logs --env <env> [--lines <n>]
 
 # Project initialization
-strands init [--name <name>] [--region <region>] [--force]
+warpcore init [--name <name>] [--region <region>] [--force]
 
 # Cost management (from previous task)
-strands costs [--by <dimension>] [--period <period>]
+warpcore costs [--by <dimension>] [--period <period>]
 ```

@@ -1,6 +1,6 @@
-# Strands AWS Deployment System - Roadmap
+# Warpcore - Roadmap
 
-This document outlines future enhancements and features to be implemented.
+This document outlines future enhancements and features to be implemented for Warpcore, the deployment system for Strands SDK agents.
 
 ## Phase 1: Operational Maturity
 
@@ -123,7 +123,7 @@ This document outlines future enhancements and features to be implemented.
 
 ### Constructs & Abstractions
 - [ ] Higher-level constructs library (L2/L3)
-- [ ] "StrandsAgent" construct with bundled best practices
+- [ ] "WarpAgent" construct with bundled best practices
 - [ ] Pre-built patterns for common architectures
 - [ ] Aspects for cross-cutting concerns
 - [ ] Asset bundling for different runtimes

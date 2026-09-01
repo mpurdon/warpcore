@@ -6,7 +6,7 @@ Implemented a comprehensive deployment history system with S3 storage that track
 
 ## Components Implemented
 
-### 1. History Models (`src/strands_deploy/history/models.py`)
+### 1. History Models (`src/warpcore/history/models.py`)
 
 **Data Models:**
 - `DeploymentStatus`: Enum for deployment status (SUCCESS, FAILED, IN_PROGRESS, CANCELLED)
@@ -26,7 +26,7 @@ Implemented a comprehensive deployment history system with S3 storage that track
 - `StateDiff`: State differences (added, removed, modified resources)
 - `DeploymentDiff`: Complete comparison between two deployments
 
-### 2. Deployment History Manager (`src/strands_deploy/history/manager.py`)
+### 2. Deployment History Manager (`src/warpcore/history/manager.py`)
 
 **Key Features:**
 
@@ -59,7 +59,7 @@ Implemented a comprehensive deployment history system with S3 storage that track
 **Timeline:**
 - `get_deployment_timeline()`: Get deployment timeline with key metrics
 
-### 3. Cost Estimator (`src/strands_deploy/history/cost_estimator.py`)
+### 3. Cost Estimator (`src/warpcore/history/cost_estimator.py`)
 
 **Features:**
 - Estimates monthly costs for deployed resources
@@ -80,7 +80,7 @@ Implemented a comprehensive deployment history system with S3 storage that track
 - `get_cost_breakdown()`: Cost by resource type
 - `compare_costs()`: Compare costs between two states
 
-### 4. Deployment Comparator (`src/strands_deploy/history/comparison.py`)
+### 4. Deployment Comparator (`src/warpcore/history/comparison.py`)
 
 **Features:**
 - Deep comparison of configurations
@@ -99,7 +99,7 @@ Implemented a comprehensive deployment history system with S3 storage that track
 - Excludes timestamp fields from comparison
 - Identifies meaningful changes
 
-### 5. Retention Manager (`src/strands_deploy/history/retention.py`)
+### 5. Retention Manager (`src/warpcore/history/retention.py`)
 
 **Retention Policy:**
 - Keep last N successful deployments
@@ -124,7 +124,7 @@ Implemented a comprehensive deployment history system with S3 storage that track
 ## S3 Bucket Structure
 
 ```
-s3://strands-deployments-{account-id}-{region}/
+s3://warpcore-deployments-{account-id}-{region}/
 ├── {project-name}/
 │   ├── {environment}/
 │   │   ├── deployments/
@@ -167,12 +167,12 @@ s3://strands-deployments-{account-id}-{region}/
 - Cost comparison between deployments
 
 ### With CLI (Future)
-- `strands history list`: List deployments
-- `strands history show <id>`: Show deployment details
-- `strands history diff <id1> <id2>`: Compare deployments
-- `strands history logs <id>`: View deployment logs
-- `strands history cleanup`: Clean up old deployments
-- `strands rollback --to-deployment <id>`: Rollback to deployment
+- `warpcore history list`: List deployments
+- `warpcore history show <id>`: Show deployment details
+- `warpcore history diff <id1> <id2>`: Compare deployments
+- `warpcore history logs <id>`: View deployment logs
+- `warpcore history cleanup`: Clean up old deployments
+- `warpcore rollback --to-deployment <id>`: Rollback to deployment
 
 ## Key Features
 
@@ -207,7 +207,7 @@ s3://strands-deployments-{account-id}-{region}/
 ## Usage Example
 
 ```python
-from strands_deploy.history import (
+from warpcore.history import (
     DeploymentHistoryManager,
     RetentionManager,
     RetentionPolicy,
@@ -216,7 +216,7 @@ from strands_deploy.history import (
 # Initialize history manager
 history = DeploymentHistoryManager(
     s3_client=boto3.client('s3'),
-    bucket_name='strands-deployments-123456789012-us-east-1',
+    bucket_name='warpcore-deployments-123456789012-us-east-1',
     project_name='my-project',
     environment='prod',
     region='us-east-1',

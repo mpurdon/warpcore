@@ -3,9 +3,9 @@
 import boto3
 from datetime import datetime, timedelta
 
-from strands_deploy.monitoring import AlarmManager, MetricsCollector, XRayConfig, XRayManager
-from strands_deploy.provisioners.cloudwatch import CloudWatchProvisioner
-from strands_deploy.config.models import AgentConfig
+from warpcore.monitoring import AlarmManager, MetricsCollector, XRayConfig, XRayManager
+from warpcore.provisioners.cloudwatch import CloudWatchProvisioner
+from warpcore.config.models import AgentConfig
 
 
 def setup_monitoring_for_agent():
@@ -122,7 +122,7 @@ def collect_deployment_metrics():
     session = boto3.Session(region_name='us-east-1')
     cloudwatch_client = session.client('cloudwatch')
     
-    with MetricsCollector(cloudwatch_client, namespace='StrandsDeployment') as metrics:
+    with MetricsCollector(cloudwatch_client, namespace='Warpcore') as metrics:
         # Record deployment start
         metrics.record_deployment_start(
             project_name='my-project',
@@ -248,7 +248,7 @@ def create_custom_alarms():
         'AlarmActions': ['arn:aws:sns:us-east-1:123456789012:alerts']
     }
     
-    from strands_deploy.provisioners.base import Resource
+    from warpcore.provisioners.base import Resource
     
     alarm_resource = Resource(
         id='alarm-high-memory',

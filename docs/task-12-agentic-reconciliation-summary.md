@@ -6,7 +6,7 @@ Implemented an optional agentic reconciliation system that uses LLM (Large Langu
 
 ## Components Implemented
 
-### 1. Data Models (`src/strands_deploy/agentic/models.py`)
+### 1. Data Models (`src/warpcore/agentic/models.py`)
 
 **Core Models:**
 - `DriftItem`: Represents a single drift detection with type, severity, and differences
@@ -19,7 +19,7 @@ Implemented an optional agentic reconciliation system that uses LLM (Large Langu
 - `DriftType`: MISSING, UNEXPECTED, MODIFIED, ORPHANED
 - `DriftSeverity`: CRITICAL, HIGH, MEDIUM, LOW
 
-### 2. AWS Scanner (`src/strands_deploy/agentic/scanner.py`)
+### 2. AWS Scanner (`src/warpcore/agentic/scanner.py`)
 
 **Purpose:** Scans AWS account for resources matching project tags
 
@@ -33,7 +33,7 @@ Implemented an optional agentic reconciliation system that uses LLM (Large Langu
 - `ScannedState`: Represents actual state of resources in AWS
 - `AWSScanner`: Main scanner class with service-specific detail methods
 
-### 3. LLM Client (`src/strands_deploy/agentic/llm_client.py`)
+### 3. LLM Client (`src/warpcore/agentic/llm_client.py`)
 
 **Purpose:** Interfaces with LLM providers for AI analysis
 
@@ -53,7 +53,7 @@ Implemented an optional agentic reconciliation system that uses LLM (Large Langu
 - Works without LLM API keys by providing basic analysis
 - Gracefully degrades when LLM is unavailable
 
-### 4. Agentic Reconciler (`src/strands_deploy/agentic/reconciler.py`)
+### 4. Agentic Reconciler (`src/warpcore/agentic/reconciler.py`)
 
 **Purpose:** Main orchestrator for drift detection and reconciliation
 
@@ -80,31 +80,31 @@ Implemented an optional agentic reconciliation system that uses LLM (Large Langu
    - Includes dependencies, risks, and rollback strategies
    - AI-generated but requires human approval
 
-### 5. CLI Commands (`src/strands_deploy/cli/agentic.py`)
+### 5. CLI Commands (`src/warpcore/cli/agentic.py`)
 
-**Command Group:** `strands agentic`
+**Command Group:** `warpcore agentic`
 
 **Commands:**
 
-1. **`strands agentic drift`**
+1. **`warpcore agentic drift`**
    - Detects infrastructure drift between state and AWS
    - Options: `--env`, `--llm-provider`, `--severity`, `--type`
    - Displays drift items in formatted table
    - Shows AI analysis with recommendations
 
-2. **`strands agentic analyze-failure`**
+2. **`warpcore agentic analyze-failure`**
    - Analyzes deployment failures using AI
    - Takes error message and optional resource context
    - Provides root cause, suggested fixes, and prevention tips
    - Options: `--env`, `--llm-provider`, `--resource-id`, `--resource-type`
 
-3. **`strands agentic reconcile`**
+3. **`warpcore agentic reconcile`**
    - Generates recovery plan for detected drift
    - Three-step process: detect drift → find missing → generate plan
    - Options: `--env`, `--llm-provider`, `--check-only`, `--execute`
    - Displays risks and rollback strategies
 
-4. **`strands agentic missing`**
+4. **`warpcore agentic missing`**
    - Finds resources that should exist but don't
    - Prioritizes by criticality using AI
    - Shows impact and likely reasons
@@ -141,12 +141,12 @@ Implemented an optional agentic reconciliation system that uses LLM (Large Langu
 
 ### Detect Drift with AI Analysis
 ```bash
-strands agentic drift --env prod --llm-provider openai
+warpcore agentic drift --env prod --llm-provider openai
 ```
 
 ### Analyze a Deployment Failure
 ```bash
-strands agentic analyze-failure "AccessDenied: User is not authorized" \
+warpcore agentic analyze-failure "AccessDenied: User is not authorized" \
   --env dev \
   --resource-id my-lambda \
   --resource-type AWS::Lambda::Function \
@@ -155,12 +155,12 @@ strands agentic analyze-failure "AccessDenied: User is not authorized" \
 
 ### Generate Recovery Plan
 ```bash
-strands agentic reconcile --env staging --llm-provider openai
+warpcore agentic reconcile --env staging --llm-provider openai
 ```
 
 ### Find Missing Resources
 ```bash
-strands agentic missing --env prod --llm-provider bedrock
+warpcore agentic missing --env prod --llm-provider bedrock
 ```
 
 ## Integration Points

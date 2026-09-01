@@ -1,6 +1,6 @@
 # AWS Client Management and Error Handling
 
-This document describes the AWS client management and error handling implementation for the Strands deployment system.
+This document describes the AWS client management and error handling implementation for the Warpcore.
 
 ## Overview
 
@@ -27,7 +27,7 @@ Manages AWS credentials, sessions, and clients with connection pooling.
 #### Usage
 
 ```python
-from strands_deploy.utils import AWSClientManager, AssumeRoleConfig
+from warpcore.utils import AWSClientManager, AssumeRoleConfig
 
 # Basic usage
 client_manager = AWSClientManager(
@@ -47,7 +47,7 @@ lambda_client = client_manager.get_client('lambda')
 # Assume role for cross-account deployment
 assume_role_config = AssumeRoleConfig(
     role_arn='arn:aws:iam::123456789012:role/DeploymentRole',
-    session_name='strands-deployment',
+    session_name='warpcore-deployment',
     duration_seconds=3600
 )
 
@@ -117,7 +117,7 @@ Network errors (connection errors, timeouts) also trigger retry.
 #### Usage
 
 ```python
-from strands_deploy.utils import RetryStrategy, with_retry
+from warpcore.utils import RetryStrategy, with_retry
 
 # Using RetryStrategy class
 retry_strategy = RetryStrategy(
@@ -163,7 +163,7 @@ Example with default settings:
 The circuit breaker prevents cascading failures by temporarily blocking requests after repeated failures:
 
 ```python
-from strands_deploy.utils import CircuitBreaker
+from warpcore.utils import CircuitBreaker
 
 circuit_breaker = CircuitBreaker(
     failure_threshold=5,
@@ -207,7 +207,7 @@ Categorizes errors and provides user-friendly error messages with suggestions.
 #### Usage
 
 ```python
-from strands_deploy.utils import ErrorHandler, ErrorContext, error_handler
+from warpcore.utils import ErrorHandler, ErrorContext, error_handler
 
 # Using global error handler
 try:
@@ -236,7 +236,7 @@ except Exception as e:
 #### Custom Error Types
 
 ```python
-from strands_deploy.utils import (
+from warpcore.utils import (
     ConfigurationError,
     CredentialError,
     PermissionError,
@@ -286,7 +286,7 @@ Example:
 Provisioners should use these utilities for consistent error handling:
 
 ```python
-from strands_deploy.utils import (
+from warpcore.utils import (
     AWSClientManager,
     with_retry,
     ErrorHandler,

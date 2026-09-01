@@ -6,7 +6,7 @@ Implemented a comprehensive resource optimization module that enables shared inf
 
 ## Components Implemented
 
-### 1. ResourceOptimizer Class (`src/strands_deploy/optimizer/optimizer.py`)
+### 1. ResourceOptimizer Class (`src/warpcore/optimizer/optimizer.py`)
 
 The main optimizer class provides the following capabilities:
 

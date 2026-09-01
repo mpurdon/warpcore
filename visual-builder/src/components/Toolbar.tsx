@@ -189,7 +189,7 @@ export default function Toolbar() {
     
     try {
       await invoke('execute_cli_command', {
-        command: 'strands',
+        command: 'warpcore',
         args: ['deploy', '--env', currentEnvironment, '--config', configPath],
       });
     } catch (error) {
@@ -214,7 +214,7 @@ export default function Toolbar() {
     
     try {
       await invoke('execute_cli_command', {
-        command: 'strands',
+        command: 'warpcore',
         args: ['destroy', '--env', currentEnvironment, '--config', configPath],
       });
     } catch (error) {

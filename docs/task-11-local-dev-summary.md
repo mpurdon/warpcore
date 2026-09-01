@@ -6,7 +6,7 @@ Implemented a complete local development mode that allows developers to run Stra
 
 ## Components Implemented
 
-### 1. LocalDevServer (`src/strands_deploy/local_dev/server.py`)
+### 1. LocalDevServer (`src/warpcore/local_dev/server.py`)
 
 **Purpose**: Manages the local agent process with hot-reload capability and AWS resource connectivity.
 
@@ -33,7 +33,7 @@ Implemented a complete local development mode that allows developers to run Stra
 - Agent-specific environment variables from configuration
 - Resource-specific variables (e.g., `STRANDS_DYNAMODB_TABLE_NAME`, `STRANDS_S3_BUCKET_NAME`)
 
-### 2. AWSConnectivityValidator (`src/strands_deploy/local_dev/connectivity.py`)
+### 2. AWSConnectivityValidator (`src/warpcore/local_dev/connectivity.py`)
 
 **Purpose**: Validates connectivity to deployed AWS resources before starting local development.
 
@@ -64,11 +64,11 @@ Implemented a complete local development mode that allows developers to run Stra
 - Resources are in correct state (e.g., DynamoDB table is ACTIVE)
 - Proper IAM permissions are in place
 
-### 3. CLI Dev Command (`src/strands_deploy/cli/main.py`)
+### 3. CLI Dev Command (`src/warpcore/cli/main.py`)
 
 **Purpose**: Provides user-friendly CLI interface for local development mode.
 
-**Command**: `strands dev --env <environment> --agent <agent-name>`
+**Command**: `warpcore dev --env <environment> --agent <agent-name>`
 
 **Features**:
 - Loads configuration and validates agent exists
@@ -91,22 +91,22 @@ Implemented a complete local development mode that allows developers to run Stra
 
 ```bash
 # Start local development for an agent
-strands dev --env dev --agent customer-support-agent
+warpcore dev --env dev --agent customer-support-agent
 
 # Use specific AWS profile
-strands dev --env dev --agent customer-support-agent --profile my-profile
+warpcore dev --env dev --agent customer-support-agent --profile my-profile
 ```
 
 ### Typical Workflow
 
 1. **Deploy to AWS**:
    ```bash
-   strands deploy --env dev
+   warpcore deploy --env dev
    ```
 
 2. **Start Local Development**:
    ```bash
-   strands dev --env dev --agent my-agent
+   warpcore dev --env dev --agent my-agent
    ```
 
 3. **Edit Code**: Make changes to agent code in your editor

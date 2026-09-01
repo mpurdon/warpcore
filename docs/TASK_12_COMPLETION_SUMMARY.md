@@ -13,12 +13,12 @@ Task 12 implemented an optional agentic reconciliation system that uses LLM (Lar
 ### ✅ Subtask 12.1: Create AgenticReconciler Class
 
 **Files Created:**
-- `src/strands_deploy/agentic/__init__.py` - Module initialization and exports
-- `src/strands_deploy/agentic/models.py` - Data models for drift, failures, and recovery
-- `src/strands_deploy/agentic/scanner.py` - AWS resource scanner for drift detection
-- `src/strands_deploy/agentic/llm_client.py` - LLM client with multi-provider support
-- `src/strands_deploy/agentic/reconciler.py` - Main reconciler orchestrator
-- `src/strands_deploy/agentic/README.md` - Comprehensive module documentation
+- `src/warpcore/agentic/__init__.py` - Module initialization and exports
+- `src/warpcore/agentic/models.py` - Data models for drift, failures, and recovery
+- `src/warpcore/agentic/scanner.py` - AWS resource scanner for drift detection
+- `src/warpcore/agentic/llm_client.py` - LLM client with multi-provider support
+- `src/warpcore/agentic/reconciler.py` - Main reconciler orchestrator
+- `src/warpcore/agentic/README.md` - Comprehensive module documentation
 
 **Key Features Implemented:**
 
@@ -54,34 +54,34 @@ Task 12 implemented an optional agentic reconciliation system that uses LLM (Lar
 ### ✅ Subtask 12.2: Add CLI Commands for Agentic Features
 
 **Files Created:**
-- `src/strands_deploy/cli/agentic.py` - CLI commands for agentic features
+- `src/warpcore/cli/agentic.py` - CLI commands for agentic features
 
 **Files Modified:**
-- `src/strands_deploy/cli/main.py` - Integrated agentic command group
+- `src/warpcore/cli/main.py` - Integrated agentic command group
 
 **Commands Implemented:**
 
-1. **`strands agentic drift`**
+1. **`warpcore agentic drift`**
    - Detects infrastructure drift between state and AWS
    - Options: `--env`, `--llm-provider`, `--severity`, `--type`
    - Displays drift items in formatted table
    - Shows AI analysis with recommendations
    - Filters by severity and drift type
 
-2. **`strands agentic analyze-failure`**
+2. **`warpcore agentic analyze-failure`**
    - Analyzes deployment failures using AI
    - Takes error message and optional resource context
    - Provides root cause, suggested fixes, and prevention tips
    - Options: `--env`, `--llm-provider`, `--resource-id`, `--resource-type`
 
-3. **`strands agentic reconcile`**
+3. **`warpcore agentic reconcile`**
    - Generates recovery plan for detected drift
    - Three-step process: detect drift → find missing → generate plan
    - Options: `--env`, `--llm-provider`, `--check-only`, `--execute`
    - Displays risks and rollback strategies
    - Warns about AI-generated content requiring review
 
-4. **`strands agentic missing`**
+4. **`warpcore agentic missing`**
    - Finds resources that should exist but don't
    - Prioritizes by criticality using AI
    - Shows impact and likely reasons
@@ -96,7 +96,7 @@ Task 12 implemented an optional agentic reconciliation system that uses LLM (Lar
    - Security considerations
    - Testing recommendations
 
-2. **Module README** (`src/strands_deploy/agentic/README.md`)
+2. **Module README** (`src/warpcore/agentic/README.md`)
    - Component descriptions
    - Usage examples (CLI and programmatic)
    - Configuration guide
@@ -180,12 +180,12 @@ Task 12 implemented an optional agentic reconciliation system that uses LLM (Lar
 
 ### Detect Drift
 ```bash
-strands agentic drift --env prod --llm-provider openai
+warpcore agentic drift --env prod --llm-provider openai
 ```
 
 ### Analyze Failure
 ```bash
-strands agentic analyze-failure "AccessDenied: User is not authorized" \
+warpcore agentic analyze-failure "AccessDenied: User is not authorized" \
   --env dev \
   --resource-id my-lambda \
   --resource-type AWS::Lambda::Function
@@ -193,30 +193,30 @@ strands agentic analyze-failure "AccessDenied: User is not authorized" \
 
 ### Generate Recovery Plan
 ```bash
-strands agentic reconcile --env staging --llm-provider anthropic
+warpcore agentic reconcile --env staging --llm-provider anthropic
 ```
 
 ### Find Missing Resources
 ```bash
-strands agentic missing --env prod
+warpcore agentic missing --env prod
 ```
 
 ## Files Created/Modified
 
 ### New Files (11 total)
-1. `src/strands_deploy/agentic/__init__.py`
-2. `src/strands_deploy/agentic/models.py`
-3. `src/strands_deploy/agentic/scanner.py`
-4. `src/strands_deploy/agentic/llm_client.py`
-5. `src/strands_deploy/agentic/reconciler.py`
-6. `src/strands_deploy/agentic/README.md`
-7. `src/strands_deploy/cli/agentic.py`
+1. `src/warpcore/agentic/__init__.py`
+2. `src/warpcore/agentic/models.py`
+3. `src/warpcore/agentic/scanner.py`
+4. `src/warpcore/agentic/llm_client.py`
+5. `src/warpcore/agentic/reconciler.py`
+6. `src/warpcore/agentic/README.md`
+7. `src/warpcore/cli/agentic.py`
 8. `docs/task-12-agentic-reconciliation-summary.md`
 9. `examples/agentic_reconciliation_example.py`
 10. `TASK_12_COMPLETION_SUMMARY.md` (this file)
 
 ### Modified Files (1 total)
-1. `src/strands_deploy/cli/main.py` - Added agentic command group
+1. `src/warpcore/cli/main.py` - Added agentic command group
 
 ## Code Statistics
 

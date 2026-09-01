@@ -1,7 +1,7 @@
 # Task 6: Core Provisioners Implementation Summary
 
 ## Overview
-Successfully implemented all core AWS resource provisioners for the Strands deployment system. These provisioners provide direct boto3-based resource management with optimization features and best practices built-in.
+Successfully implemented all core AWS resource provisioners for the Warpcore. These provisioners provide direct boto3-based resource management with optimization features and best practices built-in.
 
 ## Implemented Provisioners
 
@@ -196,15 +196,15 @@ The provisioners are now ready for integration with:
 
 ## Files Created
 
-1. `src/strands_deploy/provisioners/iam.py` - IAM role provisioner
-2. `src/strands_deploy/provisioners/vpc.py` - VPC provisioner
-3. `src/strands_deploy/provisioners/security_group.py` - Security group provisioner
-4. `src/strands_deploy/provisioners/lambda_function.py` - Lambda provisioner
-5. `src/strands_deploy/provisioners/api_gateway.py` - API Gateway provisioner
-6. `src/strands_deploy/provisioners/s3.py` - S3 bucket provisioner
-7. `src/strands_deploy/provisioners/dynamodb.py` - DynamoDB table provisioner
-8. `src/strands_deploy/provisioners/sqs.py` - SQS queue provisioner
-9. `src/strands_deploy/provisioners/sns.py` - SNS topic provisioner
-10. `src/strands_deploy/provisioners/__init__.py` - Module exports
+1. `src/warpcore/provisioners/iam.py` - IAM role provisioner
+2. `src/warpcore/provisioners/vpc.py` - VPC provisioner
+3. `src/warpcore/provisioners/security_group.py` - Security group provisioner
+4. `src/warpcore/provisioners/lambda_function.py` - Lambda provisioner
+5. `src/warpcore/provisioners/api_gateway.py` - API Gateway provisioner
+6. `src/warpcore/provisioners/s3.py` - S3 bucket provisioner
+7. `src/warpcore/provisioners/dynamodb.py` - DynamoDB table provisioner
+8. `src/warpcore/provisioners/sqs.py` - SQS queue provisioner
+9. `src/warpcore/provisioners/sns.py` - SNS topic provisioner
+10. `src/warpcore/provisioners/__init__.py` - Module exports
 
 All provisioners follow consistent patterns, include comprehensive error handling, and provide helper methods for common configurations.
