@@ -22,6 +22,7 @@ wheels/
 
 # Virtual environments
 venv/
+.venv/
 env/
 ENV/
 
@@ -32,9 +33,9 @@ ENV/
 *.swo
 *~
 
-# Strands specific
-.strands/
-strands.yaml
+# Warpcore specific
+.warpcore/
+warpcore.yaml
 *.state.json
 
 # Testing
@@ -45,3 +46,10 @@ htmlcov/
 # Logs
 *.log
 *.jsonl
+
+# Node / Tauri build artifacts
+node_modules/
+src-tauri/target/
+
+# macOS
+.DS_Store
