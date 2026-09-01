@@ -32,7 +32,10 @@ dependencies = [
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
-    "moto>=4.2.0",
+    "moto>=5.0.0",
+    # moto's resourcegroupstaggingapi backend imports its glue backend,
+    # which needs pyparsing; moto does not declare it.
+    "pyparsing>=3.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]

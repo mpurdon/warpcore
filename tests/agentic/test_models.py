@@ -5,7 +5,7 @@ from datetime import datetime
 
 from warpcore.agentic.models import (
     DriftType,
-    Severity,
+    DriftSeverity,
     DriftItem,
     DriftReport,
     DriftAnalysis,
@@ -26,7 +26,7 @@ class TestDriftItem:
             resource_id="my-function",
             resource_type="AWS::Lambda::Function",
             drift_type=DriftType.MISSING,
-            severity=Severity.CRITICAL,
+            severity=DriftSeverity.CRITICAL,
             expected_state={"MemorySize": 512},
             actual_state=None,
             differences=["Resource not found in AWS"],
@@ -34,7 +34,7 @@ class TestDriftItem:
 
         assert item.resource_id == "my-function"
         assert item.drift_type == DriftType.MISSING
-        assert item.severity == Severity.CRITICAL
+        assert item.severity == DriftSeverity.CRITICAL
         assert len(item.differences) == 1
 
     def test_drift_item_modified(self):
@@ -43,14 +43,14 @@ class TestDriftItem:
             resource_id="my-function",
             resource_type="AWS::Lambda::Function",
             drift_type=DriftType.MODIFIED,
-            severity=Severity.MEDIUM,
+            severity=DriftSeverity.MEDIUM,
             expected_state={"MemorySize": 512},
             actual_state={"MemorySize": 256},
             differences=["MemorySize: expected 512, got 256"],
         )
 
         assert item.drift_type == DriftType.MODIFIED
-        assert item.severity == Severity.MEDIUM
+        assert item.severity == DriftSeverity.MEDIUM
 
     def test_drift_item_unexpected(self):
         """Test DriftItem for unexpected resource."""
@@ -58,14 +58,14 @@ class TestDriftItem:
             resource_id="orphan-resource",
             resource_type="AWS::S3::Bucket",
             drift_type=DriftType.UNEXPECTED,
-            severity=Severity.LOW,
+            severity=DriftSeverity.LOW,
             expected_state=None,
             actual_state={"BucketName": "orphan-resource"},
             differences=["Resource exists in AWS but not in state"],
         )
 
         assert item.drift_type == DriftType.UNEXPECTED
-        assert item.severity == Severity.LOW
+        assert item.severity == DriftSeverity.LOW
 
 
 class TestDriftReport:
@@ -91,7 +91,7 @@ class TestDriftReport:
                 resource_id="func-1",
                 resource_type="AWS::Lambda::Function",
                 drift_type=DriftType.MISSING,
-                severity=Severity.CRITICAL,
+                severity=DriftSeverity.CRITICAL,
                 expected_state={},
                 actual_state=None,
                 differences=[],
@@ -100,7 +100,7 @@ class TestDriftReport:
                 resource_id="func-2",
                 resource_type="AWS::Lambda::Function",
                 drift_type=DriftType.MODIFIED,
-                severity=Severity.MEDIUM,
+                severity=DriftSeverity.MEDIUM,
                 expected_state={},
                 actual_state={},
                 differences=[],
@@ -124,7 +124,7 @@ class TestDriftReport:
                 resource_id="critical-1",
                 resource_type="AWS::Lambda::Function",
                 drift_type=DriftType.MISSING,
-                severity=Severity.CRITICAL,
+                severity=DriftSeverity.CRITICAL,
                 expected_state={},
                 actual_state=None,
                 differences=[],
@@ -133,7 +133,7 @@ class TestDriftReport:
                 resource_id="low-1",
                 resource_type="AWS::S3::Bucket",
                 drift_type=DriftType.UNEXPECTED,
-                severity=Severity.LOW,
+                severity=DriftSeverity.LOW,
                 expected_state=None,
                 actual_state={},
                 differences=[],
@@ -158,7 +158,7 @@ class TestDriftReport:
                 resource_id="missing-1",
                 resource_type="AWS::Lambda::Function",
                 drift_type=DriftType.MISSING,
-                severity=Severity.CRITICAL,
+                severity=DriftSeverity.CRITICAL,
                 expected_state={},
                 actual_state=None,
                 differences=[],
@@ -167,7 +167,7 @@ class TestDriftReport:
                 resource_id="modified-1",
                 resource_type="AWS::Lambda::Function",
                 drift_type=DriftType.MODIFIED,
-                severity=Severity.MEDIUM,
+                severity=DriftSeverity.MEDIUM,
                 expected_state={},
                 actual_state={},
                 differences=[],
@@ -176,7 +176,7 @@ class TestDriftReport:
                 resource_id="missing-2",
                 resource_type="AWS::IAM::Role",
                 drift_type=DriftType.MISSING,
-                severity=Severity.HIGH,
+                severity=DriftSeverity.HIGH,
                 expected_state={},
                 actual_state=None,
                 differences=[],

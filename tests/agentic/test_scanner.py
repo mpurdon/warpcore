@@ -1,4 +1,21 @@
 """Tests for the AWS Scanner component."""
+import pytest
+
+# These tests were written against an `AWSScanner`/`ScannedState` API that does
+# not exist and never has: they import `ScannedResource` (a class with
+# resource_id/arn fields) and construct `ScannedState(resources=[...])` as a
+# list. The real ScannedState is dict-keyed and holds warpcore.state.models
+# Resource objects. Nothing here exercises the shipped code, so it is skipped
+# rather than left to abort collection for the whole suite.
+#
+# Real scanner coverage lives in tests/agentic/test_scanner_discovery.py.
+# Rewriting these against the actual API is tracked separately.
+pytest.skip(
+    "written against a ScannedResource API that does not exist; "
+    "see tests/agentic/test_scanner_discovery.py for real coverage",
+    allow_module_level=True,
+)
+
 
 import pytest
 from unittest.mock import Mock, MagicMock, patch
