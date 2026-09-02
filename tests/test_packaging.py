@@ -66,3 +66,46 @@ def test_no_module_level_file_data_loading():
         "these modules reference __file__, which does not point where you "
         f"expect in a frozen binary: {offenders}"
     )
+
+
+class TestLoggingNeverBlocksStartup:
+    """setup_logging created `.warpcore/logs` relative to CWD and raised if it
+    could not. A process spawned by the desktop app starts in `/`, so every
+    CLI call from the GUI died in setup_logging before reaching its command.
+    Found the first time the bundled app tried to scan an account."""
+
+    def test_read_only_cwd_falls_back_to_home(self, tmp_path, monkeypatch):
+        from warpcore.utils.logging import _resolve_log_dir
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir("/")
+
+        resolved = _resolve_log_dir()
+        assert resolved is not None
+        assert resolved == home / ".warpcore" / "logs"
+        assert resolved.is_dir()
+
+    def test_writable_cwd_is_preferred(self, tmp_path, monkeypatch):
+        from warpcore.utils.logging import _resolve_log_dir
+
+        monkeypatch.chdir(tmp_path)
+        assert _resolve_log_dir() == tmp_path / ".warpcore" / "logs"
+
+    def test_nowhere_writable_returns_none_rather_than_raising(self, monkeypatch):
+        from warpcore.utils.logging import _resolve_log_dir
+
+        monkeypatch.setenv("HOME", "/nonexistent-warpcore-home")
+        monkeypatch.chdir("/")
+        assert _resolve_log_dir() is None
+
+    def test_setup_logging_survives_with_no_log_dir(self, monkeypatch):
+        import logging
+
+        from warpcore.utils.logging import setup_logging
+
+        monkeypatch.setenv("HOME", "/nonexistent-warpcore-home")
+        monkeypatch.chdir("/")
+        setup_logging("info")  # must not raise
+        assert logging.getLogger().handlers, "console handler should still be installed"

@@ -2,10 +2,11 @@
 
 import logging
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 class JSONFormatter(logging.Formatter):
@@ -88,10 +89,8 @@ def setup_logging(log_level: str = 'info') -> None:
     # Convert string level to logging constant
     level = getattr(logging, log_level.upper())
     
-    # Create logs directory
-    log_dir = Path('.warpcore/logs')
-    log_dir.mkdir(parents=True, exist_ok=True)
-    
+    log_dir = _resolve_log_dir()
+
     # Setup root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
@@ -107,17 +106,46 @@ def setup_logging(log_level: str = 'info') -> None:
     console_handler.setFormatter(ConsoleFormatter())
     root_logger.addHandler(console_handler)
     
-    # File handler with JSON format
-    log_file = log_dir / f"warpcore-{datetime.utcnow().strftime('%Y%m%d')}.jsonl"
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(logging.DEBUG)  # Always log debug to file
-    file_handler.setFormatter(JSONFormatter())
-    root_logger.addHandler(file_handler)
+    # File handler with JSON format. Skipped entirely if no writable
+    # location exists - a log file is never worth failing the command for.
+    if log_dir is not None:
+        log_file = log_dir / f"warpcore-{datetime.utcnow().strftime('%Y%m%d')}.jsonl"
+        try:
+            file_handler = logging.FileHandler(log_file)
+        except OSError:
+            file_handler = None
+        if file_handler is not None:
+            file_handler.setLevel(logging.DEBUG)  # Always log debug to file
+            file_handler.setFormatter(JSONFormatter())
+            root_logger.addHandler(file_handler)
     
     # Reduce noise from boto3 and other libraries
     logging.getLogger('boto3').setLevel(logging.WARNING)
     logging.getLogger('botocore').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
+
+
+def _resolve_log_dir() -> Optional[Path]:
+    """Somewhere writable for the JSONL log, or None.
+
+    Prefers the project-local `.warpcore/logs` so logs sit next to the state
+    they describe. That is relative to the working directory, which is wrong
+    when the process was spawned by the desktop app - the CWD is `/` or the
+    app bundle, both read-only - so fall back to the user's home. Every
+    failure mode here used to raise and abort the command before it started.
+    """
+    candidates = [
+        Path.cwd() / ".warpcore" / "logs",
+        Path.home() / ".warpcore" / "logs",
+    ]
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            if os.access(candidate, os.W_OK):
+                return candidate
+        except OSError:
+            continue
+    return None
 
 
 def get_logger(name: str) -> logging.Logger:
