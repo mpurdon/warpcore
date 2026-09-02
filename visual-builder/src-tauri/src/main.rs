@@ -4,6 +4,8 @@
 use regex::Regex;
 use std::path::Path;
 use std::process::Stdio;
+// v2 moved Window::emit onto the Emitter trait; it has to be in scope.
+use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command as TokioCommand;
 use walkdir::WalkDir;
@@ -74,12 +76,12 @@ async fn execute_cli_command(
 
     // Clone window for stdout
     let window_stdout = window.clone();
-    
+
     // Stream stdout
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
-        
+
         tokio::spawn(async move {
             while let Ok(Some(line)) = lines.next_line().await {
                 let _ = window_stdout.emit("cli-output", line);
@@ -91,7 +93,7 @@ async fn execute_cli_command(
     if let Some(stderr) = child.stderr.take() {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
-        
+
         tokio::spawn(async move {
             while let Ok(Some(line)) = lines.next_line().await {
                 let _ = window.emit("cli-error", line);
@@ -131,9 +133,7 @@ async fn watch_config_file(path: String, window: tauri::Window) -> Result<(), St
     use tokio::time::sleep;
 
     tokio::spawn(async move {
-        let mut last_modified = std::fs::metadata(&path)
-            .and_then(|m| m.modified())
-            .ok();
+        let mut last_modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
 
         loop {
             sleep(Duration::from_secs(1)).await;
@@ -290,7 +290,11 @@ async fn execute_deployment(
     let duration = start.elapsed().as_secs_f64();
 
     // Emit deployment completed event
-    let final_status = if status.success() { "deployed" } else { "failed" };
+    let final_status = if status.success() {
+        "deployed"
+    } else {
+        "failed"
+    };
     let _ = window.emit(
         "deployment-update",
         serde_json::json!({
@@ -322,7 +326,14 @@ async fn execute_destroy(
     let mut cmd = TokioCommand::new("warpcore");
     cmd.args(warpcore_args(
         debug,
-        &["destroy", "--env", &environment, "--config", &config_path, "-y"],
+        &[
+            "destroy",
+            "--env",
+            &environment,
+            "--config",
+            &config_path,
+            "-y",
+        ],
     ));
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -417,23 +428,33 @@ async fn scan_project_for_strands(directory: String) -> Result<ProjectDiscovery,
     };
 
     // Regex patterns for Strands SDK patterns
-    let tool_decorator_re = Regex::new(r#"@tool(?:\([^)]*\))?\s*\n\s*(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)"#).unwrap();
-    let tool_spec_re = Regex::new(r#"TOOL_SPEC\s*=\s*\{[^}]*"name"\s*:\s*"([^"]+)"[^}]*"description"\s*:\s*"([^"]+)""#).unwrap();
+    let tool_decorator_re =
+        Regex::new(r#"@tool(?:\([^)]*\))?\s*\n\s*(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)"#).unwrap();
+    let tool_spec_re = Regex::new(
+        r#"TOOL_SPEC\s*=\s*\{[^}]*"name"\s*:\s*"([^"]+)"[^}]*"description"\s*:\s*"([^"]+)""#,
+    )
+    .unwrap();
     // Match Agent() calls - capture the function/variable context
     let agent_re = Regex::new(r#"(?:return\s+)?Agent\s*\("#).unwrap();
     // Match agent factory functions like create_*_agent or make_*_agent (reserved for future use)
-    let _agent_factory_re = Regex::new(r#"def\s+(create_\w*_?agent|make_\w*_?agent|\w+_agent)\s*\([^)]*\)\s*(?:->.*?)?:"#).unwrap();
+    let _agent_factory_re = Regex::new(
+        r#"def\s+(create_\w*_?agent|make_\w*_?agent|\w+_agent)\s*\([^)]*\)\s*(?:->.*?)?:"#,
+    )
+    .unwrap();
     // Match graph node additions: builder.add_node(agent, "node_name") or add_node(agent, "name")
-    let graph_node_re = Regex::new(r#"\.?add_node\s*\(\s*(\w+)\s*,\s*["']([^"']+)["']\s*\)"#).unwrap();
+    let graph_node_re =
+        Regex::new(r#"\.?add_node\s*\(\s*(\w+)\s*,\s*["']([^"']+)["']\s*\)"#).unwrap();
     // Match GraphBuilder definitions (reserved for future use)
     let _graph_builder_re = Regex::new(r#"(\w+)\s*=\s*GraphBuilder\s*\(\s*\)"#).unwrap();
     // Match graph building functions
-    let graph_func_re = Regex::new(r#"def\s+(build_\w*graph|\w+_graph)\s*\([^)]*\)\s*(?:->.*?)?:"#).unwrap();
+    let graph_func_re =
+        Regex::new(r#"def\s+(build_\w*graph|\w+_graph)\s*\([^)]*\)\s*(?:->.*?)?:"#).unwrap();
     // Match Lambda handlers AND main entry points
     let handler_re = Regex::new(r#"def\s+(handler|lambda_handler)\s*\(\s*event[^)]*\)"#).unwrap();
     let main_re = Regex::new(r#"def\s+(main)\s*\(\s*\)"#).unwrap();
     // Match strands_tools imports to detect available tools
-    let strands_tools_import_re = Regex::new(r#"from\s+strands_tools\s+import\s+\(?\s*([^)]+)\)?"#).unwrap();
+    let strands_tools_import_re =
+        Regex::new(r#"from\s+strands_tools\s+import\s+\(?\s*([^)]+)\)?"#).unwrap();
     let docstring_re = Regex::new(r#""""([^"]*(?:""[^"]*)*?)""""#).unwrap();
     let args_section_re = Regex::new(r#"Args:\s*((?:\s+\w+:[^\n]+\n?)+)"#).unwrap();
     let param_line_re = Regex::new(r#"(\w+):\s*(.+)"#).unwrap();
@@ -487,9 +508,17 @@ async fn scan_project_for_strands(directory: String) -> Result<ProjectDiscovery,
 
                         let (param_name, param_type) = if param.contains(':') {
                             let parts: Vec<&str> = param.splitn(2, ':').collect();
-                            (parts[0].trim().to_string(), parts.get(1).map_or("Any".to_string(), |t| t.split('=').next().unwrap_or("Any").trim().to_string()))
+                            (
+                                parts[0].trim().to_string(),
+                                parts.get(1).map_or("Any".to_string(), |t| {
+                                    t.split('=').next().unwrap_or("Any").trim().to_string()
+                                }),
+                            )
                         } else {
-                            (param.split('=').next().unwrap_or(param).trim().to_string(), "Any".to_string())
+                            (
+                                param.split('=').next().unwrap_or(param).trim().to_string(),
+                                "Any".to_string(),
+                            )
                         };
 
                         let required = !param.contains('=');
@@ -571,7 +600,8 @@ async fn scan_project_for_strands(directory: String) -> Result<ProjectDiscovery,
                     let agent_creation_re = Regex::new(&format!(
                         r#"{}\s*=\s*(?:create_(\w+)_agent|Agent\s*\()"#,
                         regex::escape(&agent_var)
-                    )).ok();
+                    ))
+                    .ok();
 
                     let agent_type = agent_creation_re
                         .and_then(|re| re.captures(&content))
@@ -618,7 +648,9 @@ async fn scan_project_for_strands(directory: String) -> Result<ProjectDiscovery,
 
                     // Only add if it's a direct assignment (not inside a function return)
                     if last_line.contains('=') && !last_line.trim().starts_with("return") {
-                        let name = last_line.split('=').next()
+                        let name = last_line
+                            .split('=')
+                            .next()
                             .map(|s| s.trim().to_string())
                             .unwrap_or_else(|| format!("agent_{}", line_number));
 
@@ -692,6 +724,10 @@ async fn scan_project_for_strands(directory: String) -> Result<ProjectDiscovery,
 
 fn main() {
     tauri::Builder::default()
+        // Only the dialog plugin is used: the frontend opens a file picker.
+        // All file IO happens in Rust commands via tokio::fs/std::fs, which
+        // needs no plugin and is not reachable from the webview.
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             execute_cli_command,
             read_config_file,

@@ -50,6 +50,8 @@ htmlcov/
 # Node / Tauri build artifacts
 node_modules/
 src-tauri/target/
+# Regenerated from tauri.conf.json + capabilities on every build.
+src-tauri/gen/schemas/
 
 # macOS
 .DS_Store

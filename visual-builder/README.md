@@ -34,7 +34,7 @@ Then launch with: `warpcore-ui`
 ## Prerequisites
 
 - Node.js 18+ and npm
-- Rust and Cargo (for Tauri)
+- Rust and Cargo (for Tauri v2)
 - Python 3.11+ with `warpcore` CLI installed
 
 ## Installation
@@ -168,7 +168,10 @@ which warpcore
 
 ### File Watching Not Working
 
-The file watcher requires file system permissions. Check Tauri's `tauri.conf.json` for the `fs` allowlist.
+The file watcher runs entirely in Rust (`watch_config_file` in `src-tauri/src/main.rs`)
+using `std::fs`, so it is not permission-gated - Tauri capabilities only restrict what
+the *frontend* may call. If watching fails, the path is wrong or unreadable by the
+user running the app.
 
 ## Contributing
 

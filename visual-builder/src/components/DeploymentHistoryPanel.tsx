@@ -1,7 +1,7 @@
 import { History, CheckCircle, XCircle, Clock, ChevronRight, RotateCcw, GitCompare, RefreshCw, Download, AlertTriangle } from 'lucide-react';
 import { useStore, DeploymentHistory } from '../store/useStore';
 import { useState, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 export default function DeploymentHistoryPanel() {
   const { deploymentHistory, configPath, currentEnvironment, setIsDeploying } = useStore();

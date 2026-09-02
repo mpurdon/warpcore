@@ -2,47 +2,27 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist",
-    "withGlobalTauri": false
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
   },
-  "package": {
-    "productName": "Warpcore Visual Builder",
-    "version": "1.0.0"
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ]
   },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "shell": {
-        "all": false,
-        "open": true
-      },
-      "fs": {
-        "all": true,
-        "scope": ["$HOME/**", "$APPDATA/**", "$APPCONFIG/**"]
-      },
-      "dialog": {
-        "all": true
-      },
-      "path": {
-        "all": true
-      }
-    },
-    "bundle": {
-      "active": true,
-      "targets": "all",
-      "identifier": "com.warpcore.visual-builder",
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.png"
-      ]
-    },
-    "security": {
-      "csp": null
-    },
+  "productName": "Warpcore Visual Builder",
+  "mainBinaryName": "Warpcore Visual Builder",
+  "version": "1.0.0",
+  "identifier": "com.warpcore.visual-builder",
+  "plugins": {},
+  "app": {
+    "withGlobalTauri": false,
     "windows": [
       {
         "fullscreen": false,
@@ -51,8 +31,13 @@
         "width": 1400,
         "height": 900,
         "minWidth": 1200,
-        "minHeight": 700
+        "minHeight": 700,
+        "useHttpsScheme": true,
+        "label": "main"
       }
-    ]
+    ],
+    "security": {
+      "csp": null
+    }
   }
 }

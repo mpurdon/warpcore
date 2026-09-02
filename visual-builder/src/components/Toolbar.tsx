@@ -1,7 +1,7 @@
 import { Play, Trash2, FileText, FolderSearch, PanelRight } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { invoke } from '@tauri-apps/api/tauri';
-import { open } from '@tauri-apps/api/dialog';
+import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import { generateYAMLFromCanvas } from '../utils/configSync';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
