@@ -34,6 +34,7 @@ export default function Toolbar() {
     setExecutionsPerMonth,
     rightPanelVisible,
     setRightPanelVisible,
+    debugMode,
   } = useStore();
 
   const [showTemplateModal, setShowTemplateModal] = useState(false);
@@ -190,7 +191,10 @@ export default function Toolbar() {
     try {
       await invoke('execute_cli_command', {
         command: 'warpcore',
-        args: ['deploy', '--env', currentEnvironment, '--config', configPath],
+        args: [
+          ...(debugMode ? ['--dev'] : []),
+          'deploy', '--env', currentEnvironment, '--config', configPath,
+        ],
       });
     } catch (error) {
       console.error('Deployment failed:', error);
@@ -215,7 +219,10 @@ export default function Toolbar() {
     try {
       await invoke('execute_cli_command', {
         command: 'warpcore',
-        args: ['destroy', '--env', currentEnvironment, '--config', configPath],
+        args: [
+          ...(debugMode ? ['--dev'] : []),
+          'destroy', '--env', currentEnvironment, '--config', configPath,
+        ],
       });
     } catch (error) {
       console.error('Destroy failed:', error);

@@ -1,10 +1,50 @@
 import { useEffect, useRef } from 'react';
-import { X, Settings, FileText, Database, Trash2 } from 'lucide-react';
+import { X, Settings, FileText, Database, Trash2, Bug } from 'lucide-react';
 import { useStore, EnvironmentConfig, RemovalPolicy } from '../store/useStore';
 
 interface Props {
   environment: string;
   onClose: () => void;
+}
+
+// Toggle switch, shared by every boolean setting in this panel.
+function Toggle({
+  checked,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  description?: string;
+}) {
+  return (
+    <label className="flex items-start gap-3 cursor-pointer">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+          checked ? 'bg-blue-600' : 'bg-gray-200'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+      <span>
+        <span className="block text-sm font-medium text-gray-700">{label}</span>
+        {description && (
+          <span className="block text-xs text-gray-500 mt-0.5">{description}</span>
+        )}
+      </span>
+    </label>
+  );
 }
 
 // Slider component for stepped values
@@ -133,7 +173,7 @@ const TIMEOUT_OPTIONS = [
 ];
 
 export default function EnvironmentConfigPanel({ environment, onClose }: Props) {
-  const { environmentConfigs, setEnvironmentConfig } = useStore();
+  const { environmentConfigs, setEnvironmentConfig, debugMode, setDebugMode } = useStore();
   const config = environmentConfigs[environment];
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -267,22 +307,11 @@ export default function EnvironmentConfigPanel({ environment, onClose }: Props) 
                 />
               </div>
               <div className="flex items-center">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <button
-                    type="button"
-                    onClick={() => updateConfig('logging.enableXRay', !config.logging.enableXRay)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      config.logging.enableXRay ? 'bg-blue-600' : 'bg-gray-200'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        config.logging.enableXRay ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                  <span className="text-sm font-medium text-gray-700">Enable X-Ray Tracing</span>
-                </label>
+                <Toggle
+                  checked={config.logging.enableXRay}
+                  onChange={(v) => updateConfig('logging.enableXRay', v)}
+                  label="Enable X-Ray Tracing"
+                />
               </div>
             </div>
           </section>
@@ -313,42 +342,49 @@ export default function EnvironmentConfigPanel({ environment, onClose }: Props) 
             </div>
             <div className="grid grid-cols-2 gap-4 mt-6 pt-4 border-t border-gray-100">
               <div className="flex items-center">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <button
-                    type="button"
-                    onClick={() => updateConfig('defaults.s3Versioning', !config.defaults.s3Versioning)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      config.defaults.s3Versioning ? 'bg-blue-600' : 'bg-gray-200'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        config.defaults.s3Versioning ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                  <span className="text-sm font-medium text-gray-700">S3 Versioning</span>
-                </label>
+                <Toggle
+                  checked={config.defaults.s3Versioning}
+                  onChange={(v) => updateConfig('defaults.s3Versioning', v)}
+                  label="S3 Versioning"
+                />
               </div>
               <div className="flex items-center">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <button
-                    type="button"
-                    onClick={() => updateConfig('defaults.dynamoDbBackup', !config.defaults.dynamoDbBackup)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      config.defaults.dynamoDbBackup ? 'bg-blue-600' : 'bg-gray-200'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        config.defaults.dynamoDbBackup ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                  <span className="text-sm font-medium text-gray-700">DynamoDB Backup</span>
-                </label>
+                <Toggle
+                  checked={config.defaults.dynamoDbBackup}
+                  onChange={(v) => updateConfig('defaults.dynamoDbBackup', v)}
+                  label="DynamoDB Backup"
+                />
               </div>
             </div>
+          </section>
+
+          {/* Developer - app-level, not part of the environment's config */}
+          <section className="border-t border-gray-200 pt-6">
+            <div className="flex items-center gap-2 mb-1">
+              <Bug size={18} className="text-amber-500" />
+              <h3 className="font-semibold text-gray-800">Developer</h3>
+              <span className="text-[10px] uppercase tracking-wide font-semibold text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">
+                This machine only
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Applies to every environment and is never written to warpcore.yaml.
+            </p>
+            <Toggle
+              checked={debugMode}
+              onChange={setDebugMode}
+              label="Debug mode"
+              description="Runs the CLI with --dev: verbose logging, AWS API call tracing, and a captured session you can inspect with `warpcore debug session`. Deployments are slower and much noisier."
+            />
+            {debugMode && (
+              <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-3">
+                <p className="text-xs text-amber-800">
+                  Debug mode is on. Deploy and destroy will run as
+                  {' '}<code className="font-mono bg-amber-100 px-1 rounded">warpcore --dev</code>,
+                  and the execution log will include DEBUG entries.
+                </p>
+              </div>
+            )}
           </section>
         </div>
 

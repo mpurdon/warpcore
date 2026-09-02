@@ -19,6 +19,7 @@ export function useDeployment() {
     addDeploymentHistory,
     setExecutionLog,
     executionLogs,
+    debugMode,
   } = useStore();
 
   // Listen for deployment updates from Tauri
@@ -181,6 +182,7 @@ export function useDeployment() {
       await invoke('execute_deployment', {
         configPath,
         environment: currentEnvironment,
+        debug: debugMode,
       });
     } catch (error) {
       console.error('Deployment failed:', error);
@@ -196,7 +198,7 @@ export function useDeployment() {
       }));
       setNodes(failedNodes);
     }
-  }, [configPath, currentEnvironment, nodes, setNodes, setIsDeploying]);
+  }, [configPath, currentEnvironment, debugMode, nodes, setNodes, setIsDeploying]);
 
   const destroy = useCallback(async () => {
     if (!configPath) {
@@ -209,6 +211,7 @@ export function useDeployment() {
       await invoke('execute_destroy', {
         configPath,
         environment: currentEnvironment,
+        debug: debugMode,
       });
 
       // Reset all nodes to draft status
@@ -222,7 +225,7 @@ export function useDeployment() {
     } finally {
       setIsDeploying(false);
     }
-  }, [configPath, currentEnvironment, nodes, setNodes, setIsDeploying]);
+  }, [configPath, currentEnvironment, debugMode, nodes, setNodes, setIsDeploying]);
 
   const validate = useCallback(async () => {
     if (!configPath) {

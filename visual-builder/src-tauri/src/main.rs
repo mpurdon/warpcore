@@ -159,11 +159,23 @@ async fn get_deployment_status() -> Result<Vec<DeploymentUpdate>, String> {
     Ok(vec![])
 }
 
+// Build a warpcore argv. `--dev` is an option on the top-level click group,
+// so it has to come before the subcommand, not after it.
+fn warpcore_args(debug: bool, args: &[&str]) -> Vec<String> {
+    let mut argv: Vec<String> = Vec::with_capacity(args.len() + 1);
+    if debug {
+        argv.push("--dev".to_string());
+    }
+    argv.extend(args.iter().map(|a| a.to_string()));
+    argv
+}
+
 // Execute deployment with real-time status updates
 #[tauri::command]
 async fn execute_deployment(
     config_path: String,
     environment: String,
+    debug: bool,
     window: tauri::Window,
 ) -> Result<String, String> {
     use std::time::Instant;
@@ -185,7 +197,10 @@ async fn execute_deployment(
     );
 
     let mut cmd = TokioCommand::new("warpcore");
-    cmd.args(&["deploy", "--env", &environment, "--config", &config_path]);
+    cmd.args(warpcore_args(
+        debug,
+        &["deploy", "--env", &environment, "--config", &config_path],
+    ));
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
@@ -301,10 +316,14 @@ async fn execute_deployment(
 async fn execute_destroy(
     config_path: String,
     environment: String,
+    debug: bool,
     window: tauri::Window,
 ) -> Result<String, String> {
     let mut cmd = TokioCommand::new("warpcore");
-    cmd.args(&["destroy", "--env", &environment, "--config", &config_path, "-y"]);
+    cmd.args(warpcore_args(
+        debug,
+        &["destroy", "--env", &environment, "--config", &config_path, "-y"],
+    ));
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 

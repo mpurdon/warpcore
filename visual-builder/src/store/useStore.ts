@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Node, Edge, Connection } from 'reactflow';
+import { getPreferences, setPreference } from '../utils/preferences';
 
 // Node status types with meaningful states:
 // - draft: New node, not yet configured
@@ -198,6 +199,10 @@ interface StoreState {
   setRightPanelVisible: (visible: boolean) => void;
   rightPanelTab: 'roles' | 'environment';
   setRightPanelTab: (tab: 'roles' | 'environment') => void;
+
+  // Developer preferences (machine-local, never written to warpcore.yaml)
+  debugMode: boolean;
+  setDebugMode: (enabled: boolean) => void;
 }
 
 export const useStore = create<StoreState>((set) => ({
@@ -277,6 +282,15 @@ export const useStore = create<StoreState>((set) => ({
   setRightPanelVisible: (visible) => set({ rightPanelVisible: visible }),
   rightPanelTab: 'roles',
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
+
+  // Developer preferences. Restored from localStorage so the toggle survives
+  // a restart, and deliberately does not set hasUnsavedChanges - this is not
+  // part of the project config.
+  debugMode: getPreferences().debugMode,
+  setDebugMode: (enabled) => {
+    setPreference('debugMode', enabled);
+    set({ debugMode: enabled });
+  },
 }));
 
 // Helper functions for React Flow

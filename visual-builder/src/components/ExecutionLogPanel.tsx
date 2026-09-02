@@ -1,13 +1,22 @@
-import { X, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { X, CheckCircle, XCircle, Clock, AlertTriangle, Bug } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import type { LogEntry } from '../store/useStore';
+
+type LevelFilter = 'ALL' | LogEntry['level'];
+
+// DEBUG lines are hidden unless the user asked for them, either by turning on
+// debug mode or by picking DEBUG explicitly in the filter.
+const LEVEL_ORDER: LogEntry['level'][] = ['DEBUG', 'INFO', 'WARNING', 'ERROR'];
 
 interface Props {
   nodeId: string;
 }
 
 export default function ExecutionLogPanel({ nodeId }: Props) {
-  const { executionLogs, setShowExecutionPanel } = useStore();
+  const { executionLogs, setShowExecutionPanel, debugMode } = useStore();
   const log = executionLogs.get(nodeId);
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>('ALL');
 
   if (!log) {
     return (
@@ -34,6 +43,16 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
     configured: CheckCircle,
     draft: Clock,
   }[log.status];
+
+  // DEBUG is noise unless it was asked for; everything else always shows.
+  const showDebug = debugMode || levelFilter === 'DEBUG';
+  const visibleLogs = log.logs.filter((entry) => {
+    if (entry.level === 'DEBUG' && !showDebug) return false;
+    return levelFilter === 'ALL' || entry.level === levelFilter;
+  });
+  const hiddenDebugCount = showDebug
+    ? 0
+    : log.logs.filter((entry) => entry.level === 'DEBUG').length;
 
   const statusColor = {
     deployed: 'text-green-600',
@@ -120,17 +139,37 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
       {/* Logs */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold">📝 Logs</h3>
-          <select className="text-xs border border-gray-300 rounded px-2 py-1">
-            <option>All</option>
-            <option>ERROR</option>
-            <option>WARNING</option>
-            <option>INFO</option>
-            <option>DEBUG</option>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold">📝 Logs</h3>
+            {debugMode && (
+              <span
+                className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100 border border-amber-200 rounded px-1.5 py-0.5"
+                title="Debug mode is on - this run was executed with --dev"
+              >
+                <Bug size={10} /> debug
+              </span>
+            )}
+          </div>
+          <select
+            value={levelFilter}
+            onChange={(e) => setLevelFilter(e.target.value as LevelFilter)}
+            className="text-xs border border-gray-300 rounded px-2 py-1"
+          >
+            <option value="ALL">All</option>
+            {[...LEVEL_ORDER].reverse().map((level) => (
+              <option key={level} value={level}>{level}</option>
+            ))}
           </select>
         </div>
         <div className="bg-gray-900 text-gray-100 rounded p-3 font-mono text-xs max-h-64 overflow-y-auto">
-          {log.logs.map((entry, index) => (
+          {visibleLogs.length === 0 && (
+            <div className="text-gray-500">
+              {hiddenDebugCount > 0
+                ? `No matching entries. ${hiddenDebugCount} DEBUG entr${hiddenDebugCount === 1 ? 'y is' : 'ies are'} hidden - turn on debug mode in settings, or select DEBUG above.`
+                : 'No log entries.'}
+            </div>
+          )}
+          {visibleLogs.map((entry, index) => (
             <div key={index} className="mb-1">
               <span className="text-gray-500">
                 {entry.timestamp.toLocaleTimeString()}
@@ -147,6 +186,12 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
             </div>
           ))}
         </div>
+        {hiddenDebugCount > 0 && visibleLogs.length > 0 && (
+          <p className="text-xs text-gray-400 mt-2">
+            {hiddenDebugCount} DEBUG entr{hiddenDebugCount === 1 ? 'y' : 'ies'} hidden.
+            Turn on debug mode in settings to see them.
+          </p>
+        )}
       </div>
 
       {/* Configuration */}
