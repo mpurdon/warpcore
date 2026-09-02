@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Radar, RefreshCw, AlertCircle, ChevronDown, ChevronRight, Search, EyeOff, Eye } from 'lucide-react';
+import { X, Radar, RefreshCw, AlertCircle, ChevronDown, ChevronRight, Search, EyeOff, Eye, Square } from 'lucide-react';
 import {
   AccountInventory,
   DiscoveredResource,
+  cancelScan,
   discoverAccount,
   isBaseline,
+  isCancellation,
   listAwsProfiles,
   shortType,
   typeRank,
@@ -21,8 +23,10 @@ const LAST_PROFILE_KEY = 'warpcore-explorer-profile';
 export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
   const [profiles, setProfiles] = useState<string[]>([]);
   const [profile, setProfile] = useState<string>('');
-  const [allRegions, setAllRegions] = useState(true);
-  const [regionInput, setRegionInput] = useState('us-east-1');
+  const [allRegions, setAllRegions] = useState(false);
+  const [regionInput, setRegionInput] = useState('');
+  const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const [inventory, setInventory] = useState<AccountInventory | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,24 +59,39 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
       .catch((e) => setError(String(e)));
   }, [isOpen, profiles.length]);
 
+  useEffect(() => {
+    if (scanStartedAt === null) return;
+    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - scanStartedAt) / 1000)), 500);
+    return () => window.clearInterval(id);
+  }, [scanStartedAt]);
+
+  const cancel = async () => {
+    try { await cancelScan(); } catch { /* nothing to cancel */ }
+  };
+
   const scan = async () => {
     if (!profile) return;
     setIsScanning(true);
+    setScanStartedAt(Date.now());
+    setElapsed(0);
     setError(null);
     setSelected(null);
     try {
       try { localStorage.setItem(LAST_PROFILE_KEY, profile); } catch { /* ignore */ }
       const result = await discoverAccount({
         profile,
+        // Empty means "the profile's own region"; the CLI resolves it.
         regions: allRegions ? [] : regionInput.split(',').map((r) => r.trim()).filter(Boolean),
         allRegions,
         hydrate: false,
       });
       setInventory(result);
     } catch (e) {
-      setError(String(e));
+      // A cancellation is the user's own action, not something to report.
+      if (!isCancellation(e)) setError(String(e));
     } finally {
       setIsScanning(false);
+      setScanStartedAt(null);
     }
   };
 
@@ -168,20 +187,32 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
             <input
               value={regionInput}
               onChange={(e) => setRegionInput(e.target.value)}
-              placeholder="us-east-1, us-west-2"
-              className="text-sm border border-gray-300 rounded px-2 py-1 w-56"
+              placeholder="profile's region (or us-east-1, us-west-2)"
+              className="text-sm border border-gray-300 rounded px-2 py-1 w-72"
               disabled={isScanning}
             />
           )}
 
-          <button
-            onClick={scan}
-            disabled={!profile || isScanning}
-            className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
-            {isScanning ? 'Scanning…' : inventory ? 'Rescan' : 'Scan'}
-          </button>
+          {isScanning ? (
+            <button
+              onClick={cancel}
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700"
+              title="Kill the scan"
+            >
+              <Square size={12} fill="currentColor" />
+              Cancel
+              <span className="text-xs opacity-80 tabular-nums">{elapsed}s</span>
+            </button>
+          ) : (
+            <button
+              onClick={scan}
+              disabled={!profile}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RefreshCw size={14} />
+              {inventory ? 'Rescan' : 'Scan'}
+            </button>
+          )}
 
           <div className="flex-1" />
 
@@ -230,8 +261,10 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
             {isScanning && (
               <div className="p-12 text-center text-gray-500">
                 <RefreshCw size={32} className="mx-auto mb-3 animate-spin text-blue-500" />
-                <p>Scanning {allRegions ? 'every enabled region' : regionInput}…</p>
-                <p className="text-xs mt-2">Resource Explorer plus per-service enumeration; usually 10–30s.</p>
+                <p>Scanning {allRegions ? 'every enabled region' : (regionInput || "the profile's region")}… {elapsed}s</p>
+                <p className="text-xs mt-2">
+                  {allRegions ? 'All regions usually takes 15–40s.' : 'One region usually takes 3–10s.'} Cancel above to stop.
+                </p>
               </div>
             )}
 

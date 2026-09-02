@@ -133,6 +133,16 @@ export async function discoverAccount(opts: {
   return JSON.parse(raw) as AccountInventory;
 }
 
+/** Kill the in-flight scan. Resolves true if one was running. */
+export async function cancelScan(): Promise<boolean> {
+  return invoke<boolean>('cancel_scan');
+}
+
+/** True when an error from discoverAccount was a user cancellation. */
+export function isCancellation(error: unknown): boolean {
+  return String(error).trim() === 'cancelled';
+}
+
 export async function fetchResourceDetail(
   profile: string,
   arn: string,

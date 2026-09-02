@@ -19,6 +19,7 @@ tokio-tungstenite = "0.21"
 regex = "1.10"
 walkdir = "2.4"
 chrono = "0.4"
+libc = "0.2"
 tauri-plugin-dialog = "2"
 
 [features]

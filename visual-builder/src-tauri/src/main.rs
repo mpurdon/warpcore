@@ -798,6 +798,130 @@ async fn scan_project_for_strands(directory: String) -> Result<ProjectDiscovery,
 // side only owns process lifecycle.
 // ---------------------------------------------------------------------------
 
+/// The scan currently running, if any, so `cancel_scan` can kill it.
+///
+/// Only one scan makes sense at a time from the UI, so this is a single slot
+/// rather than a registry. A tokio Mutex because the slot is held across
+/// awaits while the child's output is being read.
+#[derive(Default)]
+struct ActiveScan(tokio::sync::Mutex<Option<ScanProcess>>);
+
+struct ScanProcess {
+    child: tokio::process::Child,
+    /// Process-group id, equal to the child's pid because it leads a new group.
+    /// The frozen CLI is a PyInstaller onefile: the process we spawn is a
+    /// bootloader that forks the real worker and exits, so the worker is
+    /// reparented to init and outlives a kill aimed at the bootloader alone.
+    /// Killing the whole group reaches the worker.
+    #[cfg(unix)]
+    pgid: i32,
+}
+
+/// Run a warpcore command whose process is registered as the active scan.
+///
+/// Unlike run_warpcore_json this keeps the Child in shared state while its
+/// output streams, so `cancel_scan` can `start_kill()` it. A killed process
+/// surfaces as Err("cancelled") rather than a generic non-zero exit, so the
+/// UI can tell the two apart.
+async fn run_cancellable_scan(
+    state: &ActiveScan,
+    args: &[&str],
+) -> Result<String, String> {
+    use tokio::io::AsyncReadExt;
+
+    let mut cmd = warpcore_command();
+    cmd.args(args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.kill_on_drop(true);
+
+    // Lead a new process group so cancel_scan can signal the whole tree.
+    #[cfg(unix)]
+    cmd.process_group(0);
+
+    let mut child = cmd.spawn().map_err(|e| format!("could not start warpcore: {e}"))?;
+    #[cfg(unix)]
+    let pgid = child.id().map(|id| id as i32).unwrap_or(0);
+    let mut stdout = child.stdout.take().ok_or("no stdout")?;
+    let mut stderr = child.stderr.take().ok_or("no stderr")?;
+
+    {
+        let mut slot = state.0.lock().await;
+        if let Some(previous) = slot.take() {
+            // A scan was already running; the UI should prevent this, but a
+            // second Scan click must not leave the first one orphaned.
+            kill_scan(previous);
+        }
+        *slot = Some(ScanProcess {
+            child,
+            #[cfg(unix)]
+            pgid,
+        });
+    }
+
+    // Read both pipes to completion. Reading stdout alone can deadlock if
+    // stderr fills its buffer, so they are drained concurrently.
+    let (out, err) = tokio::join!(
+        async { let mut b = Vec::new(); let _ = stdout.read_to_end(&mut b).await; b },
+        async { let mut b = Vec::new(); let _ = stderr.read_to_end(&mut b).await; b },
+    );
+
+    let status = {
+        let mut slot = state.0.lock().await;
+        match slot.take() {
+            Some(mut scan) => scan.child.wait().await.map_err(|e| e.to_string())?,
+            // cancel_scan already took and killed it.
+            None => return Err("cancelled".to_string()),
+        }
+    };
+
+    if !status.success() {
+        // A SIGKILL from cancel_scan shows up here as a signal exit with no
+        // code; report it as a cancellation, not a failure.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            if status.signal().is_some() {
+                return Err("cancelled".to_string());
+            }
+        }
+        let stderr = String::from_utf8_lossy(&err);
+        let tail: String = stderr.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+        return Err(format!("warpcore exited with {}:\n{}", status, tail));
+    }
+    Ok(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// SIGKILL the scan's whole process group (Unix), or the process (elsewhere).
+fn kill_scan(mut scan: ScanProcess) {
+    #[cfg(unix)]
+    {
+        if scan.pgid > 0 {
+            // Negative pid targets the group led by pgid.
+            unsafe { libc::kill(-scan.pgid, libc::SIGKILL); }
+        }
+    }
+    // Also kill the spawned process directly, and let kill_on_drop reap it.
+    let _ = scan.child.start_kill();
+}
+
+/// Kill the in-flight scan, if there is one.
+#[tauri::command]
+async fn cancel_scan(state: tauri::State<'_, ActiveScan>) -> Result<bool, String> {
+    let scan = { state.0.lock().await.take() };
+    match scan {
+        Some(mut scan) => {
+            #[cfg(unix)]
+            { if scan.pgid > 0 { unsafe { libc::kill(-scan.pgid, libc::SIGKILL); } } }
+            let _ = scan.child.start_kill();
+            // Reap so it does not linger as a zombie.
+            let _ = scan.child.wait().await;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
 /// Run the CLI and return its stdout, which is expected to be JSON.
 ///
 /// stderr carries logs and progress and is folded into the error message on
@@ -849,6 +973,7 @@ async fn list_aws_profiles() -> Result<Vec<String>, String> {
 /// Inventory an account. Returns the CLI's JSON verbatim.
 #[tauri::command]
 async fn discover_account(
+    state: tauri::State<'_, ActiveScan>,
     profile: String,
     regions: Vec<String>,
     all_regions: bool,
@@ -868,7 +993,7 @@ async fn discover_account(
         }
     }
     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_warpcore_json(&borrowed).await
+    run_cancellable_scan(&state, &borrowed).await
 }
 
 /// Everything about one resource, by ARN. Returns the CLI's JSON verbatim.
@@ -884,6 +1009,7 @@ async fn resource_detail(profile: String, arn: String, hours: u32) -> Result<Str
 
 fn main() {
     tauri::Builder::default()
+        .manage(ActiveScan::default())
         // Only the dialog plugin is used: the frontend opens a file picker.
         // All file IO happens in Rust commands via tokio::fs/std::fs, which
         // needs no plugin and is not reachable from the webview.
@@ -902,6 +1028,7 @@ fn main() {
             list_aws_profiles,
             discover_account,
             resource_detail,
+            cancel_scan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
