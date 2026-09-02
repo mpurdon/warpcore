@@ -75,6 +75,27 @@ src/warpcore/
 └── utils/            # Logging, AWS clients, helpers
 ```
 
+## Building a standalone binary
+
+Produces a single executable with the interpreter embedded, so the target
+machine needs no Python at all:
+
+```bash
+uv pip install -e ".[build]"
+python packaging/build.py
+```
+
+Output lands in `dist/` as both `warpcore` and a platform-tagged copy
+(`warpcore-macos-arm64`, `warpcore-windows-x86_64`, ...) so artifacts from
+several machines can be collected into one release.
+
+PyInstaller does not cross-compile - run the build on each OS you ship. Pass
+`--sidecar` to additionally emit a Tauri-sidecar-named copy for the visual
+builder to bundle.
+
+This matters most on Windows, where Python console scripts install into
+`Scripts\` and are not reliably on `PATH`.
+
 ## Development
 
 Run tests:

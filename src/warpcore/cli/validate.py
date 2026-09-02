@@ -1,15 +1,15 @@
 """Validate command for checking configuration without deploying."""
 
+import sys
+
 import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.text import Text
-from typing import List, Dict
+from typing import List
 from dataclasses import dataclass
-import json
 
-from ..config.parser import Config, ConfigValidationError
+from ..config.parser import Config
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -87,17 +87,17 @@ def validate(config: str, env: str, strict: bool, json_output: bool):
         
         # Exit with appropriate code
         if errors or (strict and warnings):
-            exit(1)
+            sys.exit(1)
         else:
-            exit(0)
+            sys.exit(0)
             
     except FileNotFoundError:
         console.print(f"[red]Error: Configuration file '{config}' not found[/red]")
-        exit(1)
+        sys.exit(1)
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         logger.exception("Validation failed")
-        exit(1)
+        sys.exit(1)
 
 
 def _validate_environment(config, env_name: str) -> List[ValidationError]:
@@ -264,7 +264,8 @@ def _is_valid_cidr(cidr: str) -> bool:
             return False
         
         return True
-    except:
+    except (ValueError, IndexError):
+        # int() on a non-numeric octet, or a CIDR with no '/' part.
         return False
 
 
