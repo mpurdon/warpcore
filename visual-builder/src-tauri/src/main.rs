@@ -67,7 +67,7 @@ async fn execute_cli_command(
     args: Vec<String>,
     window: tauri::Window,
 ) -> Result<String, String> {
-    let mut cmd = TokioCommand::new("warpcore");
+    let mut cmd = warpcore_command();
     cmd.args(&args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -159,6 +159,57 @@ async fn get_deployment_status() -> Result<Vec<DeploymentUpdate>, String> {
     Ok(vec![])
 }
 
+/// Filename of the warpcore CLI on this platform.
+const WARPCORE_BIN: &str = if cfg!(windows) { "warpcore.exe" } else { "warpcore" };
+
+/// Locate the warpcore CLI.
+///
+/// Prefers the sidecar Tauri bundles next to this executable, so the GUI always
+/// runs the CLI it was built and tested against. Without this the app resolved
+/// a bare `warpcore` against the user's PATH, which fails outright on Windows
+/// (Python console scripts install into `Scripts\`, not reliably on PATH) and
+/// silently runs the wrong version anywhere else - a GUI sending `--dev` to a
+/// CLI that predates the flag just gets "No such option".
+///
+/// Falls back to PATH so `cargo run` and `tauri dev` still work before a
+/// sidecar has been produced by `packaging/build.py --sidecar`.
+fn warpcore_path() -> std::path::PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // Tauri strips the target triple when bundling, so the sidecar is
+            // plain `warpcore` at runtime even though it ships as
+            // `warpcore-aarch64-apple-darwin` in the source tree.
+            let bundled = dir.join(WARPCORE_BIN);
+            if bundled.is_file() {
+                return bundled;
+            }
+        }
+    }
+    std::path::PathBuf::from(WARPCORE_BIN)
+}
+
+/// Build a command for the warpcore CLI.
+///
+/// The single place a warpcore process is constructed, so platform quirks are
+/// handled once rather than at five call sites.
+fn warpcore_command() -> TokioCommand {
+    // Only the Windows branch below mutates this, so `mut` reads as unused
+    // on every other platform.
+    #[allow(unused_mut)]
+    let mut cmd = TokioCommand::new(warpcore_path());
+
+    #[cfg(windows)]
+    {
+        // Without this every CLI invocation flashes a console window. The
+        // `windows_subsystem = "windows"` attribute at the top of this file
+        // only suppresses the console for *our* process, not for children.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd
+}
+
 // Build a warpcore argv. `--dev` is an option on the top-level click group,
 // so it has to come before the subcommand, not after it.
 fn warpcore_args(debug: bool, args: &[&str]) -> Vec<String> {
@@ -196,7 +247,7 @@ async fn execute_deployment(
         }),
     );
 
-    let mut cmd = TokioCommand::new("warpcore");
+    let mut cmd = warpcore_command();
     cmd.args(warpcore_args(
         debug,
         &["deploy", "--env", &environment, "--config", &config_path],
@@ -323,7 +374,7 @@ async fn execute_destroy(
     debug: bool,
     window: tauri::Window,
 ) -> Result<String, String> {
-    let mut cmd = TokioCommand::new("warpcore");
+    let mut cmd = warpcore_command();
     cmd.args(warpcore_args(
         debug,
         &[
@@ -376,7 +427,7 @@ async fn execute_destroy(
 // Validate configuration
 #[tauri::command]
 async fn validate_config(config_path: String) -> Result<String, String> {
-    let output = TokioCommand::new("warpcore")
+    let output = warpcore_command()
         .args(&["validate", "--config", &config_path])
         .output()
         .await
@@ -396,7 +447,7 @@ async fn get_deployment_history(
     environment: String,
     limit: u32,
 ) -> Result<String, String> {
-    let output = TokioCommand::new("warpcore")
+    let output = warpcore_command()
         .args(&[
             "history",
             "list",

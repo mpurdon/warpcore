@@ -49,6 +49,10 @@ npm install
 Run the development server:
 
 ```bash
+# 1. build the CLI sidecar (once, or after changing the Python CLI)
+python packaging/build.py --sidecar   # from the repo root; `python3` on macOS/Linux
+
+# 2. run the app
 npm run tauri:dev
 ```
 
@@ -149,6 +153,31 @@ The Visual Builder integrates seamlessly with the Warpcore CLI:
 - `Delete`: Delete selected nodes/edges
 - `Cmd/Ctrl + Z`: Undo
 - `Cmd/Ctrl + Shift + Z`: Redo
+
+## The warpcore sidecar
+
+The app does not call a `warpcore` on your PATH. It bundles the CLI as a Tauri
+**sidecar** - `src-tauri/binaries/warpcore-<target-triple>` - which Tauri ships
+inside the `.app`/`.msi` and places next to the app binary at runtime.
+
+This means the GUI always runs the CLI it was built against. Before this, a
+user with an older `warpcore` on PATH would get errors like
+`No such option: --dev` from the debug toggle, and on Windows the CLI often
+would not resolve at all, because Python console scripts install into
+`Scripts\` which is not reliably on PATH.
+
+Build it from the repo root:
+
+```bash
+python packaging/build.py --sidecar
+```
+
+**`tauri dev` and `tauri build` both fail if the sidecar is missing** - Tauri
+validates `bundle.externalBin` at build time. If you see
+`failed to run custom build command`, that is usually the cause.
+
+The sidecar is gitignored (it is a 35MB build artifact) and PyInstaller does
+not cross-compile, so each platform you ship needs its own build.
 
 ## Troubleshooting
 

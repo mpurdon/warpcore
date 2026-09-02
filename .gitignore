@@ -52,6 +52,8 @@ node_modules/
 src-tauri/target/
 # Regenerated from tauri.conf.json + capabilities on every build.
 src-tauri/gen/schemas/
+# Sidecar binaries, produced by packaging/build.py --sidecar
+src-tauri/binaries/
 
 # macOS
 .DS_Store

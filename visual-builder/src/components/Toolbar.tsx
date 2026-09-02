@@ -11,6 +11,7 @@ import EnvironmentConfigPanel from './EnvironmentConfigPanel';
 import EnvironmentSelector from './EnvironmentSelector';
 import ProjectDiscoveryPanel from './ProjectDiscoveryPanel';
 import { addRecentProject, extractProjectName } from '../utils/recentProjects';
+import { dirname } from '../utils/paths';
 
 // Debounce delay for auto-save (ms)
 const AUTO_SAVE_DELAY = 1000;
@@ -328,7 +329,7 @@ export default function Toolbar() {
         <ProjectDiscoveryPanel
           isOpen={showDiscoveryPanel}
           onClose={() => setShowDiscoveryPanel(false)}
-          projectPath={configPath.substring(0, configPath.lastIndexOf('/'))}
+          projectPath={dirname(configPath)}
         />
       )}
     </div>
