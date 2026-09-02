@@ -1,13 +1,14 @@
 """Cost forecasting command."""
 
+import sys
+
 import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from typing import Dict, List
-import json
+from typing import Dict
 
-from ..config.parser import Config
+from ..config.parser import Config, ConfigValidationError
 from ..history.cost_estimator import CostEstimator
 from ..utils.logging import get_logger
 
@@ -19,53 +20,82 @@ console = Console()
 @click.option('--config', default='warpcore.yaml', help='Path to configuration file')
 @click.option('--env', help='Environment to forecast for')
 @click.option('--period', type=click.Choice(['daily', 'monthly', 'yearly']), default='monthly', help='Forecast period')
+@click.option('--avg-duration-ms', type=int, default=1000, show_default=True,
+              help='Assumed average Lambda duration. Timeout is a safety bound, not an expectation, so this cannot be derived from the config - put your real number in for a useful estimate.')
 @click.option('--json-output', is_flag=True, help='Output in JSON format')
-def forecast(config: str, env: str, period: str, json_output: bool):
+def forecast(config: str, env: str, period: str, avg_duration_ms: int, json_output: bool):
     """Predict costs before deployment based on configuration."""
     try:
-        # Load configuration
-        config_parser = ConfigParser(config)
-        parsed_config = config_parser.parse()
-        
-        # Create cost estimator
+        parsed_config = Config(config)
+        parsed_config.load()
+
+        # A typo in --env used to be silently ignored, producing a forecast
+        # labelled for an environment that does not exist.
+        if env:
+            parsed_config.get_environment(env)
+
+        # Request volume comes from the project's own cost_estimation block
+        # rather than a hardcoded 1M, which is what that setting is for.
+        monthly_requests = 100_000
+        if parsed_config.project and parsed_config.project.cost_estimation:
+            monthly_requests = parsed_config.project.cost_estimation.executions_per_month
+
         estimator = CostEstimator()
-        
-        # Estimate costs for each agent
+
         total_cost = 0.0
         cost_breakdown = {}
-        
+
         for agent in parsed_config.agents:
-            agent_costs = _estimate_agent_costs(agent, estimator, period)
+            agent_costs = _estimate_agent_costs(
+                agent, estimator, period, monthly_requests, avg_duration_ms
+            )
             cost_breakdown[agent.name] = agent_costs
             total_cost += sum(agent_costs.values())
-        
-        # Add shared infrastructure costs
-        if hasattr(parsed_config, 'shared'):
-            shared_costs = _estimate_shared_costs(parsed_config.shared, estimator, period)
+
+        # Shared infrastructure. Config.shared always exists after load(), but
+        # its individual sections can be None.
+        shared_costs = _estimate_shared_costs(parsed_config.shared, estimator, period)
+        if shared_costs:
             cost_breakdown['shared-infrastructure'] = shared_costs
             total_cost += sum(shared_costs.values())
-        
-        # Output results
+
         if json_output:
-            _output_json(cost_breakdown, total_cost, period)
+            _output_json(cost_breakdown, total_cost, period, monthly_requests,
+                         avg_duration_ms)
         else:
-            _output_rich(cost_breakdown, total_cost, period, env)
-            
+            _output_rich(cost_breakdown, total_cost, period, env, monthly_requests,
+                         avg_duration_ms)
+
     except FileNotFoundError:
         console.print(f"[red]Error: Configuration file '{config}' not found[/red]")
+        console.print("\nRun [cyan]warpcore init[/cyan] to create one.")
+        sys.exit(1)
+    except ConfigValidationError as e:
+        console.print(f"[red]Configuration error:[/red] {e}")
+        sys.exit(1)
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         logger.exception("Cost forecasting failed")
+        sys.exit(1)
 
 
-def _estimate_agent_costs(agent, estimator: CostEstimator, period: str) -> Dict[str, float]:
-    """Estimate costs for a single agent."""
+def _estimate_agent_costs(
+    agent,
+    estimator: CostEstimator,
+    period: str,
+    monthly_requests: int,
+    avg_duration_ms: int,
+) -> Dict[str, float]:
+    """Estimate costs for a single agent.
+
+    Duration is not derivable from the config: `timeout` is the point at which
+    Lambda gives up, and most functions finish far below it. Deriving duration
+    from timeout would silently inflate the estimate several-fold, so it is an
+    explicit input with a stated default instead.
+    """
     costs = {}
-    
-    # Lambda costs
-    # Assumptions: 1M requests/month, 1s average duration
-    requests_per_period = _get_requests_for_period(1_000_000, period)
-    avg_duration_ms = 1000
+
+    requests_per_period = _get_requests_for_period(monthly_requests, period)
     
     lambda_cost = estimator.estimate_lambda_cost(
         memory_mb=agent.memory,
@@ -94,9 +124,10 @@ def _estimate_agent_costs(agent, estimator: CostEstimator, period: str) -> Dict[
 def _estimate_shared_costs(shared_config, estimator: CostEstimator, period: str) -> Dict[str, float]:
     """Estimate costs for shared infrastructure."""
     costs = {}
-    
-    # VPC costs
-    if hasattr(shared_config, 'vpc') and shared_config.vpc.enabled:
+
+    # shared.vpc is None when the config omits a `vpc:` block, so `.enabled`
+    # cannot be reached unconditionally.
+    if shared_config is not None and shared_config.vpc and shared_config.vpc.enabled:
         # NAT Gateway costs (assume 1 NAT gateway, 100GB data processed per month)
         data_gb = _get_data_for_period(100, period)
         nat_cost = estimator.estimate_nat_gateway_cost(
@@ -148,10 +179,18 @@ def _get_hours_for_period(period: str) -> int:
     return 730
 
 
-def _output_json(cost_breakdown: Dict[str, Dict[str, float]], total: float, period: str):
+def _output_json(
+    cost_breakdown: Dict[str, Dict[str, float]],
+    total: float,
+    period: str,
+    monthly_requests: int,
+    avg_duration_ms: int,
+):
     """Output in JSON format."""
     output = {
         'period': period,
+        'monthly_requests': monthly_requests,
+        'avg_duration_ms': avg_duration_ms,
         'total_cost': round(total, 2),
         'breakdown': {
             agent: {service: round(cost, 2) for service, cost in costs.items()}
@@ -161,7 +200,14 @@ def _output_json(cost_breakdown: Dict[str, Dict[str, float]], total: float, peri
     console.print_json(data=output)
 
 
-def _output_rich(cost_breakdown: Dict[str, Dict[str, float]], total: float, period: str, env: str):
+def _output_rich(
+    cost_breakdown: Dict[str, Dict[str, float]],
+    total: float,
+    period: str,
+    env: str,
+    monthly_requests: int,
+    avg_duration_ms: int,
+):
     """Output in rich formatted text."""
     title = f"Cost Forecast - {period.capitalize()}"
     if env:
@@ -196,8 +242,15 @@ def _output_rich(cost_breakdown: Dict[str, Dict[str, float]], total: float, peri
     
     # Assumptions and notes
     console.print("[dim]Assumptions:[/dim]")
-    console.print("[dim]  • Lambda: 1M requests/month, 1s avg duration[/dim]")
-    console.print("[dim]  • API Gateway: 1M requests/month[/dim]")
+    console.print(
+        f"[dim]  • {monthly_requests:,} requests/month "
+        f"(project.cost_estimation.executions_per_month)[/dim]"
+    )
+    console.print(
+        f"[dim]  • Lambda duration: {avg_duration_ms} ms average "
+        f"(override with --avg-duration-ms)[/dim]"
+    )
+    console.print("[dim]  • CloudWatch Logs: 10 entries of 1KB per request[/dim]")
     console.print("[dim]  • NAT Gateway: 100GB data processed/month[/dim]")
     console.print("[dim]  • Actual costs may vary based on usage patterns[/dim]")
     console.print()

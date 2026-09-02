@@ -1,6 +1,6 @@
 """Cost estimation for deployments."""
 
-from typing import Dict, List
+from typing import Dict
 from warpcore.state.models import State, Resource
 from warpcore.utils.logging import get_logger
 
@@ -87,6 +87,66 @@ class CostEstimator:
         },
     }
 
+    # Pricing that is not attached to a single resource type in the table above.
+    XRAY_PER_MILLION_TRACES = 5.00       # traces recorded
+    VPC_ENDPOINT_PER_HOUR = 0.01         # per interface endpoint, per AZ
+    HOURS_PER_MONTH = 730                # ~30.4 days
+
+    # --------------------------------------------------------------- pricing
+    #
+    # These take raw parameters rather than a Resource so that callers who only
+    # have a config - `warpcore forecast`, which runs before anything is
+    # deployed - can price a change without inventing a State first.
+    # estimate_resource_cost() below delegates to them, so the two paths cannot
+    # drift apart.
+
+    def estimate_lambda_cost(
+        self, memory_mb: int, duration_ms: float, requests: int
+    ) -> float:
+        """Monthly Lambda cost for a given size, duration and request volume."""
+        estimates = self.COST_ESTIMATES["AWS::Lambda::Function"]
+        gb_seconds = (memory_mb / 1024.0) * (duration_ms / 1000.0) * requests
+        compute_cost = gb_seconds * estimates["per_gb_second"]
+        request_cost = requests * estimates["per_request"]
+        return compute_cost + request_cost
+
+    def estimate_api_gateway_cost(self, requests: int, api_type: str = "http") -> float:
+        """API Gateway cost. HTTP APIs are markedly cheaper than REST APIs."""
+        key = (
+            "AWS::ApiGatewayV2::Api" if api_type == "http"
+            else "AWS::ApiGateway::RestApi"
+        )
+        estimates = self.COST_ESTIMATES[key]
+        return (requests / 1_000_000) * estimates["per_million_requests"]
+
+    def estimate_cloudwatch_logs_cost(
+        self, data_ingested_gb: float, data_stored_gb: float = 0.0
+    ) -> float:
+        """CloudWatch Logs cost for ingestion plus retained storage."""
+        estimates = self.COST_ESTIMATES["AWS::Logs::LogGroup"]
+        return (
+            data_ingested_gb * estimates["per_gb_ingested"]
+            + data_stored_gb * estimates["per_gb_stored"]
+        )
+
+    def estimate_xray_cost(self, traces: int) -> float:
+        """X-Ray cost for recorded traces."""
+        return (traces / 1_000_000) * self.XRAY_PER_MILLION_TRACES
+
+    def estimate_nat_gateway_cost(self, hours: float, data_processed_gb: float) -> float:
+        """NAT Gateway cost: hourly charge plus per-GB data processing."""
+        estimates = self.COST_ESTIMATES["AWS::EC2::NatGateway"]
+        # `base` in the table is a monthly figure; convert back to hourly so an
+        # arbitrary period can be priced.
+        hourly_rate = estimates["base"] / self.HOURS_PER_MONTH
+        return hours * hourly_rate + data_processed_gb * estimates["per_gb_processed"]
+
+    def estimate_vpc_endpoint_cost(self, endpoint_count: int, hours: float) -> float:
+        """Interface VPC endpoint cost. Data processing is not included."""
+        return endpoint_count * hours * self.VPC_ENDPOINT_PER_HOUR
+
+    # ---------------------------------------------------------------- states
+
     def estimate_deployment_cost(self, state: State) -> float:
         """
         Estimate monthly cost for a deployment.
@@ -128,22 +188,18 @@ class CostEstimator:
 
         # Lambda function cost calculation
         if resource_type == "AWS::Lambda::Function":
-            memory_mb = resource.properties.get("MemorySize", 128)
-            memory_gb = memory_mb / 1024.0
-            requests = estimates["estimated_monthly_requests"]
-            duration_seconds = estimates["estimated_avg_duration_ms"] / 1000.0
-
-            # Compute cost
-            gb_seconds = memory_gb * duration_seconds * requests
-            compute_cost = gb_seconds * estimates["per_gb_second"]
-            request_cost = requests * estimates["per_request"]
-
-            cost = compute_cost + request_cost
+            cost = self.estimate_lambda_cost(
+                memory_mb=resource.properties.get("MemorySize", 128),
+                duration_ms=estimates["estimated_avg_duration_ms"],
+                requests=estimates["estimated_monthly_requests"],
+            )
 
         # API Gateway cost calculation
         elif resource_type in ["AWS::ApiGateway::RestApi", "AWS::ApiGatewayV2::Api"]:
-            requests = estimates["estimated_monthly_requests"]
-            cost = (requests / 1_000_000) * estimates["per_million_requests"]
+            cost = self.estimate_api_gateway_cost(
+                requests=estimates["estimated_monthly_requests"],
+                api_type="http" if resource_type == "AWS::ApiGatewayV2::Api" else "rest",
+            )
 
         # DynamoDB cost calculation
         elif resource_type == "AWS::DynamoDB::Table":
@@ -185,17 +241,16 @@ class CostEstimator:
 
         # NAT Gateway cost calculation
         elif resource_type == "AWS::EC2::NatGateway":
-            cost = estimates["base"]
-            gb_processed = estimates["estimated_monthly_gb"]
-            cost += gb_processed * estimates["per_gb_processed"]
+            cost = self.estimate_nat_gateway_cost(
+                hours=self.HOURS_PER_MONTH,
+                data_processed_gb=estimates["estimated_monthly_gb"],
+            )
 
         # CloudWatch Logs cost calculation
         elif resource_type == "AWS::Logs::LogGroup":
-            gb_ingested = estimates["estimated_monthly_gb_ingested"]
-            gb_stored = estimates["estimated_monthly_gb_stored"]
-
-            cost = (gb_ingested * estimates["per_gb_ingested"]) + (
-                gb_stored * estimates["per_gb_stored"]
+            cost = self.estimate_cloudwatch_logs_cost(
+                data_ingested_gb=estimates["estimated_monthly_gb_ingested"],
+                data_stored_gb=estimates["estimated_monthly_gb_stored"],
             )
 
         return cost

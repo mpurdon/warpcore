@@ -1,11 +1,14 @@
 """Resource limits management."""
 
+import copy
+import json
+import os
+import sys
+
 import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-import json
-import os
 
 from ..utils.logging import get_logger
 
@@ -13,6 +16,9 @@ logger = get_logger(__name__)
 console = Console()
 
 LIMITS_FILE = '.warpcore/limits.json'
+
+# Warn once a value is within this fraction of its limit.
+APPROACHING_LIMIT_RATIO = 0.8
 
 DEFAULT_LIMITS = {
     'lambda': {
@@ -94,40 +100,40 @@ def reset():
 @click.option('--env', help='Environment to check')
 def check(config: str, env: str):
     """Check if configuration exceeds limits."""
-    from ..config.parser import Config
-    
+    from ..config.parser import Config, ConfigValidationError
+
     try:
-        # Load configuration
-        config_parser = ConfigParser(config)
-        parsed_config = config_parser.parse()
-        
-        # Load limits
+        parsed_config = Config(config)
+        parsed_config.load()
+
+        # A typo in --env used to pass silently; report it instead.
+        if env:
+            parsed_config.get_environment(env)
+
         limits_config = _load_limits()
-        
-        # Check limits
+        lambda_limits = limits_config['lambda']
+
         violations = []
         warnings = []
-        
-        # Check Lambda limits
+
         for agent in parsed_config.agents:
-            if agent.memory > limits_config['lambda']['max_memory_mb']:
-                violations.append(
-                    f"Agent '{agent.name}' memory ({agent.memory} MB) exceeds limit "
-                    f"({limits_config['lambda']['max_memory_mb']} MB)"
-                )
-            
-            if agent.timeout > limits_config['lambda']['max_timeout_seconds']:
-                violations.append(
-                    f"Agent '{agent.name}' timeout ({agent.timeout}s) exceeds limit "
-                    f"({limits_config['lambda']['max_timeout_seconds']}s)"
-                )
-            
-            # Warnings for approaching limits
-            if agent.memory > limits_config['lambda']['max_memory_mb'] * 0.8:
-                warnings.append(
-                    f"Agent '{agent.name}' memory ({agent.memory} MB) is approaching limit "
-                    f"({limits_config['lambda']['max_memory_mb']} MB)"
-                )
+            for value, limit_key, label, unit in (
+                (agent.memory, 'max_memory_mb', 'memory', 'MB'),
+                (agent.timeout, 'max_timeout_seconds', 'timeout', 's'),
+            ):
+                limit = lambda_limits[limit_key]
+                if value > limit:
+                    violations.append(
+                        f"Agent '{agent.name}' {label} ({value} {unit}) exceeds limit "
+                        f"({limit} {unit})"
+                    )
+                elif value > limit * APPROACHING_LIMIT_RATIO:
+                    # Only warn when it is not already a violation; the old code
+                    # reported an over-limit agent twice.
+                    warnings.append(
+                        f"Agent '{agent.name}' {label} ({value} {unit}) is approaching "
+                        f"limit ({limit} {unit})"
+                    )
         
         # Display results
         if violations:
@@ -147,27 +153,51 @@ def check(config: str, env: str):
         
         # Exit with error if violations
         if violations:
-            exit(1)
-            
+            sys.exit(1)
+
     except FileNotFoundError:
         console.print(f"[red]Error: Configuration file '{config}' not found[/red]")
-        exit(1)
+        console.print("\nRun [cyan]warpcore init[/cyan] to create one.")
+        sys.exit(1)
+    except ConfigValidationError as e:
+        console.print(f"[red]Configuration error:[/red] {e}")
+        sys.exit(1)
+    except SystemExit:
+        raise
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         logger.exception("Limit check failed")
-        exit(1)
+        sys.exit(1)
 
 
 def _load_limits() -> dict:
-    """Load limits from file or return defaults."""
-    if os.path.exists(LIMITS_FILE):
-        try:
-            with open(LIMITS_FILE, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to load limits file: {e}")
-    
-    return DEFAULT_LIMITS.copy()
+    """Load limits from file, filling any gaps from the defaults.
+
+    Returns a deep copy: a shallow copy shares the nested category dicts with
+    DEFAULT_LIMITS, so `limits set` would mutate the module-level defaults and
+    `limits reset` would then restore the mutated values.
+    """
+    limits_config = copy.deepcopy(DEFAULT_LIMITS)
+
+    if not os.path.exists(LIMITS_FILE):
+        return limits_config
+
+    try:
+        with open(LIMITS_FILE, 'r') as f:
+            stored = json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to load limits file: {e}")
+        return limits_config
+
+    # Merge per category so a file written by an older version - or one missing
+    # a category entirely - cannot make `check` raise KeyError.
+    for category, values in (stored or {}).items():
+        if isinstance(values, dict):
+            limits_config.setdefault(category, {}).update(values)
+        else:
+            limits_config[category] = values
+
+    return limits_config
 
 
 def _save_limits(limits: dict):
