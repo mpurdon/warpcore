@@ -74,7 +74,8 @@ class TestInventory:
         # stdout must be pure JSON: logs and progress go to stderr, and
         # `result.output` deliberately merges both.
         payload = json.loads(result.stdout)
-        assert payload["region"] == REGION
+        # Multi-region output reports a per-region count map, not one region.
+        assert REGION in payload["regions"]
         assert payload["counts"]
         assert any(r["id"] == "checkout-assets" for r in payload["resources"])
 
