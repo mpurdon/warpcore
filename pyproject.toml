@@ -18,26 +18,38 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
+# Version policy: the lower bound is the oldest release whose API this code
+# actually uses; the upper bound excludes the next major, because every library
+# here has broken something across a major before. uv.lock records the versions
+# actually tested - these ranges say what is believed to work, not what is
+# verified.
 dependencies = [
-    "boto3>=1.34.0",
-    "click>=8.1.0",
-    "pyyaml>=6.0",
-    "pydantic>=2.5.0",
-    "rich>=13.7.0",
-    "watchdog>=3.0.0",
-    "requests>=2.31.0",
+    "boto3>=1.34.0,<2",
+    # 8.2 separated CliRunner's result.stdout from result.stderr, which the CLI
+    # tests depend on to assert that --json output is not polluted by logs.
+    "click>=8.2.0,<9",
+    "pyyaml>=6.0,<7",
+    # v2 API throughout: model_copy, model_dump(mode=...), field_validator.
+    "pydantic>=2.5.0,<3",
+    "rich>=13.7.0,<15",
+    "watchdog>=3.0.0,<7",
+    "requests>=2.31.0,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-    "moto>=5.0.0",
+    "pytest>=7.4.0,<10",
+    # moto 5 renamed the decorators to a single mock_aws; the tests use it.
+    "moto>=5.0.0,<6",
     # moto's resourcegroupstaggingapi backend imports its glue backend,
     # which needs pyparsing; moto does not declare it.
-    "pyparsing>=3.0.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
+    "pyparsing>=3.0.0,<4",
+    # black's stable style changes each year, so cap the major to avoid a
+    # toolchain upgrade silently reformatting the tree.
+    "black>=24.0.0,<26",
+    # ruff is pre-1.0 and adds rules in minor releases, which can newly fail
+    # a previously clean lint.
+    "ruff>=0.6.0,<1",
 ]
 
 [project.scripts]
