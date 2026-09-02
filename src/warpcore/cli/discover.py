@@ -169,9 +169,12 @@ def inventory(ctx, region, scope, project_name, environment, hydrate,
 @click.option("--type", "resource_types", multiple=True, help="Only this type; repeatable")
 @click.option("--max", "max_resources", type=int, default=2000, show_default=True)
 @click.option("--force", is_flag=True, help="Overwrite an existing file")
+@click.option("--include-env-values", is_flag=True,
+              help="Copy real Lambda environment variable values. These are often "
+                   "live credentials; by default only the names are kept.")
 @click.pass_context
 def emit_config(ctx, region, scope, project_name, environment, out_path,
-                resource_types, max_resources, force):
+                resource_types, max_resources, force, include_env_values):
     """Generate a warpcore.yaml from what is deployed in an account."""
     scanner, credentials, resolved_region = _scanner(ctx, region, project_name, environment)
 
@@ -194,6 +197,7 @@ def emit_config(ctx, region, scope, project_name, environment, out_path,
         environment=environment,
         account=credentials.account_id,
         region=resolved_region,
+        include_env_values=include_env_values,
     ).emit()
 
     rendered = yaml.safe_dump(result.config, sort_keys=False, default_flow_style=False)

@@ -106,3 +106,80 @@ class TestApply:
         adopter = ResourceAdopter(state_manager)
         adopter.apply(adopter.plan(_scanned(scanned_resource)))
         assert scanned_resource.metadata == {}
+
+
+class TestLogicalIdCollisions:
+    """State stacks key resources by logical id. Two discovered resources that
+    share one - a Lambda and the role it uses, the commonest naming convention
+    in AWS - must not silently overwrite each other.
+
+    Found by adopting a real account: adoption reported 23 resources and wrote 22.
+    """
+
+    def _role_and_function(self):
+        return (
+            Resource(id="gitf-wake", type="AWS::IAM::Role",
+                     physical_id="arn:aws:iam::515020252848:role/gitf-wake"),
+            Resource(id="gitf-wake", type="AWS::Lambda::Function",
+                     physical_id="arn:aws:lambda:us-east-1:515020252848:function:gitf-wake"),
+        )
+
+    def test_everything_planned_actually_lands_in_state(self, state_manager):
+        adopter = ResourceAdopter(state_manager)
+        plan = adopter.plan(_scanned(*self._role_and_function()))
+        planned = len(plan.to_adopt())
+        adopted = adopter.apply(plan)
+
+        assert planned == 2
+        assert adopted == 2
+        assert len(state_manager.load().all_resources()) == 2
+
+    def test_the_lambda_keeps_the_plain_name(self, state_manager):
+        """A person who says "gitf-wake" means the function, not its role."""
+        adopter = ResourceAdopter(state_manager)
+        adopter.apply(adopter.plan(_scanned(*self._role_and_function())))
+
+        state = state_manager.load()
+        assert state.get_resource("gitf-wake").type == "AWS::Lambda::Function"
+        assert state.get_resource("gitf-wake-role").type == "AWS::IAM::Role"
+
+    def test_the_rename_is_reported_in_the_plan(self, state_manager):
+        plan = ResourceAdopter(state_manager).plan(_scanned(*self._role_and_function()))
+        renamed = [i for i in plan.items if i.original_id]
+        assert len(renamed) == 1
+        assert renamed[0].original_id == "gitf-wake"
+        assert "renamed from" in renamed[0].detail
+
+    def test_the_original_name_is_kept_in_metadata(self, state_manager):
+        adopter = ResourceAdopter(state_manager)
+        adopter.apply(adopter.plan(_scanned(*self._role_and_function())))
+        role = state_manager.load().get_resource("gitf-wake-role")
+        assert role.metadata["original_id"] == "gitf-wake"
+
+    def test_three_way_collision_still_resolves(self, state_manager):
+        resources = (
+            *self._role_and_function(),
+            Resource(id="gitf-wake", type="AWS::Logs::LogGroup",
+                     physical_id="arn:aws:logs:us-east-1:1:log-group:gitf-wake"),
+        )
+        adopter = ResourceAdopter(state_manager)
+        adopter.apply(adopter.plan(_scanned(*resources)))
+
+        ids = {r.id for _, r in state_manager.load().all_resources()}
+        assert ids == {"gitf-wake", "gitf-wake-role", "gitf-wake-log-group"}
+
+    def test_collision_with_a_name_already_in_state_is_still_a_conflict(self, state_manager):
+        """Renaming applies within a plan; clashing with managed state does not."""
+        state = state_manager.load()
+        state.add_resource("app", Resource(
+            id="gitf-wake", type="AWS::Lambda::Function", physical_id="arn:other",
+        ))
+        state_manager.save(state)
+
+        plan = ResourceAdopter(state_manager).plan(_scanned(self._role_and_function()[1]))
+        assert [i.action for i in plan.items] == ["conflict"]
+
+    def test_no_collision_means_no_rename(self, state_manager):
+        adopter = ResourceAdopter(state_manager)
+        plan = adopter.plan(_scanned(_bucket("data"), _bucket("logs")))
+        assert all(i.original_id is None for i in plan.items)

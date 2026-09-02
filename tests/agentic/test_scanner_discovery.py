@@ -176,3 +176,68 @@ def test_hydration_output_is_json_serialisable(populated_account):
     )
     for resource in scanned.get_all_resources():
         json.dumps(resource.properties)  # must not raise
+
+
+class TestLogicalIdCollisions:
+    """A role named after the function it serves must not evict the function.
+
+    Found against a real account: 23 resources enumerated, 22 scanned, because
+    `gitf-wake` the IAM role and `gitf-wake` the Lambda shared a dict key.
+    """
+
+    def _pair(self):
+        from warpcore.state.models import Resource
+        return (
+            Resource(id="gitf-wake", type="AWS::IAM::Role",
+                     physical_id="arn:aws:iam::515020252848:role/gitf-wake"),
+            Resource(id="gitf-wake", type="AWS::Lambda::Function",
+                     physical_id="arn:aws:lambda:us-east-1:515020252848:function:gitf-wake"),
+        )
+
+    def test_both_resources_survive(self):
+        from warpcore.agentic.scanner import ScannedState
+
+        state = ScannedState()
+        role, function = self._pair()
+        state.add_resource(role)
+        state.add_resource(function)
+
+        assert len(state.resources) == 2
+        assert {r.type for r in state.get_all_resources()} == {
+            "AWS::IAM::Role", "AWS::Lambda::Function"
+        }
+
+    def test_each_is_still_reachable_by_physical_id(self):
+        from warpcore.agentic.scanner import ScannedState
+
+        state = ScannedState()
+        role, function = self._pair()
+        state.add_resource(role)
+        state.add_resource(function)
+
+        assert state.get_resource_by_physical_id(role.physical_id).type == "AWS::IAM::Role"
+        assert state.get_resource_by_physical_id(function.physical_id).type == \
+            "AWS::Lambda::Function"
+
+    def test_re_adding_the_same_physical_resource_still_replaces(self):
+        """Deduplication by identity must keep working."""
+        from warpcore.agentic.scanner import ScannedState
+        from warpcore.state.models import Resource
+
+        state = ScannedState()
+        arn = "arn:aws:s3:::b"
+        state.add_resource(Resource(id="b", type="AWS::S3::Bucket", physical_id=arn))
+        state.add_resource(Resource(id="b", type="AWS::S3::Bucket", physical_id=arn,
+                                    properties={"Versioning": "Enabled"}))
+
+        assert len(state.resources) == 1
+        assert state.get_all_resources()[0].properties == {"Versioning": "Enabled"}
+
+    def test_resources_without_physical_ids_still_disambiguate_by_type(self):
+        from warpcore.agentic.scanner import ScannedState
+        from warpcore.state.models import Resource
+
+        state = ScannedState()
+        state.add_resource(Resource(id="x", type="AWS::IAM::Role"))
+        state.add_resource(Resource(id="x", type="AWS::Lambda::Function"))
+        assert len(state.resources) == 2

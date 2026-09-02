@@ -61,10 +61,22 @@ class ScannedState:
         self.truncated: bool = False
 
     def add_resource(self, resource: Resource):
-        """Add a scanned resource."""
-        self.resources[resource.id] = resource
+        """Add a scanned resource.
+
+        Keyed on physical id, not logical id. Naming a role after the function
+        it serves is the most common convention in AWS - `gitf-wake` the role
+        and `gitf-wake` the Lambda - and keying on the logical id made the
+        second one silently overwrite the first, dropping it from the
+        inventory with no error.
+        """
+        self.resources[self._key(resource)] = resource
         if resource.physical_id:
             self.resource_arns.add(resource.physical_id)
+
+    @staticmethod
+    def _key(resource: Resource) -> str:
+        """Unique key for a scanned resource."""
+        return resource.physical_id or f"{resource.type}/{resource.id}"
 
     def add_error(self, error: ScanError) -> None:
         """Record a resource that could not be read."""

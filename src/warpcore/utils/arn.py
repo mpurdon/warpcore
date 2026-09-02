@@ -170,6 +170,18 @@ def service_identifier(arn: str) -> str:
 
     service = parsed.service
 
+    if service == "iam":
+        # IAM ARNs embed the role's path: role/aws-reserved/sso.amazonaws.com/NAME.
+        # GetRole(RoleName=) rejects slashes outright, so only the last segment
+        # is the name.
+        return parsed.resource_id.rsplit("/", 1)[-1]
+
+    if service == "logs":
+        # CloudWatch Logs ARNs carry a trailing ":*" stream wildcard
+        # (log-group:/aws/lambda/fn:*) which is not part of the group name.
+        return parsed.resource_id[:-2] if parsed.resource_id.endswith(":*") \
+            else parsed.resource_id
+
     if service == "sqs":
         # SQS ARNs are arn:aws:sqs:region:account:queue-name; the API wants
         # the https URL form.

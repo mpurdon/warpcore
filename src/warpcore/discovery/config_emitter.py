@@ -10,6 +10,11 @@ schema warpcore deploys from, which means reconciling two mismatches:
 
 Anything that cannot be represented faithfully is reported as an EmitNote
 rather than silently dropped or silently mangled.
+
+Lambda environment variable VALUES are redacted by default. The output of this
+module is a file people commit, and a live function's environment is exactly
+where API tokens and connection strings live. Keys are kept so the shape of the
+config is right; pass include_env_values=True to copy the real values.
 """
 
 import re
@@ -21,6 +26,11 @@ from warpcore.state.models import Resource
 from warpcore.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Written in place of a real environment variable value. Deliberately not a
+# plausible value: deploying this config unedited should fail loudly rather
+# than quietly push a wrong secret.
+REDACTED = "<redacted - see warpcore discover config --include-env-values>"
 
 # Mirrors AgentConfig's validators in warpcore/config/models.py.
 _AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -95,12 +105,14 @@ class ConfigEmitter:
         environment: str,
         account: str,
         region: str,
+        include_env_values: bool = False,
     ):
         self.scanned_state = scanned_state
         self.project_name = project_name
         self.environment = environment
         self.account = account
         self.region = region
+        self.include_env_values = include_env_values
 
     def emit(self) -> EmitResult:
         """Generate the config."""
@@ -220,14 +232,25 @@ class ConfigEmitter:
 
         env_vars = (props.get("Environment") or {}).get("Variables") or {}
         if env_vars:
-            agent["environment"] = {k: str(v) for k, v in sorted(env_vars.items())}
-            notes.append(EmitNote(
-                level="warning",
-                physical_id=physical,
-                message=f"{len(env_vars)} environment variable(s) copied verbatim from "
-                        f"the live function - review before committing, they may "
-                        f"contain secrets",
-            ))
+            if self.include_env_values:
+                agent["environment"] = {k: str(v) for k, v in sorted(env_vars.items())}
+                notes.append(EmitNote(
+                    level="warning",
+                    physical_id=physical,
+                    message=f"{len(env_vars)} environment variable VALUE(S) copied "
+                            f"verbatim from the live function ({', '.join(sorted(env_vars))}). "
+                            f"These may be live credentials - do not commit this file "
+                            f"until you have checked",
+                ))
+            else:
+                agent["environment"] = {k: REDACTED for k in sorted(env_vars)}
+                notes.append(EmitNote(
+                    level="info",
+                    physical_id=physical,
+                    message=f"{len(env_vars)} environment variable name(s) kept, values "
+                            f"redacted ({', '.join(sorted(env_vars))}). Re-run with "
+                            f"--include-env-values to copy the real values",
+                ))
 
         user_tags = {k: v for k, v in (resource.tags or {}).items()
                      if not k.startswith("warpcore:") and k != "Name"}

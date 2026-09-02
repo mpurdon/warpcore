@@ -26,13 +26,14 @@ def _scanned(*resources):
     return state
 
 
-def _emit(*resources, project="demo", environment="dev"):
+def _emit(*resources, project="demo", environment="dev", include_env_values=False):
     return ConfigEmitter(
         scanned_state=_scanned(*resources),
         project_name=project,
         environment=environment,
         account="123456789012",
         region="us-east-1",
+        include_env_values=include_env_values,
     ).emit()
 
 
@@ -102,10 +103,9 @@ class TestEmit:
         names = [a["name"] for a in result.config["agents"]]
         assert len(names) == len(set(names)), "emitted duplicate agent names"
 
-    def test_environment_variables_are_copied_and_flagged(self):
+    def test_environment_variables_are_carried_across_by_name(self):
         result = _emit(_lambda("a", Environment={"Variables": {"API_KEY": "s3cret"}}))
-        assert result.config["agents"][0]["environment"] == {"API_KEY": "s3cret"}
-        assert any("may" in n.message and "secret" in n.message for n in result.warnings())
+        assert set(result.config["agents"][0]["environment"]) == {"API_KEY"}
 
     def test_warpcore_tags_are_not_echoed_back_into_config(self):
         fn = _lambda("a")
@@ -143,3 +143,52 @@ class TestGeneratedConfigIsValid:
     def test_emitted_config_is_yaml_round_trippable(self):
         result = _emit(_lambda("a"))
         assert yaml.safe_load(yaml.safe_dump(result.config)) == result.config
+
+
+class TestEnvironmentVariableRedaction:
+    """A generated config is a file people commit; a live Lambda's environment
+    is exactly where tokens live. Found by running this against a real account
+    and getting a working API token written to disk in plaintext."""
+
+    def _agent_with_secrets(self, **kwargs):
+        return _emit(_lambda("a", Environment={"Variables": {
+            "WAKE_TOKEN": "jcgsKh5Jyvzvd5EajhRiLFhUjfgN9b4O",
+            "INSTANCE_ID": "i-0593ef62313cab7a1",
+        }}), **kwargs)
+
+    def test_values_are_redacted_by_default(self):
+        result = self._agent_with_secrets()
+        env = result.config["agents"][0]["environment"]
+        assert "jcgsKh5Jyvzvd5EajhRiLFhUjfgN9b4O" not in str(result.config)
+        assert all(v.startswith("<redacted") for v in env.values())
+
+    def test_variable_names_are_kept(self):
+        """The shape of the config still has to be right."""
+        env = self._agent_with_secrets().config["agents"][0]["environment"]
+        assert set(env) == {"WAKE_TOKEN", "INSTANCE_ID"}
+
+    def test_redaction_is_reported_as_info_not_a_warning(self):
+        result = self._agent_with_secrets()
+        assert not result.warnings()
+        assert any("redacted" in n.message for n in result.notes)
+
+    def test_opt_in_copies_real_values(self):
+        result = self._agent_with_secrets(include_env_values=True)
+        env = result.config["agents"][0]["environment"]
+        assert env["WAKE_TOKEN"] == "jcgsKh5Jyvzvd5EajhRiLFhUjfgN9b4O"
+
+    def test_opt_in_warns_and_names_the_variables(self):
+        result = self._agent_with_secrets(include_env_values=True)
+        warnings = result.warnings()
+        assert warnings
+        assert "WAKE_TOKEN" in warnings[0].message
+        assert "do not commit" in warnings[0].message
+
+    def test_redacted_config_still_loads(self, tmp_path):
+        import yaml as _yaml
+        from warpcore.config.parser import Config
+
+        result = self._agent_with_secrets()
+        path = tmp_path / "warpcore.yaml"
+        path.write_text(_yaml.safe_dump(result.config, sort_keys=False))
+        Config(str(path)).load()

@@ -96,3 +96,31 @@ class TestServiceIdentifier:
 def test_logical_id_prefers_the_trailing_segment():
     assert logical_id_from_arn("arn:aws:logs:us-east-1:1:log-group:/aws/lambda/fn") == "fn"
     assert logical_id_from_arn("arn:aws:iam::1:role/path/to/my-role") == "my-role"
+
+
+class TestServiceIdentifierRealWorldArns:
+    """Cases found by running discovery against a real AWS account."""
+
+    def test_iam_role_path_is_stripped(self):
+        # GetRole(RoleName=) rejects slashes: "must contain only alphanumeric
+        # characters and/or the following: +=,.@_-"
+        arn = ("arn:aws:iam::515020252848:role/aws-reserved/sso.amazonaws.com/"
+               "AWSReservedSSO_AccountAdmin_04e55675397e1c0b")
+        assert service_identifier(arn) == "AWSReservedSSO_AccountAdmin_04e55675397e1c0b"
+
+    def test_iam_role_without_a_path_is_unchanged(self):
+        assert service_identifier("arn:aws:iam::1:role/gitf-wake") == "gitf-wake"
+
+    def test_log_group_stream_wildcard_is_stripped(self):
+        # describe_log_groups rejects the trailing ":*" that the logs API
+        # itself puts on the ARN.
+        arn = "arn:aws:logs:us-east-1:515020252848:log-group:/aws/lambda/gitf-wake:*"
+        assert service_identifier(arn) == "/aws/lambda/gitf-wake"
+
+    def test_log_group_without_wildcard_is_unchanged(self):
+        arn = "arn:aws:logs:us-east-1:1:log-group:/aws/lambda/fn"
+        assert service_identifier(arn) == "/aws/lambda/fn"
+
+    def test_log_group_type_survives_the_wildcard(self):
+        arn = "arn:aws:logs:us-east-1:1:log-group:/aws/lambda/fn:*"
+        assert resource_type_from_arn(arn) == "AWS::Logs::LogGroup"

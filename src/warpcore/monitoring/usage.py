@@ -220,7 +220,10 @@ class ResourceUsageReader:
             return series
 
         values = [d[statistic] for d in datapoints]
-        series.total = sum(values)
+        # A total is only meaningful for a Sum series. Adding up a set of
+        # per-period Averages or Maximums produces a number that looks like a
+        # measurement but is not one, so leave it unset.
+        series.total = sum(values) if statistic == "Sum" else None
         series.average = sum(values) / len(values)
         series.maximum = max(values)
         series.latest = values[-1]
