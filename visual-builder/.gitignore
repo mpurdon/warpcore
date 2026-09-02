@@ -25,3 +25,10 @@ dist-ssr
 
 # Tauri
 src-tauri/target
+
+# Regenerated from tauri.conf.json + capabilities on every build.
+src-tauri/gen/schemas/
+
+# CLI sidecar, produced by `python packaging/build.py --sidecar`.
+# 35MB build artifact; PyInstaller does not cross-compile, so it is per-host.
+src-tauri/binaries/
