@@ -93,6 +93,47 @@ _METRIC_SPECS: Dict[str, List[tuple]] = {
         ("AWS/ApiGateway", "5XXError", "Sum", "Count"),
         ("AWS/ApiGateway", "Latency", "Average", "Milliseconds"),
     ],
+    "AWS::EC2::Instance": [
+        ("AWS/EC2", "CPUUtilization", "Average", "Percent"),
+        ("AWS/EC2", "CPUUtilization", "Maximum", "Percent"),
+        ("AWS/EC2", "NetworkIn", "Sum", "Bytes"),
+        ("AWS/EC2", "NetworkOut", "Sum", "Bytes"),
+        ("AWS/EC2", "NetworkPacketsIn", "Sum", "Count"),
+        ("AWS/EC2", "NetworkPacketsOut", "Sum", "Count"),
+        ("AWS/EC2", "StatusCheckFailed", "Maximum", "Count"),
+        ("AWS/EC2", "EBSReadBytes", "Sum", "Bytes"),
+        ("AWS/EC2", "EBSWriteBytes", "Sum", "Bytes"),
+    ],
+    "AWS::EC2::NatGateway": [
+        ("AWS/NATGateway", "BytesInFromSource", "Sum", "Bytes"),
+        ("AWS/NATGateway", "BytesOutToDestination", "Sum", "Bytes"),
+        ("AWS/NATGateway", "ActiveConnectionCount", "Maximum", "Count"),
+        ("AWS/NATGateway", "ConnectionEstablishedCount", "Sum", "Count"),
+        ("AWS/NATGateway", "ErrorPortAllocation", "Sum", "Count"),
+        ("AWS/NATGateway", "PacketsDropCount", "Sum", "Count"),
+    ],
+    "AWS::EC2::Volume": [
+        ("AWS/EBS", "VolumeReadBytes", "Sum", "Bytes"),
+        ("AWS/EBS", "VolumeWriteBytes", "Sum", "Bytes"),
+        ("AWS/EBS", "VolumeReadOps", "Sum", "Count"),
+        ("AWS/EBS", "VolumeWriteOps", "Sum", "Count"),
+        ("AWS/EBS", "VolumeQueueLength", "Average", "Count"),
+    ],
+    "AWS::S3::Bucket": [
+        # Storage metrics are daily; the reader widens the period for them.
+        ("AWS/S3", "BucketSizeBytes", "Average", "Bytes"),
+        ("AWS/S3", "NumberOfObjects", "Average", "Count"),
+    ],
+    "AWS::Logs::LogGroup": [
+        ("AWS/Logs", "IncomingBytes", "Sum", "Bytes"),
+        ("AWS/Logs", "IncomingLogEvents", "Sum", "Count"),
+    ],
+}
+
+# S3 storage metrics carry a StorageType dimension alongside BucketName.
+_EXTRA_DIMENSIONS = {
+    ("AWS::S3::Bucket", "BucketSizeBytes"): [{"Name": "StorageType", "Value": "StandardStorage"}],
+    ("AWS::S3::Bucket", "NumberOfObjects"): [{"Name": "StorageType", "Value": "AllStorageTypes"}],
 }
 
 # The CloudWatch dimension name each service keys its metrics by.
@@ -102,6 +143,11 @@ _DIMENSION_NAMES = {
     "AWS::SQS::Queue": "QueueName",
     "AWS::SNS::Topic": "TopicName",
     "AWS::ApiGatewayV2::Api": "ApiId",
+    "AWS::EC2::Instance": "InstanceId",
+    "AWS::EC2::NatGateway": "NatGatewayId",
+    "AWS::EC2::Volume": "VolumeId",
+    "AWS::S3::Bucket": "BucketName",
+    "AWS::Logs::LogGroup": "LogGroupName",
 }
 
 
@@ -147,16 +193,22 @@ class ResourceUsageReader:
         period = max(300, (window_hours * 3600) // 24)
 
         for namespace, metric_name, statistic, unit in specs:
+            dimensions = [{"Name": dimension_name, "Value": dimension_value}]
+            dimensions += _EXTRA_DIMENSIONS.get((resource_type, metric_name), [])
+            # S3 storage metrics are reported once a day; a sub-daily period
+            # returns no datapoints at all.
+            metric_period = 86400 if namespace == "AWS/S3" else period
+            metric_start = min(start, end - timedelta(days=2)) if namespace == "AWS/S3" else start
             usage.metrics.append(self._read_metric(
                 cloudwatch=cloudwatch,
                 namespace=namespace,
                 metric_name=metric_name,
                 statistic=statistic,
                 unit=unit,
-                dimensions=[{"Name": dimension_name, "Value": dimension_value}],
-                start=start,
+                dimensions=dimensions,
+                start=metric_start,
                 end=end,
-                period=period,
+                period=metric_period,
             ))
 
         if resource_type == "AWS::Lambda::Function":

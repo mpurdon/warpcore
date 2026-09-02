@@ -15,6 +15,7 @@ from warpcore.agentic.scanner import AWSScanner, ScanScope
 from warpcore.devmode import get_dev_mode
 from warpcore.discovery.adopt import ResourceAdopter
 from warpcore.discovery.config_emitter import ConfigEmitter
+from warpcore.discovery.detail import ResourceDetailReader
 from warpcore.discovery.inventory import enabled_regions, scan_account
 from warpcore.state.manager import StateManager
 from warpcore.utils.aws_client import AWSClientManager
@@ -380,3 +381,142 @@ def adopt(ctx, environment, config_path, region, scope, stack,
         "\nRun [cyan]warpcore diff --env "
         f"{environment}[/cyan] to see how they compare to your config."
     )
+
+
+@discover.command("detail")
+@click.argument("arn")
+@click.option("--region", help="Region; inferred from the ARN when it carries one")
+@click.option("--hours", type=int, default=24, show_default=True, help="Metric and log window")
+@click.option("--no-metrics", is_flag=True, help="Skip CloudWatch metrics")
+@click.option("--no-logs", is_flag=True, help="Skip CloudWatch logs")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of panels")
+@click.pass_context
+def detail(ctx, arn, region, hours, no_metrics, no_logs, as_json):
+    """Everything about one resource: config, network, metrics, logs, relations.
+
+    Needs no state file - the ARN alone identifies the resource.
+    """
+    from warpcore.utils.arn import parse_arn
+
+    parsed = parse_arn(arn)
+    if parsed is None:
+        console.print(f"[red]Not an ARN:[/red] {arn}")
+        sys.exit(1)
+
+    resolved_region = region or ctx.obj.get("region") or (parsed.region or None)
+    scanner, credentials, resolved_region = _scanner(ctx, resolved_region, "discovered", "dev")
+
+    reader = ResourceDetailReader(scanner.session, resolved_region)
+    result = reader.read(
+        arn, window_hours=hours,
+        include_metrics=not no_metrics, include_logs=not no_logs,
+    )
+
+    if as_json:
+        click.echo(json.dumps(result.to_dict(), indent=2, default=str))
+        return
+
+    console.print(Panel(
+        f"[bold]{result.name}[/bold]\n"
+        f"Type    {result.type}\n"
+        f"Region  {result.region}\n"
+        f"ARN     {result.arn}"
+        + (f"\nCost    {result.cost_hint}" if result.cost_hint else ""),
+        title="Resource",
+    ))
+
+    if result.tags:
+        t = Table(title="Tags")
+        t.add_column("Key", style="cyan")
+        t.add_column("Value")
+        for k, v in sorted(result.tags.items()):
+            t.add_row(k, v)
+        console.print(t)
+
+    if result.configuration:
+        interesting = {k: v for k, v in result.configuration.items()
+                       if not isinstance(v, (dict, list)) and k not in ("Tags",)}
+        t = Table(title="Configuration")
+        t.add_column("Property", style="cyan")
+        t.add_column("Value")
+        for k, v in list(interesting.items())[:30]:
+            t.add_row(k, str(v)[:80])
+        console.print(t)
+
+    net = result.network
+    if net:
+        lines = []
+        if net.vpc_id:
+            lines.append(f"VPC       {net.vpc_id}")
+        if net.subnet_id:
+            lines.append(f"Subnet    {net.subnet_id}  {net.availability_zone or ''}")
+        if net.private_ips:
+            lines.append(f"Private   {', '.join(net.private_ips)}")
+        if net.public_ips:
+            lines.append(f"Public    {', '.join(net.public_ips)}")
+        if net.flow_logs:
+            lines.append("Flow logs " + ", ".join(f"{f['id']} ({f['status']}, {f['traffic']})" for f in net.flow_logs))
+        for note in net.notes:
+            lines.append(f"[yellow]{note}[/yellow]")
+        if lines:
+            console.print(Panel("\n".join(lines), title="Network"))
+        if net.rules:
+            t = Table(title="Security group rules")
+            for col in ("Dir", "Proto", "Ports", "Source/Dest", "Description"):
+                t.add_column(col)
+            for r in net.rules:
+                ports = "all" if r.from_port is None else (str(r.from_port) if r.from_port == r.to_port else f"{r.from_port}-{r.to_port}")
+                style = "red" if r.direction == "ingress" and r.source in ("0.0.0.0/0", "::/0") else ""
+                t.add_row(r.direction, r.protocol, ports, f"[{style}]{r.source}[/{style}]" if style else r.source, r.description)
+            console.print(t)
+        if net.routes:
+            t = Table(title="Routes")
+            t.add_column("Destination")
+            t.add_column("Target")
+            t.add_column("State")
+            for r in net.routes:
+                t.add_row(str(r["destination"]), str(r["target"]), str(r["state"]))
+            console.print(t)
+
+    if result.metrics and result.metrics.has_metrics():
+        t = Table(title=f"Metrics - last {result.metrics.window_hours}h")
+        for col in ("Metric", "Stat", "Total", "Average", "Max", "Unit"):
+            t.add_column(col, justify="right" if col in ("Total", "Average", "Max") else "left")
+        for m in result.metrics.metrics:
+            if not m.datapoints:
+                continue
+            t.add_row(m.name, m.statistic, _fmt_metric(m.total), _fmt_metric(m.average),
+                      _fmt_metric(m.maximum), m.unit)
+        console.print(t)
+
+    for group in result.logs:
+        header = f"{group.name}  ({group.stored_bytes:,} bytes stored, retention {group.retention_days or 'never expires'})"
+        if group.recent_events:
+            body = "\n".join(f"[dim]{e.timestamp[11:19]}[/dim] {e.message[:140]}" for e in group.recent_events[:15])
+        else:
+            body = f"[dim]no events in the last {hours}h[/dim]"
+        console.print(Panel(body, title=f"Logs: {header}"))
+
+    if result.related:
+        t = Table(title="Related resources")
+        t.add_column("Relation", style="cyan")
+        t.add_column("Name", style="green")
+        t.add_column("Type")
+        t.add_column("Detail", style="dim")
+        for r in result.related:
+            t.add_row(r.relation, r.name, r.type.replace("AWS::", ""), r.detail)
+        console.print(t)
+
+    for note in result.notes:
+        console.print(f"[dim]{note}[/dim]")
+    if result.errors:
+        console.print("[yellow]Sections that could not be read:[/yellow]")
+        for section, why in result.errors.items():
+            console.print(f"  {section}: {why}")
+
+
+def _fmt_metric(value) -> str:
+    """Compact number for a metrics table cell."""
+    if value is None:
+        return "-"
+    return f"{value:,.0f}" if value >= 1000 else f"{value:.2f}"
