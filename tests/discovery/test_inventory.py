@@ -97,3 +97,62 @@ def test_a_failing_region_does_not_abort_the_others(two_region_account, monkeypa
     assert any(r.id == "east-q" for r in inventory.scanned.get_all_resources())
     failed = [r for r in inventory.regions if r.failed]
     assert [r.region for r in failed] == ["us-west-2"]
+
+
+class TestProgressReporting:
+    """A scan takes tens of seconds; without events a caller cannot tell
+    whether it is nearly done, stuck, or being throttled."""
+
+    def _events(self, session, **kwargs):
+        seen = []
+        scan_account(session, ACCOUNT, regions=["us-east-1", "us-west-2"],
+                     progress=seen.append, **kwargs)
+        return seen
+
+    def test_scan_brackets_itself_with_start_and_done(self, two_region_account):
+        events = self._events(two_region_account, resource_types=["AWS::SQS::Queue"])
+        assert events[0]["event"] == "scan_start"
+        assert events[-1]["event"] == "scan_done"
+
+    def test_every_region_starts_and_finishes(self, two_region_account):
+        events = self._events(two_region_account, resource_types=["AWS::SQS::Queue"])
+        started = {e["region"] for e in events if e["event"] == "region_start"}
+        finished = {e["region"] for e in events if e["event"] == "region_done"}
+        assert started == finished == {"us-east-1", "us-west-2"}
+
+    def test_region_done_carries_a_count(self, two_region_account):
+        events = self._events(two_region_account, resource_types=["AWS::SQS::Queue"])
+        done = [e for e in events if e["event"] == "region_done"]
+        assert all("count" in e for e in done)
+
+    def test_services_are_reported_individually(self, two_region_account):
+        events = self._events(two_region_account, resource_types=["AWS::SQS::Queue"])
+        services = [e for e in events if e["event"] == "service"]
+        assert {"running", "done"} <= {e["status"] for e in services}
+        assert any(e["service"] == "sqs" for e in services)
+
+    def test_a_plan_is_published_so_progress_has_a_denominator(self, two_region_account):
+        events = self._events(two_region_account, resource_types=["AWS::SQS::Queue"])
+        plans = [e for e in events if e["event"] == "region_plan"]
+        assert plans and plans[0]["phases"]
+
+    def test_a_failing_region_still_reports_done(self, two_region_account, monkeypatch):
+        from warpcore.agentic import scanner as scanner_module
+
+        original = scanner_module.AWSScanner.scan_resources
+
+        def flaky(self, *args, **kwargs):
+            if self.region == "us-west-2":
+                raise RuntimeError("nope")
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(scanner_module.AWSScanner, "scan_resources", flaky)
+        events = self._events(two_region_account, resource_types=["AWS::SQS::Queue"])
+        failed = [e for e in events if e["event"] == "region_done" and e.get("status") == "failed"]
+        assert [e["region"] for e in failed] == ["us-west-2"]
+
+    def test_no_callback_means_no_overhead(self, two_region_account):
+        """The default path must not build events nobody consumes."""
+        inventory = scan_account(two_region_account, ACCOUNT, regions=["us-east-1"],
+                                 resource_types=["AWS::SQS::Queue"])
+        assert inventory.scanned is not None

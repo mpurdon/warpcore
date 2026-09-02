@@ -20,6 +20,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from warpcore.agentic.scanner import AWSScanner, _json_safe
 from warpcore.monitoring.usage import ResourceUsage, ResourceUsageReader
 from warpcore.utils.arn import parse_arn, resource_type_from_arn, service_identifier
+from warpcore.utils.boto import discovery_client
 from warpcore.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -188,7 +189,7 @@ class ResourceDetailReader:
                 detail.name = detail.tags["Name"]
 
     def _tags(self, detail: ResourceDetail) -> None:
-        client = self.session.client("resourcegroupstaggingapi", region_name=detail.region)
+        client = discovery_client(self.session, "resourcegroupstaggingapi", detail.region)
         response = client.get_resources(ResourceARNList=[detail.arn])
         for entry in response.get("ResourceTagMappingList", []):
             detail.tags = {t["Key"]: t["Value"] for t in entry.get("Tags", [])}
@@ -210,7 +211,7 @@ class ResourceDetailReader:
         id or name - which is how the CloudWatch agent and most people name
         them.
         """
-        logs = self.session.client("logs", region_name=detail.region)
+        logs = discovery_client(self.session, "logs", detail.region)
         identifier = service_identifier(detail.arn)
 
         candidates: List[str] = []
@@ -262,7 +263,7 @@ class ResourceDetailReader:
     # --------------------------------------------------------- enrichers
 
     def _ec2(self):
-        return self.session.client("ec2", region_name=self.region)
+        return discovery_client(self.session, "ec2", self.region)
 
     def _sg_rules(self, ec2, group_ids: List[str]) -> List[SecurityGroupRule]:
         rules: List[SecurityGroupRule] = []

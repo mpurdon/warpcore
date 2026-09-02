@@ -17,6 +17,7 @@ from warpcore.discovery.adopt import ResourceAdopter
 from warpcore.discovery.config_emitter import ConfigEmitter
 from warpcore.discovery.detail import ResourceDetailReader
 from warpcore.discovery.inventory import enabled_regions, scan_account
+from warpcore.utils.progress import RESULT, ndjson_writer
 from warpcore.state.manager import StateManager
 from warpcore.utils.aws_client import AWSClientManager
 from warpcore.utils.logging import get_logger
@@ -72,9 +73,15 @@ def discover():
 @click.option("--max", "max_resources", type=int, default=5000, show_default=True,
               help="Stop after this many resources per region")
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a table")
+@click.option("--progress", "stream_progress", is_flag=True,
+              help="Stream newline-delimited progress events on stdout, ending with a "
+                   "'result' event carrying the inventory. Implies --json.")
+@click.option("--parallelism", type=int, default=6, show_default=True,
+              help="Regions scanned concurrently. Clients use adaptive retries, so "
+                   "raising this backs off under throttling rather than failing.")
 @click.pass_context
 def inventory(ctx, regions, all_regions, scope, project_name, environment, hydrate,
-              resource_types, max_resources, as_json):
+              resource_types, max_resources, as_json, stream_progress, parallelism):
     """List what actually exists in an AWS account."""
     first_region = regions[0] if regions else None
     scanner, credentials, resolved_region = _scanner(ctx, first_region, project_name, environment)
@@ -111,12 +118,14 @@ def inventory(ctx, regions, all_regions, scope, project_name, environment, hydra
             hydrate=hydrate,
             resource_types=list(resource_types) or None,
             max_per_region=max_resources,
+            max_workers=parallelism,
+            progress=ndjson_writer() if stream_progress else None,
         )
         scanned = account_inventory.scanned
         region_summary = account_inventory.region_summary()
         explorer = scanned.explorer_available
 
-    if as_json:
+    if as_json or stream_progress:
         payload = {
             "account": credentials.account_id,
             "regions": region_summary,
@@ -143,7 +152,13 @@ def inventory(ctx, regions, all_regions, scope, project_name, environment, hydra
                 for e in scanned.errors
             ],
         }
-        click.echo(json.dumps(payload, indent=2, default=str))
+        if stream_progress:
+            # One line, so the reader can act on it the moment it arrives.
+            click.echo(json.dumps(
+                {"event": RESULT, "data": payload}, default=str, separators=(",", ":")
+            ))
+        else:
+            click.echo(json.dumps(payload, indent=2, default=str))
         return
 
     if not scanned.resources:

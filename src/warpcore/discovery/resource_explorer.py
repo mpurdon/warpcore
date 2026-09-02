@@ -23,6 +23,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from warpcore.state.models import Resource
 from warpcore.utils.arn import logical_id_from_arn
+from warpcore.utils.boto import discovery_client
 from warpcore.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -126,7 +127,7 @@ class ResourceExplorerSource:
         Search needs a view in the region; a view needs an index. Both are
         opt-in, so absence is the normal case for many accounts.
         """
-        client = self.session.client("resource-explorer-2", region_name=region)
+        client = discovery_client(self.session, "resource-explorer-2", region)
         try:
             views = client.list_views().get("Views", [])
         except (ClientError, BotoCoreError) as e:
@@ -143,7 +144,7 @@ class ResourceExplorerSource:
         max_resources: Optional[int] = None,
     ) -> List[Resource]:
         """Return every indexed resource visible from this region's view."""
-        client = self.session.client("resource-explorer-2", region_name=region)
+        client = discovery_client(self.session, "resource-explorer-2", region)
         resources: List[Resource] = []
 
         try:

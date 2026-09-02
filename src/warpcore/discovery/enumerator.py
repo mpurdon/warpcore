@@ -19,7 +19,9 @@ from typing import Callable, Dict, List, Optional, Sequence
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from warpcore.utils.progress import SERVICE
 from warpcore.state.models import Resource
+from warpcore.utils.boto import discovery_client
 from warpcore.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -50,14 +52,31 @@ class ServiceEnumerator:
         self,
         services: Optional[Sequence[str]] = None,
         max_workers: int = 8,
+        progress=None,
     ) -> List[Resource]:
-        """List resources across services, in parallel."""
+        """List resources across services, in parallel.
+
+        `progress`, when given, receives a SERVICE event as each service starts
+        and finishes, so a caller can show which ones are in flight.
+        """
         wanted = list(services) if services else self.supported_services()
         resources: List[Resource] = []
 
+        def run(service: str) -> List[Resource]:
+            if progress is not None:
+                progress.emit(SERVICE, service=service, status="running")
+            found = self._safe_enumerate(service)
+            if progress is not None:
+                failed = any(e.service == service for e in self.errors)
+                progress.emit(
+                    SERVICE, service=service,
+                    status="failed" if failed else "done", found=len(found),
+                )
+            return found
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(self._safe_enumerate, service): service
+                executor.submit(run, service): service
                 for service in wanted
                 if service in self._ENUMERATORS
             }
@@ -85,7 +104,7 @@ class ServiceEnumerator:
 
     def _client(self, service: str, global_service: bool = False):
         region = None if global_service else self.region
-        return self.session.client(service, region_name=region or self.region)
+        return discovery_client(self.session, service, region or self.region)
 
     def _paginate(self, client, operation: str, result_key: str, **kwargs):
         """Yield every item from a paginated operation, or fall back to one call."""

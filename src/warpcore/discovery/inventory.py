@@ -16,7 +16,16 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from warpcore.agentic.scanner import AWSScanner, ScanError, ScanScope, ScannedState
+from warpcore.utils.boto import discovery_client
 from warpcore.utils.logging import get_logger
+from warpcore.utils.progress import (
+    REGION_DONE,
+    REGION_START,
+    SCAN_DONE,
+    SCAN_START,
+    ProgressCallback,
+    ProgressEmitter,
+)
 
 logger = get_logger(__name__)
 
@@ -50,7 +59,7 @@ def enabled_regions(session: boto3.Session, seed_region: str = "us-east-1") -> L
     describe_regions is itself regional; any region that works will do to
     ask the question.
     """
-    ec2 = session.client("ec2", region_name=seed_region)
+    ec2 = discovery_client(session, "ec2", seed_region)
     response = ec2.describe_regions(AllRegions=False)
     return sorted(r["RegionName"] for r in response.get("Regions", []))
 
@@ -63,17 +72,30 @@ def scan_account(
     resource_types: Optional[Sequence[str]] = None,
     max_per_region: Optional[int] = None,
     max_workers: int = 4,
+    progress: Optional[ProgressCallback] = None,
 ) -> AccountInventory:
     """Scan several regions and merge them into one inventory.
 
     Regions are scanned in parallel; a region that fails is recorded and the
     others still complete. Hydration is per-region because detail calls are
     regional.
+
+    `progress`, when given, receives an event as each region and each service
+    within it starts and finishes. Every AWS client used here is built with
+    adaptive retries, so widening `max_workers` makes the scan back off under
+    throttling rather than fail.
     """
     inventory = AccountInventory(account=account)
     inventory.scanned.explorer_available = False
+    emitter = ProgressEmitter(progress)
+    emitter.emit(
+        SCAN_START, account=account, regions=list(regions), hydrate=hydrate,
+        parallelism=max_workers,
+    )
 
     def scan_one(region: str) -> tuple:
+        region_progress = emitter.child(region=region)
+        region_progress.emit(REGION_START)
         scanner = AWSScanner(
             boto_session=session,
             project_name="",
@@ -86,6 +108,7 @@ def scan_account(
             hydrate=hydrate,
             resource_types=resource_types,
             max_resources=max_per_region,
+            progress=region_progress,
         )
         return region, state
 
@@ -97,6 +120,7 @@ def scan_account(
                 _, state = future.result()
             except (ClientError, BotoCoreError, Exception) as e:  # noqa: BLE001
                 logger.warning(f"Scan of {region} failed: {e}")
+                emitter.emit(REGION_DONE, region=region, status="failed", error=str(e))
                 inventory.regions.append(RegionResult(region=region, failed=str(e)))
                 inventory.scanned.add_error(ScanError(
                     physical_id=f"(region: {region})",
@@ -106,6 +130,12 @@ def scan_account(
                 ))
                 continue
 
+            emitter.emit(
+                REGION_DONE, region=region, status="done",
+                count=len(state.resources),
+                explorer=state.explorer_available,
+                errors=len(state.errors),
+            )
             inventory.regions.append(RegionResult(
                 region=region,
                 resource_count=len(state.resources),
@@ -128,6 +158,11 @@ def scan_account(
                 )
 
     inventory.regions.sort(key=lambda r: r.region)
+    emitter.emit(
+        SCAN_DONE, total=len(inventory.scanned.resources),
+        regions=len(inventory.regions),
+        failed=sum(1 for r in inventory.regions if r.failed),
+    )
     logger.info(
         f"Account {account}: {len(inventory.scanned.resources)} resources "
         f"across {len(regions)} region(s)"

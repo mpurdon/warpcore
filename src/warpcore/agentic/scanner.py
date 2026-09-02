@@ -28,6 +28,8 @@ from botocore.exceptions import ClientError
 
 from warpcore.state.models import Resource
 from warpcore.utils.arn import logical_id_from_arn, resource_type_from_arn, service_identifier
+from warpcore.utils.boto import discovery_client
+from warpcore.utils.progress import PHASE, REGION_PLAN, plan_for
 from warpcore.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -138,9 +140,8 @@ class AWSScanner:
         self.logger = get_logger(__name__)
 
         # Initialize AWS clients
-        self.resource_groups_tagging = self.session.client(
-            'resourcegroupstaggingapi',
-            region_name=region
+        self.resource_groups_tagging = discovery_client(
+            self.session, 'resourcegroupstaggingapi', region
         )
 
     @property
@@ -148,8 +149,8 @@ class AWSScanner:
         """AWS account id, resolved lazily and cached."""
         if self._account is None:
             try:
-                self._account = self.session.client(
-                    "sts", region_name=self.region
+                self._account = discovery_client(
+                    self.session, "sts", self.region
                 ).get_caller_identity()["Account"]
             except Exception as e:  # noqa: BLE001 - only affects synthesised ARNs
                 self.logger.warning(f"Could not resolve account id: {e}")
@@ -163,6 +164,7 @@ class AWSScanner:
         resource_types: Optional[Sequence[str]] = None,
         max_resources: Optional[int] = None,
         max_workers: int = 8,
+        progress=None,
     ) -> ScannedState:
         """Scan AWS for resources.
 
@@ -196,12 +198,24 @@ class AWSScanner:
         if scope is ScanScope.PROJECT:
             self._scan_by_tags(scanned_state, wanted_types, max_resources)
         else:
-            self._scan_by_enumeration(scanned_state, wanted_types, max_resources)
+            self._scan_by_enumeration(
+                scanned_state, wanted_types, max_resources, progress=progress
+            )
 
         self.logger.info(f"Scanned {len(scanned_state.resources)} resources from AWS")
 
         if hydrate:
+            if progress is not None:
+                progress.emit(
+                    PHASE, phase="hydrate", status="running",
+                    total=len(scanned_state.resources),
+                )
             self.hydrate(scanned_state, max_workers=max_workers)
+            if progress is not None:
+                progress.emit(
+                    PHASE, phase="hydrate", status="done",
+                    found=len(scanned_state.resources) - len(scanned_state.unhydrated),
+                )
 
         return scanned_state
 
@@ -253,6 +267,7 @@ class AWSScanner:
         scanned_state: ScannedState,
         wanted_types: Optional[Set[str]],
         max_resources: Optional[int],
+        progress=None,
     ) -> None:
         """Find every resource in the region, from every source available.
 
@@ -282,6 +297,17 @@ class AWSScanner:
             for k, v in (resource.metadata or {}).items():
                 existing.metadata.setdefault(k, v)
 
+        enumerator_preview = ServiceEnumerator(
+            boto_session=self.session, region=self.region, account=""
+        )
+        if progress is not None:
+            progress.emit(
+                REGION_PLAN,
+                phases=plan_for(enumerator_preview.supported_services(), hydrate=False),
+                services=enumerator_preview.supported_services(),
+            )
+            progress.emit(PHASE, phase="resource-explorer", status="running")
+
         explorer = ResourceExplorerSource(self.session)
         availability = explorer.availability(self.region)
         scanned_state.explorer_available = availability.available
@@ -301,13 +327,19 @@ class AWSScanner:
                 f"Resource Explorer not available in {self.region} "
                 f"({availability.reason}); using service enumerators only"
             )
+        if progress is not None:
+            progress.emit(
+                PHASE, phase="resource-explorer",
+                status="done" if availability.available else "skipped",
+                found=len(by_arn), reason=availability.reason,
+            )
 
         enumerator = ServiceEnumerator(
             boto_session=self.session, region=self.region, account=self.account
         )
         # Enumerators use warpcore's canonical types, so let them win on a
         # collision by inserting them over the explorer's record.
-        for resource in enumerator.enumerate():
+        for resource in enumerator.enumerate(progress=progress):
             key = resource.physical_id or f"{resource.type}/{resource.id}"
             if key in by_arn:
                 existing = by_arn[key]
@@ -328,7 +360,11 @@ class AWSScanner:
                 message=error.message,
             ))
 
+        if progress is not None:
+            progress.emit(PHASE, phase="tags", status="running")
         tags_by_arn = self._tags_by_arn()
+        if progress is not None:
+            progress.emit(PHASE, phase="tags", status="done", found=len(tags_by_arn))
 
         for resource in by_arn.values():
             if wanted_types and resource.type not in wanted_types:
@@ -451,7 +487,7 @@ class AWSScanner:
 
     def _get_lambda_details(self, function_name: str) -> Dict:
         """Get Lambda function details."""
-        lambda_client = self.session.client('lambda', region_name=self.region)
+        lambda_client = discovery_client(self.session, 'lambda', self.region)
         response = lambda_client.get_function(FunctionName=function_name)
         details = dict(response.get('Configuration', {}))
         # Layers/env come back nested; keep them, drop the presigned code URL
@@ -461,7 +497,7 @@ class AWSScanner:
 
     def _get_iam_role_details(self, role_name: str) -> Dict:
         """Get IAM role details, including attached and inline policies."""
-        iam_client = self.session.client('iam')
+        iam_client = discovery_client(self.session, 'iam')
         details = dict(iam_client.get_role(RoleName=role_name).get('Role', {}))
 
         attached = iam_client.list_attached_role_policies(RoleName=role_name)
@@ -473,28 +509,28 @@ class AWSScanner:
 
     def _get_vpc_details(self, vpc_id: str) -> Dict:
         """Get VPC details."""
-        ec2_client = self.session.client('ec2', region_name=self.region)
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
         response = ec2_client.describe_vpcs(VpcIds=[vpc_id])
         vpcs = response.get('Vpcs', [])
         return vpcs[0] if vpcs else {}
 
     def _get_subnet_details(self, subnet_id: str) -> Dict:
         """Get subnet details."""
-        ec2_client = self.session.client('ec2', region_name=self.region)
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
         response = ec2_client.describe_subnets(SubnetIds=[subnet_id])
         subnets = response.get('Subnets', [])
         return subnets[0] if subnets else {}
 
     def _get_security_group_details(self, sg_id: str) -> Dict:
         """Get security group details."""
-        ec2_client = self.session.client('ec2', region_name=self.region)
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
         response = ec2_client.describe_security_groups(GroupIds=[sg_id])
         sgs = response.get('SecurityGroups', [])
         return sgs[0] if sgs else {}
 
     def _get_instance_details(self, instance_id: str) -> Dict:
         """Get EC2 instance details."""
-        ec2_client = self.session.client('ec2', region_name=self.region)
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
         response = ec2_client.describe_instances(InstanceIds=[instance_id])
         for reservation in response.get('Reservations', []):
             for instance in reservation.get('Instances', []):
@@ -503,28 +539,28 @@ class AWSScanner:
 
     def _get_nat_gateway_details(self, nat_gateway_id: str) -> Dict:
         """Get NAT gateway details."""
-        ec2_client = self.session.client('ec2', region_name=self.region)
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
         response = ec2_client.describe_nat_gateways(NatGatewayIds=[nat_gateway_id])
         gateways = response.get('NatGateways', [])
         return gateways[0] if gateways else {}
 
     def _get_volume_details(self, volume_id: str) -> Dict:
         """Get EBS volume details."""
-        ec2_client = self.session.client('ec2', region_name=self.region)
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
         response = ec2_client.describe_volumes(VolumeIds=[volume_id])
         volumes = response.get('Volumes', [])
         return volumes[0] if volumes else {}
 
     def _get_route_table_details(self, route_table_id: str) -> Dict:
         """Get route table details."""
-        ec2_client = self.session.client('ec2', region_name=self.region)
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
         response = ec2_client.describe_route_tables(RouteTableIds=[route_table_id])
         tables = response.get('RouteTables', [])
         return tables[0] if tables else {}
 
     def _get_vpc_endpoint_details(self, endpoint_id: str) -> Dict:
         """Get VPC endpoint details."""
-        ec2_client = self.session.client('ec2', region_name=self.region)
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
         response = ec2_client.describe_vpc_endpoints(VpcEndpointIds=[endpoint_id])
         endpoints = response.get('VpcEndpoints', [])
         return endpoints[0] if endpoints else {}
@@ -535,7 +571,7 @@ class AWSScanner:
         Each sub-call is individually optional: a bucket with no encryption
         configuration raises rather than returning an empty result.
         """
-        s3_client = self.session.client('s3', region_name=self.region)
+        s3_client = discovery_client(self.session, 's3', self.region)
         details: Dict = {'BucketName': bucket_name}
 
         def _try(key: str, fn):
@@ -556,13 +592,13 @@ class AWSScanner:
 
     def _get_dynamodb_table_details(self, table_name: str) -> Dict:
         """Get DynamoDB table details."""
-        dynamodb_client = self.session.client('dynamodb', region_name=self.region)
+        dynamodb_client = discovery_client(self.session, 'dynamodb', self.region)
         response = dynamodb_client.describe_table(TableName=table_name)
         return response.get('Table', {})
 
     def _get_sqs_queue_details(self, queue_url: str) -> Dict:
         """Get SQS queue details."""
-        sqs_client = self.session.client('sqs', region_name=self.region)
+        sqs_client = discovery_client(self.session, 'sqs', self.region)
         response = sqs_client.get_queue_attributes(
             QueueUrl=queue_url,
             AttributeNames=['All']
@@ -571,13 +607,13 @@ class AWSScanner:
 
     def _get_sns_topic_details(self, topic_arn: str) -> Dict:
         """Get SNS topic details."""
-        sns_client = self.session.client('sns', region_name=self.region)
+        sns_client = discovery_client(self.session, 'sns', self.region)
         response = sns_client.get_topic_attributes(TopicArn=topic_arn)
         return response.get('Attributes', {})
 
     def _get_log_group_details(self, log_group_name: str) -> Dict:
         """Get CloudWatch log group details."""
-        logs_client = self.session.client('logs', region_name=self.region)
+        logs_client = discovery_client(self.session, 'logs', self.region)
         response = logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)
         for group in response.get('logGroups', []):
             if group.get('logGroupName') == log_group_name:
@@ -586,7 +622,7 @@ class AWSScanner:
 
     def _get_events_rule_details(self, rule_name: str) -> Dict:
         """Get EventBridge rule details, including its targets."""
-        events_client = self.session.client('events', region_name=self.region)
+        events_client = discovery_client(self.session, 'events', self.region)
         details = dict(events_client.describe_rule(Name=rule_name))
         details.pop('ResponseMetadata', None)
         targets = events_client.list_targets_by_rule(Rule=rule_name)
@@ -599,14 +635,14 @@ class AWSScanner:
         Deliberately uses describe_secret, never get_secret_value - warpcore
         must never read a secret's plaintext into state or a config file.
         """
-        secrets_client = self.session.client('secretsmanager', region_name=self.region)
+        secrets_client = discovery_client(self.session, 'secretsmanager', self.region)
         details = dict(secrets_client.describe_secret(SecretId=secret_arn))
         details.pop('ResponseMetadata', None)
         return details
 
     def _get_state_machine_details(self, state_machine_arn: str) -> Dict:
         """Get Step Functions state machine details."""
-        sfn_client = self.session.client('stepfunctions', region_name=self.region)
+        sfn_client = discovery_client(self.session, 'stepfunctions', self.region)
         details = dict(sfn_client.describe_state_machine(stateMachineArn=state_machine_arn))
         details.pop('ResponseMetadata', None)
         return details

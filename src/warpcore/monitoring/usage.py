@@ -14,6 +14,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from warpcore.utils.arn import parse_arn, service_identifier
+from warpcore.utils.boto import discovery_client
 from warpcore.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -186,7 +187,7 @@ class ResourceUsageReader:
             usage.notes.append("Could not determine the CloudWatch dimension for this resource")
             return usage
 
-        cloudwatch = self.session.client("cloudwatch", region_name=self.region)
+        cloudwatch = discovery_client(self.session, "cloudwatch", self.region)
         end = datetime.utcnow()
         start = end - timedelta(hours=window_hours)
         # One datapoint per hour keeps the response small while still showing shape.
@@ -285,7 +286,7 @@ class ResourceUsageReader:
         self, log_group: str, start: datetime, limit: int
     ) -> List[LogEvent]:
         """Pull recent ERROR/Exception lines out of a log group."""
-        logs = self.session.client("logs", region_name=self.region)
+        logs = discovery_client(self.session, "logs", self.region)
         try:
             response = logs.filter_log_events(
                 logGroupName=log_group,
