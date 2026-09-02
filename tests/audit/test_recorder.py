@@ -1,7 +1,6 @@
 """The audit log: append-only, crash-durable, readable back."""
 
 import json
-from datetime import datetime
 
 import pytest
 

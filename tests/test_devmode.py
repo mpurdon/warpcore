@@ -6,7 +6,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from warpcore.devmode import DevMode, get_dev_mode, init_dev_mode, latest_session_manifest
+from warpcore.devmode import get_dev_mode, init_dev_mode, latest_session_manifest
 
 REGION = "us-east-1"
 

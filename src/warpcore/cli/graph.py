@@ -23,11 +23,13 @@ console = Console()
 @click.option('--agent', help='Specific agent to show graph for')
 @click.option('--format', type=click.Choice(['tree', 'dot', 'ascii']), default='tree', help='Output format')
 @click.option('--output', help='Output file for dot format (opens in browser if not specified)')
-def graph(env: str, agent: str, format: str, output: str):
+@click.option('--config', 'config_path', default='warpcore.yaml', show_default=True,
+              help='Path to configuration file')
+def graph(env: str, agent: str, format: str, output: str, config_path: str):
     """Visualize resource dependency graph."""
     try:
         # Load configuration
-        config = Config('warpcore.yaml')
+        config = Config(config_path)
         config.load()
         
         # Validate environment
@@ -53,11 +55,9 @@ def graph(env: str, agent: str, format: str, output: str):
             if agent and agent not in stack_name:
                 continue
             
-            for resource_id, resource in stack.resources.items():
+            for resource in stack.resources.values():
+                # add_resource registers resource.dependencies itself.
                 dep_graph.add_resource(resource)
-                
-                for dep in resource.dependencies:
-                    dep_graph.add_dependency(resource_id, dep)
         
         # Output based on format
         if format == 'tree':
@@ -228,7 +228,7 @@ def _generate_dot(dep_graph: DependencyGraph, env: str, agent: str) -> str:
     lines.append('')
     
     # Get all resources
-    resources = dep_graph.get_all_resources()
+    resources = dep_graph.resource_ids()
     
     # Add nodes with colors based on resource type
     for resource_id in resources:

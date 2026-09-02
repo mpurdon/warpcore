@@ -1,214 +1,199 @@
 """Diff command for showing deployment changes without executing."""
 
+import sys
+
 import click
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
-from ..config.parser import Config
-from ..state.manager import StateManager
-from ..orchestrator.planner import DeploymentPlanner
+from ..orchestrator.planner import DeploymentPlan, ResourceChange
+from ..provisioners.base import ChangeType
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 console = Console()
 
+_STYLES = {
+    ChangeType.CREATE: ("green", "+", "create"),
+    ChangeType.UPDATE: ("yellow", "~", "update"),
+    ChangeType.DELETE: ("red", "-", "destroy"),
+}
+
 
 @click.command()
 @click.option('--env', required=True, help='Environment name')
 @click.option('--agent', help='Specific agent to show diff for')
+@click.option('--config', 'config_path', default='warpcore.yaml', show_default=True,
+              help='Path to configuration file')
 @click.option('--json-output', is_flag=True, help='Output in JSON format')
-def diff(env: str, agent: str, json_output: bool):
+@click.pass_context
+def diff(ctx, env: str, agent: str, config_path: str, json_output: bool):
     """Show what would change in a deployment without executing it."""
-    try:
-        # Load configuration
-        config = Config('warpcore.yaml')
-        config.load()
-        
-        # Validate environment
-        if env not in config.environments:
-            console.print(f"[red]Error: Environment '{env}' not found in configuration[/red]")
-            return
-        
-        # Load current state
-        # State files are named {project}-{env}.json. Hardcoding a
-        # different shape here meant the file was never found even when
-        # it existed. Imported inside the function: cli.main imports this
-        # module, so a module-level import would be circular.
-        from warpcore.cli.main import get_state_path
+    # cli.main imports this module, so these have to be imported lazily.
+    from ..cli.main import create_orchestrator, load_config
 
-        state_manager = StateManager(str(get_state_path(env, config.project.name)))
-        # Loads state into the manager, which the planner reads from below.
-        state_manager.load()
-        
-        # Create deployment plan
-        planner = DeploymentPlanner(config, state_manager)
-        plan = planner.plan_deployment(agent_filter=agent)
-        
+    try:
+        config = load_config(config_path)
+        config.get_environment(env)  # raises with the available names on a typo
+
+        # Build the plan through the orchestrator, exactly as `deploy` does.
+        # Reimplementing the config-to-resources step here is what let this
+        # command drift into calling a planner API that never existed.
+        orchestrator = create_orchestrator(
+            config=config,
+            environment=env,
+            profile=ctx.obj.get('profile') if ctx.obj else None,
+            region=ctx.obj.get('region') if ctx.obj else None,
+        )
+        plan = orchestrator.plan_deployment(agent_filter=agent)
+
         if json_output:
             _output_json(plan)
         else:
             _output_rich(plan, env, agent)
-            
-    except FileNotFoundError as e:
-        console.print(f"[red]Error: Configuration file not found: {e}[/red]")
+
+    except SystemExit:
+        raise
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         logger.exception("Failed to generate diff")
+        sys.exit(1)
 
 
-def _output_json(plan):
+def _changes(plan: DeploymentPlan, change_type: ChangeType):
+    """Planned changes of one kind, in a stable order."""
+    return sorted(plan.get_changes_by_type(change_type), key=lambda c: c.resource_id)
+
+
+def _resource_of(change: ResourceChange):
+    """The resource a change refers to.
+
+    A delete has only a current resource; everything else has a desired one.
+    """
+    return change.desired_resource or change.current_resource
+
+
+def _output_json(plan: DeploymentPlan):
     """Output diff in JSON format."""
+    buckets = {ct: _changes(plan, ct) for ct in _STYLES}
+
     output = {
         'summary': {
-            'to_add': len(plan.changes.get('CREATE', [])),
-            'to_change': len(plan.changes.get('UPDATE', [])),
-            'to_destroy': len(plan.changes.get('DELETE', []))
+            'to_add': len(buckets[ChangeType.CREATE]),
+            'to_change': len(buckets[ChangeType.UPDATE]),
+            'to_destroy': len(buckets[ChangeType.DELETE]),
         },
         'changes': {
-            'create': [r.id for r in plan.changes.get('CREATE', [])],
-            'update': [r.id for r in plan.changes.get('UPDATE', [])],
-            'delete': [r.id for r in plan.changes.get('DELETE', [])]
+            label: [c.resource_id for c in buckets[ct]]
+            for ct, (_, _, label) in _STYLES.items()
         },
-        'resources': []
+        'waves': [
+            {'wave': wave.wave_number, 'resources': sorted(wave.resource_ids)}
+            for wave in plan.waves
+        ],
+        'estimated_duration_seconds': plan.estimated_duration,
+        'resources': [],
     }
-    
-    for change_type, resources in plan.changes.items():
-        for resource in resources:
+
+    for change_type, changes in buckets.items():
+        for change in changes:
+            resource = _resource_of(change)
             output['resources'].append({
-                'id': resource.id,
-                'type': resource.type,
-                'action': change_type.lower(),
-                'properties': resource.properties
+                'id': change.resource_id,
+                'type': resource.type if resource else None,
+                'action': _STYLES[change_type][2],
+                'reason': change.reason,
+                'properties': resource.properties if resource else {},
             })
-    
+
     console.print_json(data=output)
 
 
-def _output_rich(plan, env: str, agent: str):
+def _output_rich(plan: DeploymentPlan, env: str, agent: str):
     """Output diff in rich formatted text."""
-    # Header
     title = f"Deployment Diff for Environment: {env}"
     if agent:
         title += f" (Agent: {agent})"
-    
+
     console.print(Panel(title, style="bold blue"))
     console.print()
-    
-    # Summary
-    creates = plan.changes.get('CREATE', [])
-    updates = plan.changes.get('UPDATE', [])
-    deletes = plan.changes.get('DELETE', [])
-    
+
+    buckets = {ct: _changes(plan, ct) for ct in _STYLES}
+    counts = [
+        (len(buckets[ChangeType.CREATE]), "to add", "green"),
+        (len(buckets[ChangeType.UPDATE]), "to change", "yellow"),
+        (len(buckets[ChangeType.DELETE]), "to destroy", "red"),
+    ]
+
     summary = Text()
     summary.append("Plan: ", style="bold")
-    
-    if creates:
-        summary.append(f"{len(creates)} to add", style="green")
-    else:
-        summary.append("0 to add", style="dim")
-    
-    summary.append(", ")
-    
-    if updates:
-        summary.append(f"{len(updates)} to change", style="yellow")
-    else:
-        summary.append("0 to change", style="dim")
-    
-    summary.append(", ")
-    
-    if deletes:
-        summary.append(f"{len(deletes)} to destroy", style="red")
-    else:
-        summary.append("0 to destroy", style="dim")
-    
+    for index, (count, label, style) in enumerate(counts):
+        if index:
+            summary.append(", ")
+        summary.append(f"{count} {label}", style=style if count else "dim")
     console.print(summary)
     console.print()
-    
-    # No changes
-    if not creates and not updates and not deletes:
+
+    if not any(count for count, _, _ in counts):
         console.print("[dim]No changes. Infrastructure is up-to-date.[/dim]")
         return
-    
-    # Resources to create
-    if creates:
-        console.print("[bold green]Resources to create:[/bold green]")
+
+    for change_type, (style, marker, label) in _STYLES.items():
+        changes = buckets[change_type]
+        if not changes:
+            continue
+
+        console.print(f"[bold {style}]Resources to {label}:[/bold {style}]")
         table = Table(show_header=True, header_style="bold")
         table.add_column("Resource ID", style="cyan")
         table.add_column("Type", style="magenta")
-        table.add_column("Details")
-        
-        for resource in creates:
-            details = _format_resource_details(resource)
-            table.add_row(f"+ {resource.id}", resource.type, details)
-        
+        table.add_column("Detail")
+
+        for change in changes:
+            resource = _resource_of(change)
+            table.add_row(
+                f"{marker} {change.resource_id}",
+                resource.type if resource else "-",
+                _detail(change),
+            )
+
         console.print(table)
         console.print()
-    
-    # Resources to update
-    if updates:
-        console.print("[bold yellow]Resources to update:[/bold yellow]")
-        table = Table(show_header=True, header_style="bold")
-        table.add_column("Resource ID", style="cyan")
-        table.add_column("Type", style="magenta")
-        table.add_column("Changes")
-        
-        for resource in updates:
-            changes = _format_resource_changes(resource)
-            table.add_row(f"~ {resource.id}", resource.type, changes)
-        
-        console.print(table)
-        console.print()
-    
-    # Resources to delete
-    if deletes:
-        console.print("[bold red]Resources to destroy:[/bold red]")
-        table = Table(show_header=True, header_style="bold")
-        table.add_column("Resource ID", style="cyan")
-        table.add_column("Type", style="magenta")
-        table.add_column("Physical ID")
-        
-        for resource in deletes:
-            table.add_row(f"- {resource.id}", resource.type, resource.physical_id or "N/A")
-        
-        console.print(table)
-        console.print()
-    
-    # Deployment waves
+
     if plan.waves:
         console.print(f"[bold]Deployment will execute in {len(plan.waves)} wave(s):[/bold]")
-        for i, wave in enumerate(plan.waves, 1):
-            console.print(f"  Wave {i}: {len(wave)} resource(s) in parallel")
+        for wave in plan.waves:
+            console.print(
+                f"  Wave {wave.wave_number}: {wave.size()} resource(s) in parallel"
+            )
         console.print()
-    
-    # Estimated duration
+
     if plan.estimated_duration:
-        minutes = plan.estimated_duration // 60
-        seconds = plan.estimated_duration % 60
+        minutes, seconds = divmod(plan.estimated_duration, 60)
         console.print(f"[dim]Estimated duration: {minutes}m {seconds}s[/dim]")
 
 
-def _format_resource_details(resource) -> str:
-    """Format resource details for display."""
-    details = []
-    
-    if 'name' in resource.properties:
-        details.append(f"name={resource.properties['name']}")
-    
-    if 'runtime' in resource.properties:
-        details.append(f"runtime={resource.properties['runtime']}")
-    
-    if 'memory' in resource.properties:
-        details.append(f"memory={resource.properties['memory']}")
-    
-    return ", ".join(details) if details else "N/A"
+def _detail(change: ResourceChange) -> str:
+    """One-line description of what is changing."""
+    if change.reason:
+        return change.reason
 
+    if change.change_type is ChangeType.DELETE:
+        current = change.current_resource
+        return (current.physical_id or "not yet created") if current else "-"
 
-def _format_resource_changes(resource) -> str:
-    """Format resource changes for display."""
-    # This would compare with current state to show specific changes
-    # For now, just indicate that changes are detected
-    if hasattr(resource, 'change_details'):
-        return resource.change_details
-    return "Configuration changed"
+    resource = _resource_of(change)
+    if resource is None:
+        return "-"
+
+    # Surface the handful of properties a person scans for, rather than
+    # dumping the whole configuration into a table cell.
+    interesting = ("MemorySize", "Timeout", "Runtime", "Handler", "name")
+    details = [
+        f"{key}={resource.properties[key]}"
+        for key in interesting
+        if key in resource.properties
+    ]
+    return ", ".join(details) if details else resource.type

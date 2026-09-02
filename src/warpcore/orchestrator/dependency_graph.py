@@ -175,6 +175,28 @@ class DependencyGraph:
         visited.discard(resource_id)
         return visited
     
+    def resource_ids(self) -> List[str]:
+        """Every resource id in the graph, sorted for stable output."""
+        return sorted(self.nodes)
+
+    def get_roots(self) -> List[str]:
+        """Resources that depend on nothing.
+
+        These are the entry points when rendering the graph as a tree: a root
+        is deployed first and everything else hangs off it.
+        """
+        return sorted(
+            resource_id for resource_id, node in self.nodes.items()
+            if not node.dependencies
+        )
+
+    def get_leaves(self) -> List[str]:
+        """Resources nothing depends on."""
+        return sorted(
+            resource_id for resource_id in self.nodes
+            if not self._adjacency_list.get(resource_id)
+        )
+
     def detect_circular_dependencies(self) -> Optional[List[str]]:
         """Detect circular dependencies in the graph.
         

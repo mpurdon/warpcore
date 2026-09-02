@@ -5,7 +5,7 @@ from typing import Optional
 import pytest
 
 from warpcore.audit.models import AuditOperation, AuditStatus, UndoKind
-from warpcore.audit.recorder import AuditRecorder, resource_snapshot
+from warpcore.audit.recorder import AuditRecorder
 from warpcore.audit.undo import UndoExecutor
 from warpcore.provisioners.base import ChangeType, ProvisionPlan
 from warpcore.provisioners.base import Resource as ProvisionerResource

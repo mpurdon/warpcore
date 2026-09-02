@@ -80,7 +80,11 @@ class DeploymentOrchestrator:
             executor=self.executor,
             rollback_manager=self.rollback_manager
         )
-        self.tag_manager = TagManager(config)
+        # TagManager takes the ProjectConfig, not the whole Config. Passing
+        # the latter raised AttributeError in the constructor, so building an
+        # orchestrator at all - and therefore deploy, destroy and diff -
+        # failed before doing any work.
+        self.tag_manager = TagManager(config.project)
         
         self.logger = get_logger(__name__)
     
