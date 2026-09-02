@@ -2,7 +2,7 @@
 
 import time
 import random
-from typing import Callable, TypeVar, Optional, List, Type
+from typing import Callable, TypeVar, Optional, Type
 from functools import wraps
 from botocore.exceptions import ClientError
 from warpcore.utils.logging import get_logger
@@ -276,7 +276,7 @@ class CircuitBreaker:
                 logger.info("Circuit breaker entering HALF_OPEN state")
                 self.state = 'HALF_OPEN'
             else:
-                raise Exception(f"Circuit breaker is OPEN. Service unavailable.")
+                raise Exception("Circuit breaker is OPEN. Service unavailable.")
         
         try:
             result = func(*args, **kwargs)
@@ -289,7 +289,7 @@ class CircuitBreaker:
             
             return result
             
-        except self.expected_exception as e:
+        except self.expected_exception:
             self.failure_count += 1
             self.last_failure_time = time.time()
             

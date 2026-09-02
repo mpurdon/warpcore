@@ -5,7 +5,6 @@ from rich.console import Console
 from rich.tree import Tree
 from rich.panel import Panel
 from typing import Dict, List, Set
-import json
 import subprocess
 import tempfile
 import os
@@ -28,8 +27,8 @@ def graph(env: str, agent: str, format: str, output: str):
     """Visualize resource dependency graph."""
     try:
         # Load configuration
-        config_parser = Config('warpcore.yaml')
-        config = config_parser.parse()
+        config = Config('warpcore.yaml')
+        config.load()
         
         # Validate environment
         if env not in config.environments:
@@ -37,7 +36,13 @@ def graph(env: str, agent: str, format: str, output: str):
             return
         
         # Load current state
-        state_manager = StateManager(f'.warpcore/state/{env}.json')
+        # State files are named {project}-{env}.json. Hardcoding a
+        # different shape here meant the file was never found even when
+        # it existed. Imported inside the function: cli.main imports this
+        # module, so a module-level import would be circular.
+        from warpcore.cli.main import get_state_path
+
+        state_manager = StateManager(str(get_state_path(env, config.project.name)))
         current_state = state_manager.load()
         
         # Build dependency graph
@@ -129,7 +134,7 @@ def _output_ascii(dep_graph: DependencyGraph, env: str, agent: str):
     
     # Print level by level
     for level in range(max_level + 1):
-        resources = [r for r, l in levels.items() if l == level]
+        resources = [r for r, lvl in levels.items() if lvl == level]
         
         if resources:
             console.print(f"[bold]Level {level}:[/bold]")
@@ -199,7 +204,8 @@ def _output_dot(dep_graph: DependencyGraph, env: str, agent: str, output: str):
             # Cleanup
             try:
                 os.unlink(dot_file)
-            except:
+            except OSError:
+                # Best effort: the temp file may already be gone.
                 pass
 
 
@@ -217,7 +223,7 @@ def _generate_dot(dep_graph: DependencyGraph, env: str, agent: str) -> str:
     title = f"Resource Dependencies\\n{env}"
     if agent:
         title += f" - {agent}"
-    lines.append(f'  labelloc="t";')
+    lines.append('  labelloc="t";')
     lines.append(f'  label="{title}";')
     lines.append('')
     

@@ -1,6 +1,6 @@
 """SQS queue provisioner."""
 
-from typing import Optional, Dict, Any
+from typing import Optional
 from botocore.exceptions import ClientError
 
 from .base import BaseProvisioner, Resource, ProvisionPlan, ChangeType

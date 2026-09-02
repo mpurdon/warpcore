@@ -1,7 +1,7 @@
 """Resource optimizer for shared infrastructure and cost reduction."""
 
 import json
-from typing import Dict, List, Optional, Set, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 
 from ..state.models import Resource, State

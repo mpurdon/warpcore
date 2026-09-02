@@ -1,6 +1,5 @@
 """YAML configuration parser for Warpcore."""
 
-import os
 from pathlib import Path
 from typing import Dict, List, Optional
 

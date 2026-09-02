@@ -5,15 +5,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-import signal
-import json
+from typing import Dict, Optional, Any
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
 from ..config.models import AgentConfig
-from ..state.models import State, Resource
+from ..state.models import State
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)

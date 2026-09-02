@@ -4,9 +4,9 @@ import fcntl
 import json
 import os
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 
-from .models import Resource, Stack, State
+from .models import Resource, State
 
 
 class StateError(Exception):

@@ -1,6 +1,6 @@
 """Metrics collector for deployment operations."""
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional, List
 from datetime import datetime
 import logging
 

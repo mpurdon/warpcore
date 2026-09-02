@@ -1,6 +1,6 @@
 """Rollback capability for failed deployments."""
 
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -10,7 +10,6 @@ from warpcore.orchestrator.executor import (
     DeploymentExecutor,
     DeploymentResult,
     ExecutionStatus,
-    ResourceExecutionResult,
     ProgressCallback
 )
 from warpcore.orchestrator.planner import DeploymentPlanner, DestructionPlan

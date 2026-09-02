@@ -4,12 +4,10 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-import boto3
 import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.syntax import Syntax
 
 from warpcore.agentic.reconciler import AgenticReconciler
 from warpcore.agentic.llm_client import LLMClient, LLMProvider
@@ -18,7 +16,6 @@ from warpcore.config.parser import Config
 from warpcore.state.manager import StateManager
 from warpcore.utils.aws_client import AWSClientManager
 from warpcore.utils.logging import get_logger
-from warpcore.utils.errors import DeploymentError
 
 console = Console()
 logger = get_logger(__name__)

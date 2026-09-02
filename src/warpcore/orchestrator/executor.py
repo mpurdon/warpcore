@@ -1,16 +1,15 @@
 """Deployment executor with parallel execution and progress tracking."""
 
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from enum import Enum
-import time
 
 from warpcore.orchestrator.planner import DeploymentPlan, DestructionPlan, ResourceChange
-from warpcore.provisioners.base import BaseProvisioner, ChangeType, ProvisionPlan
-from warpcore.state.models import Resource, State
+from warpcore.provisioners.base import BaseProvisioner, ChangeType
+from warpcore.state.models import Resource
 from warpcore.state.manager import StateManager
 from warpcore.state.checkpoint import CheckpointManager
 from warpcore.audit.models import AuditOperation

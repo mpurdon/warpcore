@@ -1,7 +1,7 @@
 """Retention and cleanup policies for deployment history."""
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List
 from dataclasses import dataclass
 
 from botocore.exceptions import ClientError
@@ -86,7 +86,6 @@ class RetentionManager:
 
         # Separate successful and failed deployments
         successful = [d for d in sorted_deployments if d.status == DeploymentStatus.SUCCESS]
-        failed = [d for d in sorted_deployments if d.status == DeploymentStatus.FAILED]
 
         # Keep last N successful deployments
         keep_successful_ids = {d.deployment_id for d in successful[: policy.keep_last_successful]}

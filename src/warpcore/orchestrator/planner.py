@@ -1,8 +1,7 @@
 """Deployment planner for creating deployment and destruction plans."""
 
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
 
 from warpcore.state.models import Resource, State

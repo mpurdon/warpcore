@@ -1,6 +1,6 @@
 """Alarm manager for creating and managing CloudWatch alarms."""
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 import logging
 
 from ..provisioners.cloudwatch import CloudWatchProvisioner

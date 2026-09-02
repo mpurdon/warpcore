@@ -3,7 +3,6 @@
 import json
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 import yaml
 
@@ -15,15 +14,13 @@ from warpcore.history.models import (
     DeploymentStatus,
     LogEntry,
     APICall,
-    ResourceChange,
     DeploymentDiff,
 )
 from warpcore.history.cost_estimator import CostEstimator
-from warpcore.history.comparison import DeploymentComparator, compare_deployments
+from warpcore.history.comparison import DeploymentComparator
 from warpcore.state.models import State
 from warpcore.config.parser import Config
 from warpcore.utils.logging import get_logger
-from warpcore.utils.errors import DeploymentError
 
 logger = get_logger(__name__)
 

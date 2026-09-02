@@ -5,7 +5,7 @@ from rich.console import Console
 import json
 import os
 import requests
-from typing import Dict, Optional
+from typing import Dict
 from datetime import datetime
 
 from ..utils.logging import get_logger
@@ -237,7 +237,7 @@ def _send_email(email_address: str, event: str, data: Dict):
     # This would integrate with AWS SES or another email service
     # For now, just log
     logger.info(f"Would send email to {email_address}: {event} - {data}")
-    console.print(f"[yellow]Email notifications require AWS SES configuration[/yellow]")
+    console.print("[yellow]Email notifications require AWS SES configuration[/yellow]")
 
 
 def _send_pagerduty(integration_key: str, event: str, data: Dict):

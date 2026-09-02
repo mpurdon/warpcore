@@ -169,7 +169,7 @@ def forecast(ctx, days, project, environment):
         forecast_amount = cost_manager.get_cost_forecast(days, tag_filters or None)
 
         # Display forecast
-        console.print(f"\n[bold]Cost Forecast[/bold]")
+        console.print("\n[bold]Cost Forecast[/bold]")
         if project:
             console.print(f"Project: {project}")
         if environment:

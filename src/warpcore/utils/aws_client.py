@@ -150,7 +150,7 @@ class AWSClientManager:
             
             return self._credentials
             
-        except NoCredentialsError as e:
+        except NoCredentialsError:
             logger.error("No AWS credentials found. Please configure credentials using "
                         "AWS CLI, environment variables, or IAM role.")
             raise

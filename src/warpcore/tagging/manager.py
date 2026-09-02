@@ -1,6 +1,5 @@
 """Tag management for AWS resources."""
 
-import os
 from datetime import datetime
 from typing import Dict, Optional, List
 from warpcore.config.models import AgentConfig, ProjectConfig
@@ -130,9 +129,6 @@ class TagManager:
             True if tags were applied successfully, False otherwise
         """
         try:
-            # Convert tags to AWS format
-            tag_list = [{"Key": key, "Value": value} for key, value in tags.items()]
-
             # Use Resource Groups Tagging API for universal tagging
             tagging_client = boto_session.client("resourcegroupstaggingapi")
 
@@ -201,8 +197,6 @@ class TagManager:
 
             elif service == "apigateway":
                 client = boto_session.client("apigatewayv2")
-                # Extract API ID from ARN
-                api_id = resource_id.split("/")[-1]
                 client.tag_resource(ResourceArn=resource_id, Tags=tags)
 
             else:

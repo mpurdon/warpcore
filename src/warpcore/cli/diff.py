@@ -5,8 +5,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from typing import Dict, List, Tuple
-import json
 
 from ..config.parser import Config
 from ..state.manager import StateManager
@@ -25,8 +23,8 @@ def diff(env: str, agent: str, json_output: bool):
     """Show what would change in a deployment without executing it."""
     try:
         # Load configuration
-        config_parser = Config('warpcore.yaml')
-        config = config_parser.parse()
+        config = Config('warpcore.yaml')
+        config.load()
         
         # Validate environment
         if env not in config.environments:
@@ -34,8 +32,15 @@ def diff(env: str, agent: str, json_output: bool):
             return
         
         # Load current state
-        state_manager = StateManager(f'.warpcore/state/{env}.json')
-        current_state = state_manager.load()
+        # State files are named {project}-{env}.json. Hardcoding a
+        # different shape here meant the file was never found even when
+        # it existed. Imported inside the function: cli.main imports this
+        # module, so a module-level import would be circular.
+        from warpcore.cli.main import get_state_path
+
+        state_manager = StateManager(str(get_state_path(env, config.project.name)))
+        # Loads state into the manager, which the planner reads from below.
+        state_manager.load()
         
         # Create deployment plan
         planner = DeploymentPlanner(config, state_manager)

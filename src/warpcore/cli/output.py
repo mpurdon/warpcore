@@ -4,8 +4,6 @@ import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.syntax import Syntax
-import json
 
 from ..state.manager import StateManager
 from ..utils.logging import get_logger

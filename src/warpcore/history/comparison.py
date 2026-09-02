@@ -1,6 +1,6 @@
 """Deployment comparison utilities."""
 
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, Set, Tuple
 from warpcore.history.models import ConfigDiff, StateDiff, DeploymentDiff
 from warpcore.utils.logging import get_logger
 

@@ -1,6 +1,6 @@
 """Pydantic models for configuration schema."""
 
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
