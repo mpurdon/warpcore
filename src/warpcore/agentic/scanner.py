@@ -60,6 +60,9 @@ class ScannedState:
         self.errors: List[ScanError] = []
         self.unhydrated: Dict[str, int] = {}
         self.truncated: bool = False
+        # Whether AWS Resource Explorer contributed. Without it, coverage is
+        # limited to the services warpcore enumerates by hand.
+        self.explorer_available: bool = False
 
     def add_resource(self, resource: Resource):
         """Add a scanned resource.
@@ -251,13 +254,71 @@ class AWSScanner:
         wanted_types: Optional[Set[str]],
         max_resources: Optional[int],
     ) -> None:
-        """Find every resource by walking each service's own list API."""
+        """Find every resource in the region, from every source available.
+
+        Resource Explorer, when the account has it enabled, is the most complete
+        source: an AWS-maintained index of nearly every type. The per-service
+        enumerators always run too - they are the fallback when Resource
+        Explorer is absent, and they use warpcore's canonical type names. The
+        two are merged by ARN, and each resource records which sources saw it.
+        """
         from warpcore.discovery.enumerator import ServiceEnumerator
+        from warpcore.discovery.resource_explorer import ResourceExplorerSource
+
+        by_arn: Dict[str, Resource] = {}
+
+        def merge(resource: Resource, source: str) -> None:
+            key = resource.physical_id or f"{resource.type}/{resource.id}"
+            existing = by_arn.get(key)
+            if existing is None:
+                resource.metadata = {**(resource.metadata or {}), "sources": [source]}
+                by_arn[key] = resource
+                return
+            # Keep the first record but fold in anything the second knows.
+            existing.tags = {**(resource.tags or {}), **(existing.tags or {})}
+            sources = existing.metadata.setdefault("sources", [])
+            if source not in sources:
+                sources.append(source)
+            for k, v in (resource.metadata or {}).items():
+                existing.metadata.setdefault(k, v)
+
+        explorer = ResourceExplorerSource(self.session)
+        availability = explorer.availability(self.region)
+        scanned_state.explorer_available = availability.available
+        if availability.available:
+            try:
+                for resource in explorer.search(self.region):
+                    merge(resource, "resource-explorer")
+            except Exception as e:  # noqa: BLE001 - fall through to enumerators
+                scanned_state.add_error(ScanError(
+                    physical_id="(resource-explorer)",
+                    resource_type="resource-explorer-2",
+                    stage="enumerate",
+                    message=str(e),
+                ))
+        else:
+            self.logger.info(
+                f"Resource Explorer not available in {self.region} "
+                f"({availability.reason}); using service enumerators only"
+            )
 
         enumerator = ServiceEnumerator(
             boto_session=self.session, region=self.region, account=self.account
         )
-        resources = enumerator.enumerate()
+        # Enumerators use warpcore's canonical types, so let them win on a
+        # collision by inserting them over the explorer's record.
+        for resource in enumerator.enumerate():
+            key = resource.physical_id or f"{resource.type}/{resource.id}"
+            if key in by_arn:
+                existing = by_arn[key]
+                resource.tags = {**(existing.tags or {}), **(resource.tags or {})}
+                resource.metadata = {**(existing.metadata or {}), **(resource.metadata or {})}
+                sources = resource.metadata.setdefault("sources", [])
+                if "service-api" not in sources:
+                    sources.append("service-api")
+                by_arn[key] = resource
+            else:
+                merge(resource, "service-api")
 
         for error in enumerator.errors:
             scanned_state.add_error(ScanError(
@@ -269,10 +330,11 @@ class AWSScanner:
 
         tags_by_arn = self._tags_by_arn()
 
-        for resource in resources:
+        for resource in by_arn.values():
             if wanted_types and resource.type not in wanted_types:
                 continue
-            resource.tags = tags_by_arn.get(resource.physical_id or "", {})
+            if resource.physical_id in tags_by_arn:
+                resource.tags = {**tags_by_arn[resource.physical_id], **(resource.tags or {})}
             if resource.tags.get("Name"):
                 resource.id = resource.tags["Name"]
             scanned_state.add_resource(resource)

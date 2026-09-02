@@ -15,6 +15,7 @@ from warpcore.agentic.scanner import AWSScanner, ScanScope
 from warpcore.devmode import get_dev_mode
 from warpcore.discovery.adopt import ResourceAdopter
 from warpcore.discovery.config_emitter import ConfigEmitter
+from warpcore.discovery.inventory import enabled_regions, scan_account
 from warpcore.state.manager import StateManager
 from warpcore.utils.aws_client import AWSClientManager
 from warpcore.utils.logging import get_logger
@@ -56,7 +57,9 @@ def discover():
 
 
 @discover.command("inventory")
-@click.option("--region", help="AWS region to scan (defaults to the profile's region)")
+@click.option("--region", "regions", multiple=True,
+              help="Region to scan; repeatable. Defaults to the profile's region.")
+@click.option("--all-regions", is_flag=True, help="Scan every region enabled for the account")
 @click.option("--scope", type=click.Choice(["account", "project"]), default="account",
               help="account scans everything; project filters to warpcore tags")
 @click.option("--project-name", default="discovered", help="Project name (project scope only)")
@@ -65,39 +68,69 @@ def discover():
               help="Fetch each resource's real configuration (one API call each)")
 @click.option("--type", "resource_types", multiple=True,
               help="Only this CloudFormation type; repeatable")
-@click.option("--max", "max_resources", type=int, default=2000, show_default=True,
-              help="Stop after this many resources")
+@click.option("--max", "max_resources", type=int, default=5000, show_default=True,
+              help="Stop after this many resources per region")
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a table")
 @click.pass_context
-def inventory(ctx, region, scope, project_name, environment, hydrate,
+def inventory(ctx, regions, all_regions, scope, project_name, environment, hydrate,
               resource_types, max_resources, as_json):
     """List what actually exists in an AWS account."""
-    scanner, credentials, resolved_region = _scanner(ctx, region, project_name, environment)
+    first_region = regions[0] if regions else None
+    scanner, credentials, resolved_region = _scanner(ctx, first_region, project_name, environment)
 
-    status.print(
-        f"Scanning [cyan]{credentials.account_id}[/cyan] in "
-        f"[cyan]{resolved_region}[/cyan] (scope: {scope})..."
-    )
+    if scope == "project":
+        # Project scope is tag-filtered and single-region: it is what drift
+        # detection uses, and it has no business crossing regions.
+        status.print(
+            f"Scanning [cyan]{credentials.account_id}[/cyan] in "
+            f"[cyan]{resolved_region}[/cyan] (scope: project)..."
+        )
+        scanned = scanner.scan_resources(
+            scope=ScanScope.PROJECT,
+            hydrate=hydrate,
+            resource_types=list(resource_types) or None,
+            max_resources=max_resources,
+        )
+        region_summary = {resolved_region: len(scanned.resources)}
+        explorer = scanned.explorer_available
+    else:
+        if all_regions:
+            target_regions = enabled_regions(scanner.session, seed_region=resolved_region)
+        else:
+            target_regions = list(regions) or [resolved_region]
 
-    scanned = scanner.scan_resources(
-        scope=ScanScope(scope),
-        hydrate=hydrate,
-        resource_types=list(resource_types) or None,
-        max_resources=max_resources,
-    )
+        status.print(
+            f"Scanning [cyan]{credentials.account_id}[/cyan] across "
+            f"[cyan]{len(target_regions)}[/cyan] region(s): {', '.join(target_regions)}"
+        )
+        account_inventory = scan_account(
+            session=scanner.session,
+            account=credentials.account_id,
+            regions=target_regions,
+            hydrate=hydrate,
+            resource_types=list(resource_types) or None,
+            max_per_region=max_resources,
+        )
+        scanned = account_inventory.scanned
+        region_summary = account_inventory.region_summary()
+        explorer = scanned.explorer_available
 
     if as_json:
         payload = {
             "account": credentials.account_id,
-            "region": resolved_region,
+            "regions": region_summary,
             "scope": scope,
+            "resource_explorer": explorer,
             "truncated": scanned.truncated,
             "counts": scanned.count_by_type(),
+            "unhydrated_types": scanned.unhydrated,
             "resources": [
                 {
                     "id": r.id,
                     "type": r.type,
                     "physical_id": r.physical_id,
+                    "region": (r.metadata or {}).get("region"),
+                    "sources": (r.metadata or {}).get("sources", []),
                     "tags": r.tags,
                     "properties": r.properties,
                 }
@@ -118,22 +151,39 @@ def inventory(ctx, region, scope, project_name, environment, hydrate,
             console.print("Try [cyan]--scope account[/cyan] to see untagged resources.")
         return
 
-    summary = Table(title=f"Resource inventory - {credentials.account_id} / {resolved_region}")
+    if not explorer and scope == "account":
+        console.print(
+            "[yellow]AWS Resource Explorer is not enabled in this account;[/yellow] "
+            "coverage is limited to the services warpcore enumerates directly. "
+            "Enabling Resource Explorer (free) makes discovery near-complete."
+        )
+
+    summary = Table(title=f"Resource inventory - {credentials.account_id}")
     summary.add_column("Type", style="cyan")
     summary.add_column("Count", justify="right")
     for resource_type, count in scanned.count_by_type().items():
         summary.add_row(resource_type, str(count))
     console.print(summary)
 
+    if len(region_summary) > 1:
+        by_region = Table(title="By region")
+        by_region.add_column("Region", style="cyan")
+        by_region.add_column("Resources", justify="right")
+        for region, count in sorted(region_summary.items()):
+            by_region.add_row(region, str(count))
+        console.print(by_region)
+
     detail = Table(title="Resources")
     detail.add_column("Logical ID", style="green")
     detail.add_column("Type")
-    detail.add_column("Properties", justify="right")
+    detail.add_column("Region", style="dim")
+    detail.add_column("Props", justify="right")
     detail.add_column("Tags", justify="right")
     for resource in sorted(scanned.get_all_resources(), key=lambda r: (r.type, r.id))[:200]:
         detail.add_row(
             resource.id,
             resource.type.replace("AWS::", ""),
+            (resource.metadata or {}).get("region", ""),
             str(len(resource.properties or {})) if hydrate else "-",
             str(len(resource.tags or {})),
         )
@@ -144,7 +194,15 @@ def inventory(ctx, region, scope, project_name, environment, hydrate,
 
     if scanned.truncated:
         console.print(
-            f"[yellow]Stopped at --max {max_resources}; results are incomplete.[/yellow]"
+            f"[yellow]Stopped at --max {max_resources} in at least one region; "
+            f"results are incomplete.[/yellow]"
+        )
+
+    if scanned.unhydrated:
+        skipped = sum(scanned.unhydrated.values())
+        console.print(
+            f"[dim]{skipped} resource(s) across {len(scanned.unhydrated)} type(s) have no "
+            f"detail reader yet and were listed without configuration.[/dim]"
         )
 
     if scanned.errors:
