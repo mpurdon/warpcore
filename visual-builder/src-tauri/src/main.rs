@@ -193,10 +193,16 @@ fn warpcore_path() -> std::path::PathBuf {
 /// The single place a warpcore process is constructed, so platform quirks are
 /// handled once rather than at five call sites.
 fn warpcore_command() -> TokioCommand {
-    // Only the Windows branch below mutates this, so `mut` reads as unused
-    // on every other platform.
-    #[allow(unused_mut)]
     let mut cmd = TokioCommand::new(warpcore_path());
+
+    // A bundled app is launched with `/` (or the .app) as its working
+    // directory, and several CLI paths are CWD-relative: .warpcore/state,
+    // .warpcore/logs, limits.json. Default to the home directory so those land
+    // somewhere writable; config-bearing commands override this with the
+    // config's own directory via with_project_dir().
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        cmd.current_dir(home);
+    }
 
     #[cfg(windows)]
     {
@@ -207,6 +213,17 @@ fn warpcore_command() -> TokioCommand {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
+    cmd
+}
+
+/// Run a config-bearing command from the config's directory, so state and
+/// logs sit beside the warpcore.yaml they belong to instead of in `/`.
+fn with_project_dir(mut cmd: TokioCommand, config_path: &str) -> TokioCommand {
+    if let Some(dir) = Path::new(config_path).parent() {
+        if dir.is_dir() {
+            cmd.current_dir(dir);
+        }
+    }
     cmd
 }
 
@@ -247,7 +264,7 @@ async fn execute_deployment(
         }),
     );
 
-    let mut cmd = warpcore_command();
+    let mut cmd = with_project_dir(warpcore_command(), &config_path);
     cmd.args(warpcore_args(
         debug,
         &["deploy", "--env", &environment, "--config", &config_path],
@@ -374,7 +391,7 @@ async fn execute_destroy(
     debug: bool,
     window: tauri::Window,
 ) -> Result<String, String> {
-    let mut cmd = warpcore_command();
+    let mut cmd = with_project_dir(warpcore_command(), &config_path);
     cmd.args(warpcore_args(
         debug,
         &[
@@ -773,6 +790,98 @@ async fn scan_project_for_strands(directory: String) -> Result<ProjectDiscovery,
     Ok(discovery)
 }
 
+// ---------------------------------------------------------------------------
+// Account discovery
+//
+// These shell out to the bundled CLI's `discover` commands and hand the JSON
+// back to the webview untouched. All the AWS work happens in Python; the Rust
+// side only owns process lifecycle.
+// ---------------------------------------------------------------------------
+
+/// Run the CLI and return its stdout, which is expected to be JSON.
+///
+/// stderr carries logs and progress and is folded into the error message on
+/// failure, because that is where the reason for the failure will be.
+async fn run_warpcore_json(args: &[&str]) -> Result<String, String> {
+    let output = warpcore_command()
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| format!("could not start warpcore: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: String = stderr.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+        return Err(format!("warpcore exited with {}:\n{}", output.status, tail));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Profile names from ~/.aws/config and ~/.aws/credentials.
+///
+/// Read directly rather than via the CLI so the picker populates instantly
+/// without spawning a process.
+#[tauri::command]
+async fn list_aws_profiles() -> Result<Vec<String>, String> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "could not determine home directory".to_string())?;
+    let mut profiles = std::collections::BTreeSet::new();
+
+    for file in ["config", "credentials"] {
+        let path = Path::new(&home).join(".aws").join(file);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.starts_with('[') && line.ends_with(']') {
+                    let name = line[1..line.len() - 1].trim();
+                    let name = name.strip_prefix("profile ").unwrap_or(name).trim();
+                    if !name.starts_with("sso-session") && !name.is_empty() {
+                        profiles.insert(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    Ok(profiles.into_iter().collect())
+}
+
+/// Inventory an account. Returns the CLI's JSON verbatim.
+#[tauri::command]
+async fn discover_account(
+    profile: String,
+    regions: Vec<String>,
+    all_regions: bool,
+    hydrate: bool,
+) -> Result<String, String> {
+    let mut args: Vec<String> = vec![
+        "--profile".into(), profile,
+        "discover".into(), "inventory".into(), "--json".into(),
+        if hydrate { "--hydrate" } else { "--no-hydrate" }.into(),
+    ];
+    if all_regions {
+        args.push("--all-regions".into());
+    } else {
+        for region in regions {
+            args.push("--region".into());
+            args.push(region);
+        }
+    }
+    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_warpcore_json(&borrowed).await
+}
+
+/// Everything about one resource, by ARN. Returns the CLI's JSON verbatim.
+#[tauri::command]
+async fn resource_detail(profile: String, arn: String, hours: u32) -> Result<String, String> {
+    let hours = hours.to_string();
+    run_warpcore_json(&[
+        "--profile", &profile,
+        "discover", "detail", &arn, "--json", "--hours", &hours,
+    ])
+    .await
+}
+
 fn main() {
     tauri::Builder::default()
         // Only the dialog plugin is used: the frontend opens a file picker.
@@ -790,6 +899,9 @@ fn main() {
             execute_destroy,
             validate_config,
             get_deployment_history,
+            list_aws_profiles,
+            discover_account,
+            resource_detail,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

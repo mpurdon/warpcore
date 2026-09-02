@@ -1,4 +1,4 @@
-import { Play, Trash2, FileText, FolderSearch, PanelRight } from 'lucide-react';
+import { Play, Trash2, FileText, FolderSearch, PanelRight, Radar } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -10,6 +10,7 @@ import FileMenu from './FileMenu';
 import EnvironmentConfigPanel from './EnvironmentConfigPanel';
 import EnvironmentSelector from './EnvironmentSelector';
 import ProjectDiscoveryPanel from './ProjectDiscoveryPanel';
+import AccountExplorerPanel from './AccountExplorerPanel';
 import { addRecentProject, extractProjectName } from '../utils/recentProjects';
 import { dirname } from '../utils/paths';
 
@@ -42,6 +43,7 @@ export default function Toolbar() {
   const [showEnvConfig, setShowEnvConfig] = useState(false);
   const [editingEnv, setEditingEnv] = useState<string | null>(null);
   const [showDiscoveryPanel, setShowDiscoveryPanel] = useState(false);
+  const [showAccountExplorer, setShowAccountExplorer] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Track last save time to ignore file watcher events triggered by our saves
@@ -270,6 +272,15 @@ export default function Toolbar() {
         )}
 
         <button
+          onClick={() => setShowAccountExplorer(true)}
+          className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 rounded flex items-center gap-2 text-sm"
+          title="Reverse-engineer an AWS account: every resource, drill in to config, network, metrics and logs"
+        >
+          <Radar size={16} />
+          Explore Account
+        </button>
+
+        <button
           onClick={() => setShowTemplateModal(true)}
           className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded flex items-center gap-2 text-sm"
         >
@@ -324,6 +335,11 @@ export default function Toolbar() {
           }}
         />
       )}
+
+      <AccountExplorerPanel
+        isOpen={showAccountExplorer}
+        onClose={() => setShowAccountExplorer(false)}
+      />
 
       {configPath && (
         <ProjectDiscoveryPanel
