@@ -203,6 +203,11 @@ interface StoreState {
   // Developer preferences (machine-local, never written to warpcore.yaml)
   debugMode: boolean;
   setDebugMode: (enabled: boolean) => void;
+
+  // Regions of interest. Every region-aware surface reads this rather than
+  // presenting all ~30 AWS regions.
+  selectedRegions: string[];
+  setSelectedRegions: (regions: string[]) => void;
 }
 
 export const useStore = create<StoreState>((set) => ({
@@ -290,6 +295,13 @@ export const useStore = create<StoreState>((set) => ({
   setDebugMode: (enabled) => {
     setPreference('debugMode', enabled);
     set({ debugMode: enabled });
+  },
+
+  selectedRegions: getPreferences().regions,
+  setSelectedRegions: (regions) => {
+    const unique = [...new Set(regions)].sort();
+    setPreference('regions', unique);
+    set({ selectedRegions: unique });
   },
 }));
 

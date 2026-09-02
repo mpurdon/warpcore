@@ -3,30 +3,39 @@ import { X, Radar, RefreshCw, AlertCircle, ChevronDown, ChevronRight, Search, Ey
 import {
   AccountInventory,
   DiscoveredResource,
+  RegionProgress,
+  applyScanEvent,
   cancelScan,
   discoverAccount,
   isBaseline,
   isCancellation,
+  onScanProgress,
+  LAST_PROFILE_KEY,
   listAwsProfiles,
   shortType,
   typeRank,
 } from '../utils/accountExplorer';
 import ResourceDetailDrawer from './ResourceDetailDrawer';
+import ScanProgressView from './ScanProgressView';
+import { useStore } from '../store/useStore';
+import { regionLabel } from '../utils/regions';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const LAST_PROFILE_KEY = 'warpcore-explorer-profile';
-
 export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
   const [profiles, setProfiles] = useState<string[]>([]);
   const [profile, setProfile] = useState<string>('');
   const [allRegions, setAllRegions] = useState(false);
-  const [regionInput, setRegionInput] = useState('');
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [progress, setProgress] = useState<Map<string, RegionProgress>>(new Map());
+  const [parallelism, setParallelism] = useState<number | undefined>();
+  const { selectedRegions } = useStore();
+  // Which of the configured regions to scan this time. Empty = all of them.
+  const [scanRegions, setScanRegions] = useState<string[]>([]);
   const [inventory, setInventory] = useState<AccountInventory | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,9 +74,28 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
     return () => window.clearInterval(id);
   }, [scanStartedAt]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    onScanProgress((event) => {
+      if (event.event === 'scan_start') setParallelism(event.parallelism);
+      setProgress((current) => applyScanEvent(current, event));
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [isOpen]);
+
   const cancel = async () => {
     try { await cancelScan(); } catch { /* nothing to cancel */ }
   };
+
+  // Which regions this scan will actually cover. An empty selection means
+  // every configured region; no configured regions at all falls back to the
+  // profile's own, so a fresh install still does something sensible.
+  const effectiveRegions = scanRegions.length ? scanRegions : selectedRegions;
 
   const scan = async () => {
     if (!profile) return;
@@ -76,12 +104,13 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
     setElapsed(0);
     setError(null);
     setSelected(null);
+    setProgress(new Map());
     try {
       try { localStorage.setItem(LAST_PROFILE_KEY, profile); } catch { /* ignore */ }
       const result = await discoverAccount({
         profile,
         // Empty means "the profile's own region"; the CLI resolves it.
-        regions: allRegions ? [] : regionInput.split(',').map((r) => r.trim()).filter(Boolean),
+        regions: allRegions ? [] : effectiveRegions,
         allRegions,
         hydrate: false,
       });
@@ -179,19 +208,33 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
             {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
 
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={allRegions} onChange={(e) => setAllRegions(e.target.checked)} disabled={isScanning} />
-            All regions
-          </label>
-          {!allRegions && (
-            <input
-              value={regionInput}
-              onChange={(e) => setRegionInput(e.target.value)}
-              placeholder="profile's region (or us-east-1, us-west-2)"
-              className="text-sm border border-gray-300 rounded px-2 py-1 w-72"
-              disabled={isScanning}
-            />
-          )}
+          <label className="text-sm text-gray-600">Regions</label>
+          <select
+            multiple={false}
+            value={allRegions ? '__all__' : (scanRegions[0] ?? '__configured__')}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '__all__') { setAllRegions(true); setScanRegions([]); }
+              else if (v === '__configured__') { setAllRegions(false); setScanRegions([]); }
+              else { setAllRegions(false); setScanRegions([v]); }
+            }}
+            className="text-sm border border-gray-300 rounded px-2 py-1 bg-white min-w-[240px]"
+            disabled={isScanning}
+            title="Configured in Settings › Regions of interest"
+          >
+            {selectedRegions.length > 0 && (
+              <option value="__configured__">
+                All configured ({selectedRegions.length})
+              </option>
+            )}
+            {selectedRegions.length === 0 && (
+              <option value="__configured__">Profile's region</option>
+            )}
+            {selectedRegions.map((r) => (
+              <option key={r} value={r}>{regionLabel(r)}</option>
+            ))}
+            <option value="__all__">Every enabled region (slow)</option>
+          </select>
 
           {isScanning ? (
             <button
@@ -258,14 +301,19 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
               </div>
             )}
 
-            {isScanning && (
+            {isScanning && progress.size === 0 && (
               <div className="p-12 text-center text-gray-500">
                 <RefreshCw size={32} className="mx-auto mb-3 animate-spin text-blue-500" />
-                <p>Scanning {allRegions ? 'every enabled region' : (regionInput || "the profile's region")}… {elapsed}s</p>
-                <p className="text-xs mt-2">
-                  {allRegions ? 'All regions usually takes 15–40s.' : 'One region usually takes 3–10s.'} Cancel above to stop.
-                </p>
+                <p>Starting scan… {elapsed}s</p>
               </div>
+            )}
+
+            {isScanning && progress.size > 0 && (
+              <ScanProgressView
+                regions={progress}
+                elapsed={elapsed}
+                parallelism={parallelism}
+              />
             )}
 
             {inventory && !isScanning && (

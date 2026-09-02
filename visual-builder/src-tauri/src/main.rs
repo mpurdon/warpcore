@@ -825,6 +825,7 @@ struct ScanProcess {
 /// UI can tell the two apart.
 async fn run_cancellable_scan(
     state: &ActiveScan,
+    window: &tauri::Window,
     args: &[&str],
 ) -> Result<String, String> {
     use tokio::io::AsyncReadExt;
@@ -842,7 +843,8 @@ async fn run_cancellable_scan(
     let mut child = cmd.spawn().map_err(|e| format!("could not start warpcore: {e}"))?;
     #[cfg(unix)]
     let pgid = child.id().map(|id| id as i32).unwrap_or(0);
-    let mut stdout = child.stdout.take().ok_or("no stdout")?;
+
+    let stdout = child.stdout.take().ok_or("no stdout")?;
     let mut stderr = child.stderr.take().ok_or("no stderr")?;
 
     {
@@ -859,12 +861,37 @@ async fn run_cancellable_scan(
         });
     }
 
-    // Read both pipes to completion. Reading stdout alone can deadlock if
-    // stderr fills its buffer, so they are drained concurrently.
-    let (out, err) = tokio::join!(
-        async { let mut b = Vec::new(); let _ = stdout.read_to_end(&mut b).await; b },
-        async { let mut b = Vec::new(); let _ = stderr.read_to_end(&mut b).await; b },
-    );
+    // stdout is newline-delimited JSON: progress events as they happen, then a
+    // final `result` event carrying the inventory. Relaying each line as it
+    // arrives is the whole point - buffering to EOF would defeat the progress
+    // display this feeds.
+    let progress_window = window.clone();
+    let reader = BufReader::new(stdout);
+    let mut lines = reader.lines();
+    let mut result: Option<String> = None;
+
+    // stderr is drained concurrently: it carries logs, and letting it fill its
+    // pipe buffer would block the child mid-scan.
+    let stderr_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf).await;
+        buf
+    });
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        if line.is_empty() {
+            continue;
+        }
+        // The result line is the payload, not progress; everything else is
+        // forwarded verbatim so the event schema lives in one place.
+        if line.contains("\"event\":\"result\"") {
+            result = Some(line);
+        } else {
+            let _ = progress_window.emit("scan-progress", line);
+        }
+    }
+
+    let err = stderr_task.await.unwrap_or_default();
 
     let status = {
         let mut slot = state.0.lock().await;
@@ -889,7 +916,11 @@ async fn run_cancellable_scan(
         let tail: String = stderr.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
         return Err(format!("warpcore exited with {}:\n{}", status, tail));
     }
-    Ok(String::from_utf8_lossy(&out).into_owned())
+
+    match result {
+        Some(line) => Ok(line),
+        None => Err("scan produced no result event".to_string()),
+    }
 }
 
 /// SIGKILL the scan's whole process group (Unix), or the process (elsewhere).
@@ -974,6 +1005,7 @@ async fn list_aws_profiles() -> Result<Vec<String>, String> {
 #[tauri::command]
 async fn discover_account(
     state: tauri::State<'_, ActiveScan>,
+    window: tauri::Window,
     profile: String,
     regions: Vec<String>,
     all_regions: bool,
@@ -982,6 +1014,8 @@ async fn discover_account(
     let mut args: Vec<String> = vec![
         "--profile".into(), profile,
         "discover".into(), "inventory".into(), "--json".into(),
+        // Streams progress events; the final line carries the inventory.
+        "--progress".into(),
         if hydrate { "--hydrate" } else { "--no-hydrate" }.into(),
     ];
     if all_regions {
@@ -993,7 +1027,17 @@ async fn discover_account(
         }
     }
     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_cancellable_scan(&state, &borrowed).await
+    run_cancellable_scan(&state, &window, &borrowed).await
+}
+
+/// Regions this account has enabled, for the region picker.
+#[tauri::command]
+async fn list_regions(profile: String) -> Result<Vec<String>, String> {
+    let json = run_warpcore_json(&[
+        "--profile", &profile, "discover", "regions", "--json",
+    ])
+    .await?;
+    serde_json::from_str(&json).map_err(|e| format!("could not parse regions: {e}"))
 }
 
 /// Everything about one resource, by ARN. Returns the CLI's JSON verbatim.
@@ -1029,6 +1073,7 @@ fn main() {
             discover_account,
             resource_detail,
             cancel_scan,
+            list_regions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

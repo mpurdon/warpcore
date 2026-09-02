@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { X, Settings, FileText, Database, Trash2, Bug } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { X, Settings, FileText, Database, Trash2, Bug, Globe } from 'lucide-react';
 import { useStore, EnvironmentConfig, RemovalPolicy } from '../store/useStore';
+import RegionPicker, { summariseRegions } from './RegionPicker';
+import { listAwsProfiles, listRegions, preferredProfile } from '../utils/accountExplorer';
 
 interface Props {
   environment: string;
@@ -143,6 +145,19 @@ function PolicySelector({
   );
 }
 
+// Used when the account's enabled regions cannot be fetched. The commercial
+// partition as of writing; the picker groups anything it does not know.
+const FALLBACK_REGIONS = [
+  'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
+  'ca-central-1', 'ca-west-1', 'mx-central-1', 'sa-east-1',
+  'eu-central-1', 'eu-central-2', 'eu-west-1', 'eu-west-2', 'eu-west-3',
+  'eu-north-1', 'eu-south-1', 'eu-south-2',
+  'ap-east-1', 'ap-south-1', 'ap-south-2',
+  'ap-northeast-1', 'ap-northeast-2', 'ap-northeast-3',
+  'ap-southeast-1', 'ap-southeast-2', 'ap-southeast-3', 'ap-southeast-4',
+  'me-central-1', 'me-south-1', 'af-south-1', 'il-central-1',
+];
+
 const RETENTION_OPTIONS = [
   { label: '1 day', value: 1 },
   { label: '3 days', value: 3 },
@@ -173,7 +188,12 @@ const TIMEOUT_OPTIONS = [
 ];
 
 export default function EnvironmentConfigPanel({ environment, onClose }: Props) {
-  const { environmentConfigs, setEnvironmentConfig, debugMode, setDebugMode } = useStore();
+  const {
+    environmentConfigs, setEnvironmentConfig, debugMode, setDebugMode,
+    selectedRegions, setSelectedRegions,
+  } = useStore();
+  const [availableRegions, setAvailableRegions] = useState<string[]>([]);
+  const [regionNote, setRegionNote] = useState<string | undefined>();
   const config = environmentConfigs[environment];
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -187,6 +207,31 @@ export default function EnvironmentConfigPanel({ environment, onClose }: Props) 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+
+  // The account's own enabled regions, so the picker offers what this account
+  // can actually use. Falls back to the static catalogue if that call fails -
+  // an unreachable AWS must not leave the picker empty.
+  useEffect(() => {
+    let cancelled = false;
+    let profile = '';
+    listAwsProfiles()
+      .then((profiles) => {
+        // The profile the Account Explorer last used, not an arbitrary one:
+        // the first profile alphabetically often has no usable credentials.
+        profile = preferredProfile(profiles);
+        return listRegions(profile);
+      })
+      .then((regions) => { if (!cancelled) setAvailableRegions(regions); })
+      .catch(() => {
+        if (cancelled) return;
+        setAvailableRegions(FALLBACK_REGIONS);
+        setRegionNote(
+          `Could not list enabled regions${profile ? ` using profile "${profile}"` : ''}; `
+          + 'showing the standard set. Scan an account in the Explorer first to pick it up.',
+        );
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Close on backdrop click
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -356,6 +401,28 @@ export default function EnvironmentConfigPanel({ environment, onClose }: Props) 
                 />
               </div>
             </div>
+          </section>
+
+          {/* Regions - app-level, drives every region-aware surface */}
+          <section className="border-t border-gray-200 pt-6">
+            <div className="flex items-center gap-2 mb-1">
+              <Globe size={18} className="text-sky-500" />
+              <h3 className="font-semibold text-gray-800">Regions of interest</h3>
+              <span className="text-[10px] uppercase tracking-wide font-semibold text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">
+                This machine only
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Checked regions are the ones offered elsewhere in the app - the Account
+              Explorer scans these rather than all {availableRegions.length || 30}.
+              Currently {summariseRegions(selectedRegions)}.
+            </p>
+            <RegionPicker
+              available={availableRegions}
+              selected={selectedRegions}
+              onChange={setSelectedRegions}
+              note={regionNote}
+            />
           </section>
 
           {/* Developer - app-level, not part of the environment's config */}

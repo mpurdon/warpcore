@@ -10,10 +10,19 @@ const STORAGE_KEY = 'warpcore-preferences';
 export interface Preferences {
   /** Runs the CLI with --dev: debug logging, AWS API tracing, session capture. */
   debugMode: boolean;
+  /**
+   * AWS regions this user cares about, as region codes.
+   *
+   * Empty means "not configured yet", which callers treat as the profile's own
+   * region rather than as "no regions" - an empty list must never silently
+   * mean an empty scan.
+   */
+  regions: string[];
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
   debugMode: false,
+  regions: [],
 };
 
 export function getPreferences(): Preferences {
