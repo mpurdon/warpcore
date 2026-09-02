@@ -58,6 +58,7 @@ class ScannedState:
         self.resources: Dict[str, Resource] = {}
         self.resource_arns: Set[str] = set()
         self.errors: List[ScanError] = []
+        self.unhydrated: Dict[str, int] = {}
         self.truncated: bool = False
 
     def add_resource(self, resource: Resource):
@@ -339,20 +340,22 @@ class AWSScanner:
                     continue
 
                 if details is None:
-                    scanned_state.add_error(ScanError(
-                        physical_id=resource.physical_id or resource.id,
-                        resource_type=resource.type,
-                        stage="hydrate",
-                        message="no detail reader for this resource type",
-                    ))
+                    # No reader for this type: a coverage gap, not a failure.
+                    # Counting these separately keeps real errors - permission
+                    # denials, malformed ids - visible instead of buried.
+                    scanned_state.unhydrated[resource.type] = (
+                        scanned_state.unhydrated.get(resource.type, 0) + 1
+                    )
                     continue
 
                 resource.properties = _json_safe(details)
                 hydrated += 1
 
+        skipped = sum(scanned_state.unhydrated.values())
         self.logger.info(
             f"Hydrated {hydrated}/{len(resources)} resources "
-            f"({len(scanned_state.errors)} could not be read)"
+            f"({len(scanned_state.errors)} could not be read, "
+            f"{skipped} have no reader)"
         )
         return scanned_state
 
@@ -426,6 +429,43 @@ class AWSScanner:
         response = ec2_client.describe_security_groups(GroupIds=[sg_id])
         sgs = response.get('SecurityGroups', [])
         return sgs[0] if sgs else {}
+
+    def _get_instance_details(self, instance_id: str) -> Dict:
+        """Get EC2 instance details."""
+        ec2_client = self.session.client('ec2', region_name=self.region)
+        response = ec2_client.describe_instances(InstanceIds=[instance_id])
+        for reservation in response.get('Reservations', []):
+            for instance in reservation.get('Instances', []):
+                return instance
+        return {}
+
+    def _get_nat_gateway_details(self, nat_gateway_id: str) -> Dict:
+        """Get NAT gateway details."""
+        ec2_client = self.session.client('ec2', region_name=self.region)
+        response = ec2_client.describe_nat_gateways(NatGatewayIds=[nat_gateway_id])
+        gateways = response.get('NatGateways', [])
+        return gateways[0] if gateways else {}
+
+    def _get_volume_details(self, volume_id: str) -> Dict:
+        """Get EBS volume details."""
+        ec2_client = self.session.client('ec2', region_name=self.region)
+        response = ec2_client.describe_volumes(VolumeIds=[volume_id])
+        volumes = response.get('Volumes', [])
+        return volumes[0] if volumes else {}
+
+    def _get_route_table_details(self, route_table_id: str) -> Dict:
+        """Get route table details."""
+        ec2_client = self.session.client('ec2', region_name=self.region)
+        response = ec2_client.describe_route_tables(RouteTableIds=[route_table_id])
+        tables = response.get('RouteTables', [])
+        return tables[0] if tables else {}
+
+    def _get_vpc_endpoint_details(self, endpoint_id: str) -> Dict:
+        """Get VPC endpoint details."""
+        ec2_client = self.session.client('ec2', region_name=self.region)
+        response = ec2_client.describe_vpc_endpoints(VpcEndpointIds=[endpoint_id])
+        endpoints = response.get('VpcEndpoints', [])
+        return endpoints[0] if endpoints else {}
 
     def _get_s3_bucket_details(self, bucket_name: str) -> Dict:
         """Get S3 bucket details.
@@ -517,6 +557,11 @@ class AWSScanner:
         'AWS::EC2::VPC': _get_vpc_details,
         'AWS::EC2::Subnet': _get_subnet_details,
         'AWS::EC2::SecurityGroup': _get_security_group_details,
+        'AWS::EC2::Instance': _get_instance_details,
+        'AWS::EC2::NatGateway': _get_nat_gateway_details,
+        'AWS::EC2::Volume': _get_volume_details,
+        'AWS::EC2::RouteTable': _get_route_table_details,
+        'AWS::EC2::VPCEndpoint': _get_vpc_endpoint_details,
         'AWS::S3::Bucket': _get_s3_bucket_details,
         'AWS::DynamoDB::Table': _get_dynamodb_table_details,
         'AWS::SQS::Queue': _get_sqs_queue_details,

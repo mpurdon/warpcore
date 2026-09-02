@@ -185,30 +185,80 @@ class ServiceEnumerator:
         ]
 
     def _enumerate_ec2(self) -> List[Resource]:
+        """Enumerate EC2.
+
+        Deliberately broad. An earlier version returned only VPCs, subnets and
+        security groups, which meant an inventory of a live account reported
+        the network but not the running instances, NAT gateways or Elastic IPs
+        inside it - the parts that cost money and that someone asking "what is
+        deployed here" actually means.
+        """
         client = self._client("ec2")
         resources: List[Resource] = []
 
-        for vpc in self._paginate(client, "describe_vpcs", "Vpcs"):
+        def arn(kind: str, resource_id: str) -> str:
+            return f"arn:aws:ec2:{self.region}:{self.account}:{kind}/{resource_id}"
+
+        def name_of(item: dict, fallback: str) -> str:
+            for tag in item.get("Tags", []) or []:
+                if tag.get("Key") == "Name" and tag.get("Value"):
+                    return tag["Value"]
+            return fallback
+
+        # (paginated op, result key, id field, ARN segment, warpcore type)
+        simple = [
+            ("describe_vpcs", "Vpcs", "VpcId", "vpc", "AWS::EC2::VPC"),
+            ("describe_subnets", "Subnets", "SubnetId", "subnet", "AWS::EC2::Subnet"),
+            ("describe_security_groups", "SecurityGroups", "GroupId",
+             "security-group", "AWS::EC2::SecurityGroup"),
+            ("describe_route_tables", "RouteTables", "RouteTableId",
+             "route-table", "AWS::EC2::RouteTable"),
+            ("describe_internet_gateways", "InternetGateways", "InternetGatewayId",
+             "internet-gateway", "AWS::EC2::InternetGateway"),
+            ("describe_nat_gateways", "NatGateways", "NatGatewayId",
+             "natgateway", "AWS::EC2::NatGateway"),
+            ("describe_volumes", "Volumes", "VolumeId", "volume", "AWS::EC2::Volume"),
+            ("describe_network_interfaces", "NetworkInterfaces", "NetworkInterfaceId",
+             "network-interface", "AWS::EC2::NetworkInterface"),
+            ("describe_vpc_endpoints", "VpcEndpoints", "VpcEndpointId",
+             "vpc-endpoint", "AWS::EC2::VPCEndpoint"),
+        ]
+
+        for operation, result_key, id_field, arn_kind, resource_type in simple:
+            for item in self._paginate(client, operation, result_key):
+                resource_id = item[id_field]
+                resources.append(Resource(
+                    id=name_of(item, resource_id),
+                    type=resource_type,
+                    physical_id=arn(arn_kind, resource_id),
+                    properties={},
+                ))
+
+        # Instances are nested one level deeper, inside reservations.
+        for reservation in self._paginate(client, "describe_instances", "Reservations"):
+            for instance in reservation.get("Instances", []):
+                # Terminated instances linger in the API for a while and are
+                # not resources anyone can act on.
+                if instance.get("State", {}).get("Name") == "terminated":
+                    continue
+                instance_id = instance["InstanceId"]
+                resources.append(Resource(
+                    id=name_of(instance, instance_id),
+                    type="AWS::EC2::Instance",
+                    physical_id=arn("instance", instance_id),
+                    properties={},
+                ))
+
+        # Elastic IPs are not paginated and have no consistent id field.
+        for address in client.describe_addresses().get("Addresses", []):
+            allocation_id = address.get("AllocationId") or address.get("PublicIp")
             resources.append(Resource(
-                id=vpc["VpcId"], type="AWS::EC2::VPC",
-                physical_id=f"arn:aws:ec2:{self.region}:{self.account}:vpc/{vpc['VpcId']}",
+                id=name_of(address, address.get("PublicIp", allocation_id)),
+                type="AWS::EC2::EIP",
+                physical_id=arn("elastic-ip", allocation_id),
                 properties={},
             ))
-        for subnet in self._paginate(client, "describe_subnets", "Subnets"):
-            resources.append(Resource(
-                id=subnet["SubnetId"], type="AWS::EC2::Subnet",
-                physical_id=f"arn:aws:ec2:{self.region}:{self.account}:subnet/{subnet['SubnetId']}",
-                properties={},
-            ))
-        for group in self._paginate(client, "describe_security_groups", "SecurityGroups"):
-            resources.append(Resource(
-                id=group["GroupId"], type="AWS::EC2::SecurityGroup",
-                physical_id=(
-                    f"arn:aws:ec2:{self.region}:{self.account}:"
-                    f"security-group/{group['GroupId']}"
-                ),
-                properties={},
-            ))
+
         return resources
 
     def _enumerate_logs(self) -> List[Resource]:

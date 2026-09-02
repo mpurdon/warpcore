@@ -142,7 +142,13 @@ class TestHydration:
         assert any(e.physical_id.endswith("does-not-exist") for e in scanned.errors)
         assert scanned.resources, "other resources should survive the failure"
 
-    def test_unsupported_type_is_reported_not_raised(self, populated_account):
+    def test_unsupported_type_is_counted_not_reported_as_an_error(self, populated_account):
+        """A type with no reader is a coverage gap, not a failure.
+
+        Reporting it as an error buried real problems - permission denials,
+        malformed identifiers - under noise from every type warpcore does not
+        model yet.
+        """
         from warpcore.state.models import Resource
         scanner = _scanner(populated_account)
         scanned = scanner.scan_resources(scope=ScanScope.ACCOUNT, hydrate=False)
@@ -151,7 +157,9 @@ class TestHydration:
             physical_id=f"arn:aws:kinesis:{REGION}:123456789012:stream/s",
         ))
         scanner.hydrate(scanned)
-        assert any("no detail reader" in e.message for e in scanned.errors)
+
+        assert scanned.unhydrated.get("AWS::Kinesis::Stream") == 1
+        assert not any("Kinesis" in e.resource_type for e in scanned.errors)
 
 
 class TestScannedState:

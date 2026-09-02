@@ -92,3 +92,86 @@ def test_supported_services_is_stable(account):
     services = _enumerator(account).supported_services()
     assert services == sorted(services)
     assert "lambda" in services and "iam" in services
+
+
+class TestEc2Coverage:
+    """EC2 enumeration used to return only VPCs, subnets and security groups.
+
+    An inventory of a live account therefore described the network but not the
+    running instances, NAT gateways or Elastic IPs inside it - the parts that
+    cost money, and what someone asking "what is deployed here" means. Found
+    against a real account whose 4 instances and 2 NAT gateways were invisible.
+    """
+
+    @pytest.fixture
+    def networked_account(self, aws_credentials):
+        with mock_aws():
+            session = boto3.Session(region_name=REGION)
+            ec2 = session.client("ec2", region_name=REGION)
+
+            vpc = ec2.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
+            subnet = ec2.create_subnet(VpcId=vpc, CidrBlock="10.0.1.0/24")["Subnet"]["SubnetId"]
+            igw = ec2.create_internet_gateway()["InternetGateway"]["InternetGatewayId"]
+            ec2.attach_internet_gateway(InternetGatewayId=igw, VpcId=vpc)
+            ec2.create_route_table(VpcId=vpc)
+
+            ec2.run_instances(
+                ImageId="ami-12345678", MinCount=2, MaxCount=2, SubnetId=subnet,
+                TagSpecifications=[{
+                    "ResourceType": "instance",
+                    "Tags": [{"Key": "Name", "Value": "worker"}],
+                }],
+            )
+            eip = ec2.allocate_address(Domain="vpc")
+            ec2.create_nat_gateway(SubnetId=subnet, AllocationId=eip["AllocationId"])
+            ec2.create_volume(AvailabilityZone=f"{REGION}a", Size=8)
+            yield session
+
+    def _types(self, session):
+        resources = ServiceEnumerator(
+            session, region=REGION, account="123456789012"
+        ).enumerate(services=["ec2"])
+        return resources
+
+    @pytest.mark.parametrize("resource_type", [
+        "AWS::EC2::Instance",
+        "AWS::EC2::NatGateway",
+        "AWS::EC2::EIP",
+        "AWS::EC2::Volume",
+        "AWS::EC2::RouteTable",
+        "AWS::EC2::InternetGateway",
+        "AWS::EC2::VPC",
+        "AWS::EC2::Subnet",
+        "AWS::EC2::SecurityGroup",
+        "AWS::EC2::NetworkInterface",
+    ])
+    def test_type_is_enumerated(self, networked_account, resource_type):
+        found = {r.type for r in self._types(networked_account)}
+        assert resource_type in found
+
+    def test_instances_use_their_name_tag(self, networked_account):
+        instances = [r for r in self._types(networked_account)
+                     if r.type == "AWS::EC2::Instance"]
+        assert instances
+        assert all(r.id == "worker" for r in instances)
+
+    def test_untagged_resources_fall_back_to_their_id(self, networked_account):
+        vpcs = [r for r in self._types(networked_account) if r.type == "AWS::EC2::VPC"]
+        assert any(r.id.startswith("vpc-") for r in vpcs)
+
+    def test_synthesised_arns_round_trip(self, networked_account):
+        from warpcore.utils.arn import resource_type_from_arn
+
+        for resource in self._types(networked_account):
+            assert resource_type_from_arn(resource.physical_id) == resource.type
+
+    def test_terminated_instances_are_excluded(self, networked_account):
+        """Terminated instances linger in the API and are not actionable."""
+        ec2 = networked_account.client("ec2", region_name=REGION)
+        ids = [i["InstanceId"] for r in ec2.describe_instances()["Reservations"]
+               for i in r["Instances"]]
+        ec2.terminate_instances(InstanceIds=ids)
+
+        instances = [r for r in self._types(networked_account)
+                     if r.type == "AWS::EC2::Instance"]
+        assert instances == []
