@@ -288,8 +288,8 @@ class TestRecoveryAction:
             action_type="CREATE",
             resource_id="my-function",
             resource_type="AWS::Lambda::Function",
-            description="Recreate Lambda function with original configuration",
-            config={"MemorySize": 512, "Runtime": "python3.11"},
+            rationale="Recreate Lambda function with original configuration",
+            configuration={"MemorySize": 512, "Runtime": "python3.11"},
             dependencies=["execution-role"],
         )
 
@@ -303,8 +303,8 @@ class TestRecoveryAction:
             action_type="UPDATE",
             resource_id="my-function",
             resource_type="AWS::Lambda::Function",
-            description="Update Lambda memory configuration",
-            config={"MemorySize": 1024},
+            rationale="Update Lambda memory configuration",
+            configuration={"MemorySize": 1024},
             dependencies=[],
         )
 
@@ -316,8 +316,8 @@ class TestRecoveryAction:
             action_type="DELETE",
             resource_id="orphan-bucket",
             resource_type="AWS::S3::Bucket",
-            description="Remove unexpected bucket not in state",
-            config=None,
+            rationale="Remove unexpected bucket not in state",
+            configuration={},
             dependencies=[],
         )
 
@@ -334,16 +334,16 @@ class TestRecoveryPlan:
                 action_type="CREATE",
                 resource_id="role-1",
                 resource_type="AWS::IAM::Role",
-                description="Create IAM role first",
-                config={},
+                rationale="Create IAM role first",
+                configuration={},
                 dependencies=[],
             ),
             RecoveryAction(
                 action_type="CREATE",
                 resource_id="func-1",
                 resource_type="AWS::Lambda::Function",
-                description="Create Lambda function",
-                config={},
+                rationale="Create Lambda function",
+                configuration={},
                 dependencies=["role-1"],
             ),
         ]

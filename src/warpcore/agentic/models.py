@@ -5,7 +5,6 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from warpcore.state.models import Resource
 
 
 class DriftType(Enum):

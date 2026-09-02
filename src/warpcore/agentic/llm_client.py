@@ -3,7 +3,7 @@
 import json
 import os
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from warpcore.agentic.models import (
     DriftAnalysis,
@@ -113,6 +113,17 @@ class LLMClient:
         Returns:
             DriftAnalysis with LLM insights
         """
+        if not drift_items:
+            # Asking an LLM to analyse nothing costs a round trip and returns
+            # something invented. prioritize_missing_resources already guards
+            # its empty case the same way.
+            return DriftAnalysis(
+                summary="No drift detected",
+                impact="None",
+                recommendations=[],
+                confidence=1.0,
+            )
+
         if not self.client:
             return self._fallback_drift_analysis(drift_items)
         
@@ -185,6 +196,12 @@ class LLMClient:
         Returns:
             RecoveryPlan with suggested actions
         """
+        if not drift_items:
+            return RecoveryPlan(
+                actions=[],
+                explanation="No drift detected - no recovery needed",
+            )
+
         if not self.client:
             return self._fallback_recovery_plan(drift_items)
         
@@ -341,7 +358,7 @@ Format your response as JSON with keys: actions (array of objects with action_ty
                 recommendations=data.get('recommendations', []),
                 confidence=float(data.get('confidence', 0.5))
             )
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             self.logger.error(f"Error parsing drift analysis: {e}")
             return DriftAnalysis(
                 summary="Unable to parse LLM response",
@@ -362,7 +379,7 @@ Format your response as JSON with keys: actions (array of objects with action_ty
                 related_issues=data.get('related_issues', []),
                 prevention_tips=data.get('prevention_tips', [])
             )
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             self.logger.error(f"Error parsing failure analysis: {e}")
             return FailureAnalysis(
                 root_cause="Unable to parse LLM response",
@@ -391,7 +408,7 @@ Format your response as JSON with keys: actions (array of objects with action_ty
             
             # Sort by priority
             return sorted(original, key=lambda r: r.priority)
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
             self.logger.error(f"Error parsing prioritization: {e}")
             return original
     
@@ -418,7 +435,7 @@ Format your response as JSON with keys: actions (array of objects with action_ty
                 risks=data.get('risks', []),
                 rollback_plan=data.get('rollback_plan')
             )
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             self.logger.error(f"Error parsing recovery plan: {e}")
             return RecoveryPlan(
                 actions=[],

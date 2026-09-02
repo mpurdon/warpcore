@@ -103,6 +103,9 @@ _TYPE_MAP: Dict[Tuple[str, Optional[str]], str] = {
     ("secretsmanager", "secret"): "AWS::SecretsManager::Secret",
     ("ssm", "parameter"): "AWS::SSM::Parameter",
     ("apigateway", "restapis"): "AWS::ApiGateway::RestApi",
+    # execute-api ARNs identify a deployed API by id, with no resource-type
+    # segment: arn:aws:execute-api:region:account:api-id/stage/METHOD/path
+    ("execute-api", None): "AWS::ApiGateway::RestApi",
     ("apigateway", "apis"): "AWS::ApiGatewayV2::Api",
     ("states", "stateMachine"): "AWS::StepFunctions::StateMachine",
     ("kms", "key"): "AWS::KMS::Key",
@@ -124,6 +127,7 @@ _SERVICE_DEFAULT: Dict[str, str] = {
     "sns": "AWS::SNS::Topic",
     "dynamodb": "AWS::DynamoDB::Table",
     "iam": "AWS::IAM::Role",
+    "execute-api": "AWS::ApiGateway::RestApi",
 }
 
 

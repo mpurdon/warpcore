@@ -124,3 +124,17 @@ class TestServiceIdentifierRealWorldArns:
     def test_log_group_type_survives_the_wildcard(self):
         arn = "arn:aws:logs:us-east-1:1:log-group:/aws/lambda/fn:*"
         assert resource_type_from_arn(arn) == "AWS::Logs::LogGroup"
+
+
+class TestExecuteApiArns:
+    """execute-api ARNs name a deployed API and carry no resource-type segment."""
+
+    def test_bare_api_id(self):
+        assert resource_type_from_arn(
+            "arn:aws:execute-api:us-east-1:123456789012:abcd1234"
+        ) == "AWS::ApiGateway::RestApi"
+
+    def test_with_stage_and_path(self):
+        assert resource_type_from_arn(
+            "arn:aws:execute-api:us-east-1:123456789012:abcd1234/prod/GET/items"
+        ) == "AWS::ApiGateway::RestApi"
