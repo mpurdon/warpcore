@@ -12,6 +12,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.table import Table
 from rich.panel import Panel
 
+from warpcore import __version__
 from warpcore.utils.logging import setup_logging, get_logger
 from warpcore.cli.costs import costs
 from warpcore.cli.agentic import agentic
@@ -51,7 +52,22 @@ console = Console()
 logger = get_logger(__name__)
 
 
+# Whether this is the PyInstaller sidecar or a pip install is the first thing
+# worth knowing when the GUI and CLI disagree about a flag.
+_BUILD_KIND = "standalone binary" if getattr(sys, "frozen", False) else "source install"
+
+
 @click.group()
+@click.version_option(
+    __version__,
+    "--version",
+    "-V",
+    prog_name="warpcore",
+    message=(
+        f"%(prog)s %(version)s "
+        f"(python {sys.version.split()[0]}, {_BUILD_KIND})"
+    ),
+)
 @click.option('--profile', help='AWS profile to use')
 @click.option('--region', help='AWS region')
 @click.option('--log-level', default='info', type=click.Choice(['debug', 'info', 'warning', 'error']))

@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 
+from warpcore import __version__
 from warpcore.audit.recorder import AuditRecorder
 from warpcore.utils.api_trace import ApiCallTracer
 from warpcore.utils.logging import get_logger
@@ -116,7 +117,7 @@ class DevMode:
                 "python": sys.version.split()[0],
                 "platform": platform.platform(),
                 "boto3": boto3.__version__,
-                "warpcore": _warpcore_version(),
+                "warpcore": __version__,
                 "cwd": str(Path.cwd()),
                 "pid": os.getpid(),
             },
@@ -185,15 +186,6 @@ def get_dev_mode() -> DevMode:
 
 def _env_flag_set() -> bool:
     return os.environ.get(ENV_FLAG, "").lower() in ("1", "true", "yes", "on")
-
-
-def _warpcore_version() -> str:
-    try:
-        from importlib.metadata import version
-
-        return version("warpcore")
-    except Exception:  # noqa: BLE001 - version is cosmetic
-        return "unknown"
 
 
 def latest_session_manifest(dev_dir: Optional[Path] = None) -> Optional[Dict[str, Any]]:
