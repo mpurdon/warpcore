@@ -148,7 +148,7 @@ def load_config(config_path: str = "warpcore.yaml") -> Config:
         console.print("\nRun [cyan]warpcore init[/cyan] to create a new configuration file.")
         sys.exit(1)
     except ConfigValidationError as e:
-        console.print(f"[red]Configuration validation failed:[/red]\n")
+        console.print("[red]Configuration validation failed:[/red]\n")
         console.print(str(e))
         sys.exit(1)
     except Exception as e:
@@ -675,7 +675,7 @@ def describe(ctx, resource_id, env, config):
             sys.exit(1)
         
         # Display resource details
-        console.print(f"\n[bold]Resource Details[/bold]\n")
+        console.print("\n[bold]Resource Details[/bold]\n")
         
         # Basic info table
         info_table = Table(show_header=False, box=None)
@@ -954,7 +954,7 @@ def env_add(environment, account, region, vpc_enabled, vpc_cidr, config):
         
         # Validate account ID format
         if not account.isdigit() or len(account) != 12:
-            console.print(f"[red]Error:[/red] AWS account ID must be a 12-digit number")
+            console.print("[red]Error:[/red] AWS account ID must be a 12-digit number")
             sys.exit(1)
         
         # Validate region
@@ -972,7 +972,7 @@ def env_add(environment, account, region, vpc_enabled, vpc_cidr, config):
         
         # Validate VPC configuration
         if vpc_enabled and not vpc_cidr:
-            console.print(f"[red]Error:[/red] --vpc-cidr is required when --vpc-enabled is set")
+            console.print("[red]Error:[/red] --vpc-cidr is required when --vpc-enabled is set")
             sys.exit(1)
         
         # Load existing configuration
@@ -1015,7 +1015,7 @@ def env_add(environment, account, region, vpc_enabled, vpc_cidr, config):
         if vpc_enabled:
             console.print(f"  VPC: {vpc_cidr}")
         
-        console.print(f"\n[dim]Deploy to this environment with:[/dim]")
+        console.print("\n[dim]Deploy to this environment with:[/dim]")
         console.print(f"  [cyan]warpcore deploy --env {environment}[/cyan]")
     
     except Exception as e:
@@ -1111,7 +1111,6 @@ def get_history_manager(cfg: Config, env: str, profile: Optional[str] = None, re
     if aws_region:
         session_kwargs['region_name'] = aws_region
 
-    import boto3
     session = boto3.Session(**session_kwargs)
     s3_client = session.client('s3')
 
@@ -1348,7 +1347,7 @@ def history_show(ctx, deployment_id, env, config, logs, api_calls, costs):
 
         # Show error if failed
         if metadata.error_message:
-            console.print(f"\n[bold red]Error:[/bold red]")
+            console.print("\n[bold red]Error:[/bold red]")
             console.print(Panel(metadata.error_message, border_style="red"))
 
         # Show execution logs if requested
@@ -1501,7 +1500,7 @@ def history_compare(ctx, deployment1, deployment2, env, config):
             region=ctx.obj.get('region')
         )
 
-        console.print(f"\n[bold]Comparing Deployments[/bold]")
+        console.print("\n[bold]Comparing Deployments[/bold]")
         console.print(f"  [cyan]{deployment1}[/cyan] → [cyan]{deployment2}[/cyan]\n")
 
         # Compare deployments
@@ -1873,14 +1872,14 @@ def dev(ctx, env, agent, config):
         # Get connectivity report for display
         report = validator.get_connectivity_report(agent_name=agent_config.name)
         
-        console.print(f"\n[bold]Resource Status:[/bold]")
+        console.print("\n[bold]Resource Status:[/bold]")
         console.print(f"  Total resources: {report['resources']['total']}")
         console.print(f"  Accessible: [green]{report['resources']['accessible']}[/green]")
         if report['resources']['inaccessible'] > 0:
             console.print(f"  Inaccessible: [red]{report['resources']['inaccessible']}[/red]")
         
         # Start local development server
-        console.print(f"\n[cyan]Starting development server...[/cyan]\n")
+        console.print("\n[cyan]Starting development server...[/cyan]\n")
         
         try:
             with LocalDevServer(
@@ -2102,11 +2101,11 @@ def handler(event, context):
             if '.warpcore/' not in content:
                 with open(gitignore_path, 'a') as f:
                     f.write(gitignore_entry)
-                console.print(f"[green]✓ Updated .gitignore[/green]")
+                console.print("[green]✓ Updated .gitignore[/green]")
         else:
             with open(gitignore_path, 'w') as f:
                 f.write(gitignore_entry)
-            console.print(f"[green]✓ Created .gitignore[/green]")
+            console.print("[green]✓ Created .gitignore[/green]")
         
         # Display next steps
         console.print("\n[bold]Next steps:[/bold]")
