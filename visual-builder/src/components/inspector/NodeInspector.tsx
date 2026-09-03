@@ -60,6 +60,18 @@ export default function NodeInspector({ node }: { node: Node }) {
 
   const meta = (node.data?.meta || {}) as NodeMeta;
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  // A configuration value that names another resource on the canvas (a DLQ
+  // target id, a bucket, a table, an ARN) is a link to it.
+  const nodeForValue = useMemo(() => {
+    const index = new Map<string, string>();
+    for (const n of nodes) {
+      if (n.id === node.id || n.hidden) continue;
+      index.set(n.id, n.id);
+      index.set(displayNameFor(n), n.id);
+      if (n.data?.arn) index.set(String(n.data.arn), n.id);
+    }
+    return (value: unknown): string | undefined => (typeof value === 'string' ? index.get(value) : undefined);
+  }, [nodes, node.id]);
   const children = useMemo(() => nodes.filter((n) => n.parentNode === node.id && !n.hidden), [nodes, node.id]);
   const members = useMemo(
     () => (node.type === 'security-group'
@@ -111,7 +123,18 @@ export default function NodeInspector({ node }: { node: Node }) {
                 {readOnly ? 'Nothing configured yet' : 'Configure this resource'}
               </button>
             ) : (
-              summary.map(([k, v]) => <Fact key={k} label={k} value={String(v)} mono={typeof v === 'string' && String(v).includes('/')} />)
+              summary.map(([k, v]) => {
+                const target = nodeForValue(v);
+                return (
+                  <Fact
+                    key={k}
+                    label={k}
+                    value={String(v)}
+                    mono={typeof v === 'string' && String(v).includes('/')}
+                    onClick={target ? () => selectNode(target) : undefined}
+                  />
+                );
+              })
             )}
           </Section>
 

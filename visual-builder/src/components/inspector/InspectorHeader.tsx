@@ -2,7 +2,7 @@
 // inspector subject. Status is a restrained semantic dot, not a banner.
 
 import { ReactNode } from 'react';
-import { ArrowLeft, LucideIcon } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, LucideIcon } from 'lucide-react';
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 
@@ -102,19 +102,26 @@ export function Section({ title, children, hint }: { title: string; children: Re
   );
 }
 
-/** One fact. Clickable when it leads somewhere. */
+/**
+ * One fact. When it leads somewhere it reads as a link: blue, underlined on
+ * hover, with an arrow, so a related resource is obviously one click away.
+ */
 export function Fact({ label, value, onClick, mono = false }: { label: string; value: ReactNode; onClick?: () => void; mono?: boolean }) {
-  const body = (
-    <>
+  if (onClick) {
+    return (
+      <button onClick={onClick} className="group w-full flex items-center justify-between gap-3 py-1 -mx-1 px-1 rounded hover:bg-blue-50 text-left" title="Open in the inspector">
+        <span className="text-xs text-gray-500 shrink-0">{label}</span>
+        <span className={`text-xs text-blue-700 group-hover:underline text-right truncate inline-flex items-center gap-1 min-w-0 ${mono ? 'font-mono' : ''}`}>
+          <span className="truncate">{value}</span>
+          <ArrowUpRight size={11} className="shrink-0 text-blue-400" />
+        </span>
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
       <span className="text-xs text-gray-500 shrink-0">{label}</span>
       <span className={`text-xs text-gray-900 text-right truncate ${mono ? 'font-mono' : ''}`}>{value}</span>
-    </>
-  );
-  return onClick ? (
-    <button onClick={onClick} className="w-full flex items-center justify-between gap-3 py-1 -mx-1 px-1 rounded hover:bg-gray-50 text-left">
-      {body}
-    </button>
-  ) : (
-    <div className="flex items-center justify-between gap-3 py-1">{body}</div>
+    </div>
   );
 }

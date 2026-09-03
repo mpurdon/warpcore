@@ -353,3 +353,29 @@ class TestLogGroups:
         assert len(groups) == 2
         assert not any(r.get("folded_into") for r in groups)
 
+
+class TestEdgeFlow:
+    def test_zone_points_at_distribution_which_points_at_its_origin(self):
+        zone = _res("AWS::Route53::HostedZone", "example.com.", f"arn:aws:route53:::hostedzone/Z1", region=None,
+                    Name="example.com.", Records=[
+                        {"Name": "example.com.", "Type": "A", "Alias": "d123.cloudfront.net.", "Values": []},
+                        {"Name": "www.example.com.", "Type": "CNAME", "Alias": None, "Values": ["d123.cloudfront.net"]},
+                        {"Name": "api.example.com.", "Type": "A", "Alias": None, "Values": ["203.0.113.5"]},
+                    ])
+        dist = _res("AWS::CloudFront::Distribution", "E1", f"arn:aws:cloudfront::{ACCOUNT}:distribution/E1", region=None,
+                    Id="E1", DomainName="d123.cloudfront.net", Status="Deployed",
+                    DistributionConfig={"Enabled": True, "Aliases": {"Items": ["example.com"]},
+                                        "Origins": {"Items": [{"Id": "site", "DomainName": "site-bucket.s3-website-us-east-1.amazonaws.com"}]},
+                                        "ViewerCertificate": {"ACMCertificateArn": f"arn:aws:acm:us-east-1:{ACCOUNT}:certificate/c1"}})
+        bucket = _res("AWS::S3::Bucket", "site-bucket", "arn:aws:s3:::site-bucket", region=None, BucketName="site-bucket")
+        cert = _res("AWS::ACM::Certificate", "example.com", f"arn:aws:acm:us-east-1:{ACCOUNT}:certificate/c1", DomainName="example.com", Status="ISSUED")
+        inst = _res("AWS::EC2::Instance", "i-1", f"arn:aws:ec2:{REGION}:{ACCOUNT}:instance/i-1", InstanceId="i-1", PublicIpAddress="203.0.113.5", State={"Name": "running"})
+        payload = _emit(zone, dist, bucket, cert, inst)
+        edges = {(c["kind"], c["from_arn"].rsplit("/", 1)[-1], c["to_arn"].rsplit("/", 1)[-1].rsplit(":", 1)[-1], c["detail"]) for c in payload["connections"]}
+        # Two records point at the distribution; one arrow between the pair.
+        assert sum(1 for k, f, t, _ in edges if (k, f, t) == ("dns", "Z1", "E1")) == 1
+        assert ("dns", "Z1", "i-1", "A api.example.com") in edges
+        assert ("origin", "E1", "site-bucket", "origin site") in edges
+        assert any(c["kind"] == "reference" and c["detail"] == "TLS certificate" for c in payload["connections"])
+        assert next(r for r in payload["resources"] if r["type"] == "cloudfront")["config"]["name"] == "example.com"
+

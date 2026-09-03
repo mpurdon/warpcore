@@ -764,7 +764,24 @@ class AWSScanner:
         """Get Route 53 hosted zone details."""
         r53_client = discovery_client(self.session, 'route53', 'us-east-1')
         response = r53_client.get_hosted_zone(Id=zone_id)
-        return dict(response.get('HostedZone', {}))
+        details = dict(response.get('HostedZone', {}))
+        # The records are the zone's whole point: they say what the domain
+        # points at. Kept to the routing records, one page (300).
+        try:
+            sets = r53_client.list_resource_record_sets(HostedZoneId=zone_id, MaxItems='300')
+            details['Records'] = [
+                {
+                    'Name': rec.get('Name'),
+                    'Type': rec.get('Type'),
+                    'Alias': (rec.get('AliasTarget') or {}).get('DNSName'),
+                    'Values': [v.get('Value') for v in rec.get('ResourceRecords') or [] if v.get('Value')],
+                }
+                for rec in sets.get('ResourceRecordSets', [])
+                if rec.get('Type') in ('A', 'AAAA', 'CNAME')
+            ]
+        except (ClientError, TypeError, AttributeError):
+            details['Records'] = []
+        return details
 
     def _get_kms_key_details(self, key_id: str) -> Dict:
         """Get KMS key metadata. Never key material; describe_key returns none."""

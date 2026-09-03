@@ -2,6 +2,10 @@ import { BaseEdge, EdgeLabelRenderer, EdgeProps, getBezierPath, useReactFlow } f
 import { Eye, Pencil, Zap, Route, AlertTriangle } from 'lucide-react';
 
 // Permission type colors
+// Relationships that carry traffic are drawn as solid lines like permissions;
+// structure (membership, routes, certificates) is grey and dashed.
+const FLOW_KINDS = new Set(['event-source', 'event-target', 'invokes', 'dns', 'origin']);
+
 export const PERMISSION_COLORS = {
   read: '#3b82f6',    // Blue
   write: '#f59e0b',   // Amber
@@ -214,7 +218,7 @@ export default function PermissionEdge({
     } else {
       edgeStyle = { stroke: gradientInfo.color, strokeWidth: 3 };
     }
-  } else if (discovered && discovered.kind !== 'event-source' && discovered.kind !== 'event-target' && discovered.kind !== 'invokes') {
+  } else if (discovered && !FLOW_KINDS.has(discovered.kind)) {
     edgeStyle = { stroke: PERMISSION_COLORS.relationship, strokeWidth: 1.5, strokeDasharray: '4 4' };
   } else if (isDLQ) {
     // DLQ edge - amber dashed line

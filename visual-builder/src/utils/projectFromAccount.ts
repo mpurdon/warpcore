@@ -35,7 +35,7 @@ export interface ProjectItem {
   health?: { level: 'ok' | 'warn' | 'unknown'; reason: string };
 }
 
-export type ConnectionKind = 'role' | 'reference' | 'access' | 'event-source' | 'event-target' | 'dlq' | 'vpc' | 'logs' | 'invokes';
+export type ConnectionKind = 'role' | 'reference' | 'access' | 'event-source' | 'event-target' | 'dlq' | 'vpc' | 'logs' | 'invokes' | 'dns' | 'origin';
 
 export interface ProjectConnection {
   from_arn: string;

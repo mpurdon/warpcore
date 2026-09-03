@@ -6,11 +6,11 @@
 export type Layer = 'triggers' | 'access' | 'network' | 'encryption' | 'plumbing';
 
 export const LAYERS: { id: Layer; label: string; description: string }[] = [
-  { id: 'triggers', label: 'Triggers', description: 'Event sources, rule targets, subscriptions, invocations, dead-letter queues' },
+  { id: 'triggers', label: 'Traffic & triggers', description: 'DNS records, CloudFront origins, event sources, rule targets, subscriptions, invocations, dead-letter queues' },
   { id: 'access', label: 'Access', description: 'Read and write arrows from IAM policies, and permission edges you drew' },
   { id: 'network', label: 'Network', description: 'Security-group membership and trust, routes, gateways' },
   { id: 'encryption', label: 'Encryption', description: 'Which key encrypts what' },
-  { id: 'plumbing', label: 'Plumbing', description: 'Log groups, execution roles, instance profiles, volumes, origins, certificates' },
+  { id: 'plumbing', label: 'Plumbing', description: 'Log groups, execution roles, instance profiles, volumes, certificates' },
 ];
 
 export const DEFAULT_LAYERS: Record<Layer, boolean> = {
@@ -28,6 +28,8 @@ export function layerFor(kind: string, detail: string): Layer {
     case 'event-target':
     case 'invokes':
     case 'dlq':
+    case 'dns':
+    case 'origin':
       return 'triggers';
     case 'access':
       return 'access';

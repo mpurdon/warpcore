@@ -173,7 +173,7 @@ class Connection:
 
     from_arn: str
     to_arn: str
-    kind: str      # role | reference | access | event-source | event-target | dlq | vpc | logs | invokes
+    kind: str      # role | reference | access | event-source | event-target | dlq | vpc | logs | invokes | dns | origin
     detail: str = ""
     # For access edges: the role that grants it and a sample of the actions.
     via: str = ""
@@ -1038,10 +1038,10 @@ class ProjectEmitter:
 
         if canvas_type == "cloudfront":
             dist = p.get("DistributionConfig") or {}
-            cfg = {"name": tag_name or p.get("Id") or name}
+            aliases = (dist.get("Aliases") or {}).get("Items") or []
+            cfg = {"name": tag_name or (aliases[0] if aliases else None) or p.get("Id") or name, "distributionId": p.get("Id") or name}
             if p.get("DomainName"):
                 cfg["domainName"] = p["DomainName"]
-            aliases = (dist.get("Aliases") or {}).get("Items") or []
             if aliases:
                 cfg["aliases"] = ", ".join(aliases)
             if "Enabled" in dist:
@@ -1227,15 +1227,20 @@ class ProjectEmitter:
         elif r.type in ("AWS::CloudFront::Distribution", "AWS::Cloudfront::Distribution"):
             dist = p.get("DistributionConfig") or {}
             for origin in (dist.get("Origins") or {}).get("Items") or []:
-                domain = origin.get("DomainName") or ""
-                # bucket.s3.amazonaws.com / bucket.s3.region.amazonaws.com
-                bucket = domain.split(".s3")[0] if ".s3" in domain else ""
-                target = self._resolve(bucket, identifiers) if bucket else None
-                if target:
-                    out.append(Connection(arn, target, "reference", "origin"))
+                target = self._resolve(origin.get("DomainName") or "", identifiers)
+                if target and target != arn:
+                    out.append(Connection(arn, target, "origin", f"origin {origin.get('Id', '')}".strip()))
             cert = (dist.get("ViewerCertificate") or {}).get("ACMCertificateArn")
             if cert:
                 out.append(Connection(arn, cert, "reference", "TLS certificate"))
+
+        elif r.type in ("AWS::Route53::HostedZone", "AWS::Route53::Hostedzone"):
+            for rec in p.get("Records") or []:
+                candidates = [rec.get("Alias")] if rec.get("Alias") else (rec.get("Values") or [])
+                for value in candidates:
+                    target = self._resolve(str(value or "").rstrip("."), identifiers)
+                    if target and target != arn:
+                        out.append(Connection(arn, target, "dns", f"{rec.get('Type')} {str(rec.get('Name') or '').rstrip('.')}".strip()))
 
         elif r.type == "AWS::IAM::InstanceProfile":
             for role in p.get("Roles") or []:
@@ -1289,9 +1294,11 @@ class ProjectEmitter:
                     "logGroupName", "Name", "stateMachineArn", "VpcId", "GroupId", "ARN",
                     "InstanceId", "SubnetId", "InternetGatewayId", "NatGatewayId", "RouteTableId",
                     "VpcEndpointId", "VolumeId", "SnapshotId", "AllocationId", "KeyId", "Arn",
-                    "LoadBalancerArn", "CertificateArn", "DBInstanceArn", "Id"):
+                    "LoadBalancerArn", "CertificateArn", "DBInstanceArn", "Id",
+                    # DNS names and addresses, so records and origins resolve.
+                    "DomainName", "DNSName", "PublicDnsName", "PublicIpAddress", "PublicIp"):
             if p.get(key):
-                ids.append(str(p[key]))
+                ids.append(str(p[key]).rstrip(".").lower())
         if r.type == "AWS::SQS::Queue":
             # Queue URLs appear in environment variables far more than ARNs do.
             url = p.get("QueueUrl") or (r.physical_id if str(r.physical_id or "").startswith("https://") else "")
@@ -1315,4 +1322,15 @@ class ProjectEmitter:
         as_arn = sqs_url_to_arn(value)
         if as_arn and as_arn in identifiers:
             return identifiers[as_arn]
+        # Hostnames: a record's target or a distribution's origin. S3 shows up
+        # as bucket.s3(.region).amazonaws.com or a website endpoint.
+        host = stripped.lower()
+        if "://" in host:
+            host = host.split("://", 1)[1].split("/", 1)[0]
+        if host in identifiers:
+            return identifiers[host]
+        if ".s3-website" in host or ".s3." in host or host.endswith(".s3.amazonaws.com"):
+            bucket = host.split(".s3", 1)[0]
+            if bucket in identifiers:
+                return identifiers[bucket]
         return None
