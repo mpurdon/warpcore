@@ -1,0 +1,466 @@
+# Visual Builder Design Guidance
+
+**Status:** Implemented (2026-09-02); see §6 for what each step became
+**Derived from:** the control-plane interface research in `~/Projects/gitf/design system guidance.md`
+(UniFi, Tailscale, Grafana Drilldown, Firewalla, TrueNAS, Netdata, Proxmox), narrowed to what the
+Warpcore Visual Builder is and already does.
+
+---
+
+## 1. Objective
+
+Turn the Visual Builder from "a canvas with a toolbar and some modals" into a control surface for a
+Warpcore project, following the UniFi model:
+
+> **See the system. Select anything. Understand its state. Follow its relationships. Ask why.
+> Drill into the evidence. Act without losing context.**
+
+This document does three things:
+
+1. Names the objects the Visual Builder operates on.
+2. Settles the split between **environment settings** and **application settings**, which is the
+   decision that prompted it.
+3. Specifies the surfaces that follow from that split, and how to migrate the current code to them.
+
+It is not a visual style guide. Colours, spacing and typography come later and should be designed
+once the surfaces are right.
+
+---
+
+## 2. The object model
+
+UniFi's strength is that everything on screen is an object in the system, not a page in an app. The
+operator moves **Organization → Site → Network → Switch → Port → Client** without ever feeling like
+they changed applications.
+
+Warpcore has an equally real hierarchy. The interface should make it visible and navigable.
+
+```
+Workstation (this machine, this operator)
+└── Project            warpcore.yaml, a directory on disk
+    └── Environment    dev · staging · prod
+        ├── Resource   agent, lambda, dynamodb, eventbridge, log group, IAM role, ...
+        │   ├── Connection   permission edge to another resource
+        │   ├── Deployment   a run that created/updated/deleted it
+        │   │   └── Step → API call → error → suggested fix
+        │   └── Cost estimate
+        └── Deployment history
+
+AWS Account (via Account Explorer)
+└── Profile
+    └── Region(s) of interest
+        └── Discovered resource → config · network · metrics · logs
+```
+
+Two consequences fall out immediately:
+
+- **Every level has its own configuration.** Configuration belongs to the object it configures, and
+  it should be edited *on* that object, not in a settings screen somewhere else.
+- **Scope must always be explicit.** The operator must be able to see, at a glance, which project and
+  which environment the canvas, the inspector and the deploy button currently refer to.
+
+---
+
+## 3. What is built today
+
+An honest inventory, so the rest of the document talks about real surfaces.
+
+| Surface | File | Role today | Verdict against the model |
+|---|---|---|---|
+| Toolbar (dark, top) | `Toolbar.tsx` | Project name, environment selector, file menu, scan / explore / deploy / destroy, toggle right panel | Mixed: it is a scope selector, a file menu and an action bar at once |
+| Resource Library (left) | `ResourceLibrary.tsx` | Drag-source accordion of resource types | Good. This is the palette, not navigation |
+| Canvas | `App.tsx` + React Flow | The project's resources and permission edges | This is the topology surface. It is already the strongest part of the app |
+| Configuration panel | `ConfigurationPanel.tsx` | Form for the selected node | Correct idea: config lives on the object |
+| Execution log panel | `ExecutionLogPanel.tsx` | Steps, logs, API calls, error and fixes for the selected node | Already an Overview → Evidence → Raw ladder. Keep it |
+| Right panel | `RightPanel.tsx` | Tabs: Roles (real), Environment ("coming soon") | Should become the inspector for non-node objects |
+| Environment Configuration | `EnvironmentConfigPanel.tsx` | Modal: removal policies, logging, lambda defaults, **plus** debug mode and regions of interest | Wrong shape (modal) and wrong contents (mixes shared and personal settings) |
+| Account Explorer | `AccountExplorerPanel.tsx` | Modal: pick profile, scan, browse discovered resources | Right idea, wrong container. Its tooltip points to a Settings menu that does not exist |
+| Project Discovery | `ProjectDiscoveryPanel.tsx` | Modal: scan project for Strands components | Fine as a task dialog |
+| Template modal, File menu, recents | `TemplateModal.tsx`, `FileMenu.tsx`, `recentProjects.ts` | Open / new / recent projects | Fine |
+| Preferences | `preferences.ts` | `debugMode`, `regions` in localStorage | Correctly separated in code, not in the UI |
+
+The code comment in `preferences.ts` already states the principle this document formalises:
+environment settings are written to `warpcore.yaml` and shared with the team, whereas "am I
+debugging right now" is personal and must never end up in a committed file. The UI currently
+contradicts the code.
+
+---
+
+## 4. The two kinds of settings
+
+This is the central decision.
+
+### 4.1 Environment settings
+
+**Definition:** properties of one Environment object in one Project. Written to `warpcore.yaml`.
+Shared with everyone who works on the project. Changing them changes what gets deployed.
+
+Today's fields:
+
+- Removal policies (default, per resource type)
+- Logging: default retention days, X-Ray
+- Lambda defaults: memory, timeout
+- DynamoDB backup
+
+**Where they live:** in the **right-hand inspector**, with the Environment as the selected object.
+Not in a modal. The environment selector in the toolbar is the scope selector; its "Open
+Environment" action selects that environment in the inspector, exactly as clicking a node selects
+that node.
+
+This is the UniFi pattern of *configuration associated with the object being configured*: you edit a
+switch port on the switch port, and you edit an environment on the environment.
+
+### 4.2 Application settings
+
+**Definition:** properties of this workstation and this operator. Never written to `warpcore.yaml`.
+Stored locally. Changing them changes how the tool behaves, never what gets deployed.
+
+Proposed sections, in order:
+
+| Section | Contents | Source of truth today |
+|---|---|---|
+| **General** | Developer mode (runs the CLI with `--dev`), theme (later), telemetry (if ever) | `preferences.debugMode` |
+| **Regions** | Regions of interest, shown with the existing `RegionPicker`. Empty means "use the profile's region", never "no regions" | `preferences.regions` |
+| **Exploration** | Default AWS profile, scan cache lifetime, request throttling / concurrency, whether scans are single-region by default | `LAST_PROFILE_KEY` in localStorage; the rest does not exist yet |
+| **Logs** | Application log location, current log level, size on disk, open folder, clear | `.warpcore/logs/warpcore-YYYYMMDD.jsonl` via `utils/logging.py` |
+| **Audit trail** | Entry count, size, open folder, view latest entries, prune older than N days | `.warpcore/audit` via `AuditRecorder` |
+| **Dev sessions** | Session manifests captured in developer mode, size, open, clear | `.warpcore/dev/` via `devmode.py` |
+| **Storage** | One table: logs · audit · dev sessions · scan cache · recent projects, each with size and a clear action. Shows both the home `~/.warpcore` and the open project's `.warpcore` | Tauri needs a `dir_usage` command |
+| **Projects** | Recent projects count and list, clear recents, default projects directory | `recentProjects.ts` |
+| **About** | App version, bundled CLI sidecar version and path, Tauri / webview versions, links to docs | Sidecar under `src-tauri/binaries/` |
+
+Notes on specific rows:
+
+- **Scan cache lifetime** presupposes a scan cache. The Account Explorer currently re-scans on every
+  open. Building the cache (keyed by profile + region set, stored under `.warpcore/cache/`) is a
+  prerequisite for the setting, and the Storage section should show it once it exists.
+- **Logs and audit paths are project-relative.** The CLI prefers `./.warpcore/logs` and falls back to
+  `~/.warpcore/logs`, and the Tauri host defaults the sidecar's working directory to the home
+  directory when no project is open. The Storage section must show *both* locations rather than
+  pretending there is one.
+
+**Where they live:** behind a **gear icon pinned to the bottom of the left rail**, labelled
+"Settings", exactly where UniFi puts it. `Cmd+,` / `Ctrl+,` opens it. Settings opens as a
+**full-workspace view** with a vertical section list on its left and the section content beside it.
+The canvas is hidden, not unmounted, so nothing is lost. Escape or the back control returns to the
+canvas.
+
+Application settings are the *only* thing in the app that is allowed to look like a settings page,
+because they are the only thing that is not a property of an object in the system.
+
+### 4.3 Why not one settings screen with two tabs
+
+Because the two kinds have different owners, different storage, different blast radius and
+different collaborators. Putting them side by side invites exactly the mistake the current modal
+makes: a personal toggle drifting into a shared file. The separation should be structural, not a
+tab label.
+
+---
+
+## 5. Surfaces
+
+### 5.1 Left rail
+
+The left rail is the Resource Library with a pinned footer. It is a palette plus the one global
+entry point, not a navigation tree. Do not grow it into a menu of product capabilities; the research
+is explicit that capability-driven navigation is the failure mode of mature platforms.
+
+```
+┌──────────────────────┐
+│ Resource Library     │
+│ ▸ Compute            │
+│ ▸ Data               │
+│ ▸ Messaging          │
+│ ▸ ...                │
+│                      │
+│                      │
+├──────────────────────┤
+│ ● sidecar ok · dev   │   ambient status: sidecar reachable, dev mode on
+│ ⚙  Settings          │   pinned, opens the application settings view
+└──────────────────────┘
+```
+
+The status line is optional but cheap, and it is the first application of "status is ambient".
+
+### 5.2 Right inspector
+
+Generalise `RightPanel` from "a panel with two tabs" into **the inspector**. It shows the currently
+selected object, whatever kind it is.
+
+| Selected object | Inspector shows |
+|---|---|
+| Nothing | Project summary: name, path, environments, resource count, last deployment, unsaved changes |
+| Environment | Identity header (name, id, last deployed), then Removal Policies · Logging · Lambda Defaults, then an **Expert** disclosure showing the exact `warpcore.yaml` fragment for this environment |
+| Node | Today's Configuration panel, then Execution Log, then Cost. These already exist; they move in rather than float over the canvas |
+| Permission edge | Source → permission → destination, the IAM statement it becomes, and the Roles view scoped to it |
+
+Every inspector body follows **Overview → Evidence → Raw**. For an environment that is: the form →
+what the last deployment actually did with these values → the YAML. For a node: the form → the
+execution steps and API calls → the raw response and the generated CDK/CloudFormation.
+
+Selection is the only way into the inspector. There is no "Environment" tab to click when no
+environment is selected; the tab strip goes away in favour of the object's own identity header.
+
+### 5.3 Toolbar
+
+Reduce it to three groups, left to right:
+
+1. **Scope:** project name (click selects the project in the inspector), environment selector
+   (selects the environment in the inspector), unsaved-changes indicator.
+2. **Tasks:** Scan project, Explore account. These are jobs, not objects, so a task dialog with
+   progress is the right shape, which is what `ScanProgressView` already is.
+3. **Actions:** Deploy, Destroy, inspector toggle.
+
+The file menu stays but should read as "Project" rather than "File". The operator is opening a
+project, not a document.
+
+### 5.4 Account Explorer
+
+Keep the scan as a task, but land the results in the same workspace-plus-inspector shape as the
+canvas: a list or tree of discovered resources on the left, the selected resource's config, network,
+metrics and logs in the inspector. That is the Account Explorer's own See → Notice → Select → Inspect
+→ Act loop, and it stops being a modal with a modal inside it.
+
+Fix the tooltip that currently reads "Configured in Settings › Regions of interest" so it opens the
+Regions section of the settings view directly. Information is navigation.
+
+[Done since: the Explorer's **Create project…** closes the loop from See → Notice → Select → Inspect
+to Act. `warpcore discover project` scans with full detail, selects by glob, derives relationships,
+and emits canvas-native fields; `utils/projectFromAccount.ts` lays the result out and the same
+loader every Open uses brings it onto the canvas. The account becomes one environment, inheriting
+its settings from a template or an environment of the open project.]
+
+### 5.5 Status is ambient
+
+Warpcore already has more state than it shows. Surface it where the object is:
+
+- Node: last deployment status as a small semantic dot on the node, not only in a panel.
+- Environment selector: which environments have been deployed, which have drifted from `warpcore.yaml`.
+- Project name: unsaved changes.
+- Left rail footer: sidecar reachable, dev mode on.
+- Deploy button: disabled with a *reason* ("no project open", "validation failed: 2 errors"), and
+  the reason is clickable.
+
+Use colour only for state. The current toolbar is dark and the panels are light; that is a
+mechanical inversion, and the research warns against it. Pick one and design the other deliberately
+when the visual pass happens.
+
+### 5.6 Every fact can answer "why?"
+
+The execution log already links a failed deployment to its step, the step to its API call, and the
+call to an error and suggested fixes. That is the Firewalla pattern and it is the best thing in the
+app. Extend it, do not dilute it:
+
+- A permission edge should explain the IAM statement it generates.
+- A cost estimate should break down by resource and by the `executionsPerMonth` assumption.
+- A disabled action should say why.
+- A drifted environment should show the diff between the file and the last deployment.
+
+---
+
+## 6. Migration from the current code
+
+Ordered so each step ships on its own. Each step is now done; the notes
+in brackets say where it landed.
+
+1. **Add the settings view.** [`components/settings/`, `RailFooter.tsx`, `Cmd+,` in `App.tsx`.
+   Developer mode and Regions moved out of the environment modal, which no longer exists. The
+   Account Explorer's region control now has a gear that opens Settings › Regions.]
+
+2. **Turn the Environment tab into the environment inspector.** [`inspector/EnvironmentInspector.tsx`.
+   Opening an environment from the toolbar selects it in the inspector; "Make current" switches
+   the deploy scope separately, so inspection and scope stay distinct. While doing this it turned
+   out the environment settings were never written to `warpcore.yaml` at all - the generator
+   hard-coded two placeholder environments. `configSync.ts` now writes them under
+   `environments.<env>` as `name`, `removal_policies`, `logging`, `defaults`, beside whatever
+   `account`/`region`/`vpc`/`tags` the file already had, and reads them back.]
+
+3. **Extend `preferences.ts`** [`defaultProfile`, `scanCacheMinutes`, `scanParallelism`,
+   `logLevel`, `projectsDir`; the spread-over-defaults pattern kept.]
+
+4. **Tauri commands** [`app_paths`, `dir_usage`, `list_dir`, `open_path`, `clear_dir`,
+   `read_text_tail`, `list_audit_entries`, `read_scan_cache`, `write_scan_cache`. Every path
+   argument must sit inside a `.warpcore` directory; `clear_dir` also refuses `state` and refuses
+   to empty a whole `.warpcore`. The audit trail has no clear action on purpose.]
+
+5. **Scan cache.** [`~/.warpcore/cache/explorer/<profile>__<regions>.json`. The Explorer shows a
+   fresh-enough cached scan on open and marks it "cached N min ago"; Rescan always bypasses.
+   Parallelism from Settings is passed to the CLI as `--parallelism`.]
+
+6. **Generalise the inspector.** [`Inspector.tsx` with project, node and environment subjects.
+   The node subject shows a configuration summary, navigable connections, cost, the execution log
+   inline (`ExecutionLogPanel` grew an `inline` prop) and the raw node. The full configuration
+   form is still the existing modal, opened from the inspector's Configure button; folding that
+   thousand-line form into a 384px panel was not worth the regression risk yet.]
+
+---
+
+## 7. Do not
+
+- Add another modal. Modals are for tasks with progress, and for nothing else.
+- Put anything per-project or per-environment in application settings, even temporarily.
+- Turn the left rail into a menu of features. It is a palette and a footer.
+- Show a setting the app cannot yet honour. The scan cache lifetime waits for the scan cache.
+- Invert the theme mechanically. Design dark and light on purpose.
+- Let the simplified view be a dead end. Every object needs its Raw level, even if it is just JSON.
+
+---
+
+## 8. Open questions
+
+- Should application settings sync between machines at all, or is "this workstation" the whole
+  contract? The research leans towards local-only; the audit trail and logs are inherently local.
+- Should the environment inspector be allowed to edit an environment that is not the current scope,
+  or does selecting an environment for inspection also switch the deploy scope? UniFi keeps
+  inspection and scope separate; that is the safer default.
+- Does the project deserve its own inspector subject now, or only once there is drift detection to
+  show on it?
+
+---
+
+## 9. Drawing an account, not just listing it
+
+Creating a project from an account now draws every resource, and it is
+immediately obvious that a grid of boxes is not a picture of a system. The
+canvas in the first `gitf` import shows a Lambda, three buckets, four log
+groups, three SSM parameters, two security groups and a VPC in five columns,
+and answers none of the questions an operator has: what is *in* the VPC,
+what the default security group exposes, who can read the secrets. This
+section is the plan for that. It is deliberately a plan and not code: the
+representation decides what the canvas is *for*, and that deserves a
+decision rather than a first attempt.
+
+### 9.1 What the picture has to answer
+
+In order of how often the question comes up:
+
+1. **Where does this run?** Which VPC, which subnet, public or private.
+2. **What can reach it?** Which security groups admit what, from where. The
+   default security group is a standing question of its own.
+3. **What can it reach?** Data stores, queues, secrets, keys, the internet.
+4. **Who can read this secret / use this key?** For every secret and KMS key,
+   the set of principals with read or write, and through which policy.
+5. **What is this thing part of?** Instance → volumes and snapshots; function
+   → versions and log group; distribution → origins and certificate.
+
+Today's edges answer part of 3 and none of the rest.
+
+### 9.2 Containment, not edges, for "where"
+
+Question 1 is containment, and containment is a box around things, not an
+arrow between them. UniFi draws a site containing networks containing
+devices; Proxmox draws a datacenter containing nodes containing guests.
+
+- A **VPC is a group node**: a labelled region on the canvas. Its subnets are
+  groups inside it, laid out public on top, private below, one column per
+  availability zone. Instances, load balancers, NAT gateways, RDS instances,
+  Lambda functions with a VPC config and VPC endpoints sit inside their
+  subnet. Internet gateways sit on the VPC's edge.
+- **Everything outside a VPC** - S3, DynamoDB, SQS, SNS, Secrets Manager, SSM,
+  KMS, IAM, CloudFront, Route 53 - stays in the layered columns, to the right
+  of the VPC groups. They are regional or global services; drawing them
+  inside a VPC would be a lie.
+- React Flow supports this directly with `parentNode` and `extent: 'parent'`;
+  moving a group moves its children. The layout becomes: VPC groups first
+  (sized to their contents), then the columns.
+
+Route tables and their routes are the exception: they describe *how* a subnet
+reaches out, not where it is. They are best shown as a property of the subnet
+("routes via rt-1: 0.0.0.0/0 → igw-1") and as a toggleable edge layer, not as
+permanent boxes.
+
+### 9.3 Security groups as membership, then as reachability
+
+A security group is not a node an instance connects *to*; it is a policy the
+instance is *in*. Drawing it as a box with arrows from every member produces
+the hairball on the first import.
+
+- **Membership is a badge.** Each node in a VPC shows the security groups it
+  belongs to as small chips. Clicking a chip selects the group in the
+  inspector, which lists every member and every rule.
+- **Reachability is an edge layer.** With the "network" layer on, an edge from
+  group A to group B means "A's members may reach B's members" (the
+  `UserIdGroupPairs` rules), labelled with ports. Rules from CIDR ranges are
+  drawn from a synthetic "internet" or "10.0.0.0/8" node at the VPC's edge.
+- **The default security group** gets an ambient status: a warning dot when
+  it has members and its inbound rules admit anything beyond itself, and the
+  inspector explains why ("0.0.0.0/0 on 22 from the default group; 2
+  instances are members"). This is the "every fact can answer why" rule
+  applied to the most common footgun in an account.
+
+### 9.4 Secrets and keys: a vault, with read and write arrows
+
+The ask is exact: secrets collected together, with arrows from what can read
+and write them. The same shape serves KMS keys.
+
+- **A vault group** collects Secrets Manager secrets and SecureString SSM
+  parameters; a **keyring group** collects KMS keys. Both live in the
+  platform column, drawn as a distinct enclosure rather than a row of boxes.
+- **Arrows carry direction and verb.** Read is `secretsmanager:GetSecretValue`
+  / `ssm:GetParameter*` / `kms:Decrypt`; write is `PutSecretValue`,
+  `PutParameter`, `kms:Encrypt`/`GenerateDataKey`. Each arrow is labelled
+  with the verb and coloured by it, and the edge inspector shows the policy
+  statement that grants it and the role it is attached to.
+- **Where the arrows come from.** Today the scanner records a role's attached
+  and inline policy *names* only. To draw read/write, hydration has to fetch
+  the policy *documents* (`get_role_policy`, `get_policy_version`) and match
+  each statement's `Resource` against the emitted ARNs, wildcards included.
+  The same pass yields "what can it reach" for buckets, tables and queues far
+  more accurately than environment-variable guessing, so it replaces the
+  `reference` heuristic rather than sitting beside it. Resource policies on
+  the secret or key (`GetResourcePolicy`, `GetKeyPolicy`) add cross-account
+  readers.
+- **"Encrypted with"** edges from buckets, queues, tables, logs and secrets to
+  their key stay as they are, but move into the keyring's edge layer.
+
+### 9.5 Sub-resources fold into their parent
+
+Volumes and snapshots belong to an instance; versions belong to a function;
+origins and the certificate belong to a distribution; the SSM managed
+instance record is the instance. None of these needs a box. They appear as
+a section in the parent's inspector ("Storage: 2 volumes, 7 snapshots") and
+as a small count badge on the node. Drawing them was the right first step
+because it proved nothing is dropped; folding them is the second.
+
+### 9.6 Layers
+
+Even with containment and the vault, an account with every edge drawn is
+unreadable. The canvas gets a layer control, like map layers:
+
+| Layer | Edges | Default |
+|---|---|---|
+| Triggers | event sources, rule targets, subscriptions, invokes | on |
+| Access | read/write arrows from policy documents | on |
+| Network | security-group reachability, routes | off |
+| Encryption | "encrypted with" | off |
+| Plumbing | log groups, instance profiles, execution roles | off |
+
+Selecting a node shows all of its edges regardless of layer, dimmed for the
+layers that are off. That keeps the default picture calm and keeps every
+relationship one click away, which is the whole design rule of this document.
+
+### 9.7 Order of work
+
+[All four steps below shipped on 2026-09-02. Policy documents are hydrated
+(`get_role_policy`, `get_policy_version`, plus secret resource policies and
+KMS key policies) and become `access` connections with a read/write/admin
+verb, the granting role and a sample of actions; an access arrow replaces
+the environment-variable guess for the same pair. VPCs and subnets are
+container nodes (`ContainerNode`, React Flow `parentNode`), laid out with
+VPC-level things in a strip and subnets in a grid, public first. Security
+groups are badges on their members, membership and trust edges live on the
+network layer, and a default group open to the world with members carries a
+warning the inspector explains. The vault and keyring became the general
+rule: every top-level node outside a VPC joins an `enclosure` container by
+role (`ENCLOSURES` in `projectFromAccount.ts`), one per role per region,
+laid out in columns; empty subnets are slim spines rather than partitions. Volumes, snapshots, Lambda versions and SSM managed
+instances fold into their parent's "Attached" section. Five layers with
+counts sit over the canvas; selection reveals off-layer edges dimmed.]
+
+1. Policy-document hydration and the access edges (§9.4). Highest value:
+   real read/write arrows for secrets, keys, buckets, tables and queues.
+2. VPC and subnet group nodes with containment layout (§9.2), and security
+   group badges (§9.3). This is the change that makes the canvas a map.
+3. Layers (§9.6), because 1 and 2 together produce too many edges without it.
+4. The vault and keyring enclosures (§9.4), the default-group warning (§9.3),
+   and folding sub-resources (§9.5).

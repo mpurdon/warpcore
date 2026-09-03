@@ -18,6 +18,7 @@ Hydration (fetching each resource's real configuration) is opt-in because it
 costs one API call per resource.
 """
 
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
@@ -493,6 +494,20 @@ class AWSScanner:
         # Layers/env come back nested; keep them, drop the presigned code URL
         # which is a short-lived credential and must not land in a config file.
         details.pop('Code', None)
+        # What triggers this function (SQS, Kinesis, DynamoDB streams). One
+        # extra call per function; without it the canvas cannot draw the
+        # queue -> function edge that is the whole point of the queue.
+        try:
+            mappings = lambda_client.list_event_source_mappings(FunctionName=function_name)
+            items = mappings.get('EventSourceMappings', [])
+            details['EventSourceMappings'] = [
+                {k: m.get(k) for k in ('UUID', 'EventSourceArn', 'State', 'BatchSize')}
+                for m in (items if isinstance(items, list) else [])
+            ]
+        except (ClientError, TypeError, AttributeError):
+            # Optional detail: a function without the permission (or a test
+            # double without the method) still hydrates.
+            details['EventSourceMappings'] = []
         return details
 
     def _get_iam_role_details(self, role_name: str) -> Dict:
@@ -505,7 +520,51 @@ class AWSScanner:
 
         inline = iam_client.list_role_policies(RoleName=role_name)
         details['InlinePolicyNames'] = inline.get('PolicyNames', [])
+
+        # The policy documents themselves, so access can be drawn from what
+        # the role is actually allowed to do rather than guessed from
+        # environment variables. Each document is optional: a role whose
+        # policies cannot be read still hydrates.
+        documents = []
+        for name in details['InlinePolicyNames'] if isinstance(details['InlinePolicyNames'], list) else []:
+            try:
+                doc = iam_client.get_role_policy(RoleName=role_name, PolicyName=name).get('PolicyDocument')
+                if isinstance(doc, dict):
+                    documents.append({'name': name, 'source': 'inline', 'document': doc})
+            except (ClientError, TypeError, AttributeError):
+                continue
+        for attached in details['AttachedPolicies'] if isinstance(details['AttachedPolicies'], list) else []:
+            arn = attached.get('PolicyArn') if isinstance(attached, dict) else None
+            if not arn:
+                continue
+            doc = self._managed_policy_document(iam_client, arn)
+            if doc is not None:
+                documents.append({'name': attached.get('PolicyName') or arn.rsplit('/', 1)[-1],
+                                  'source': 'managed', 'arn': arn, 'document': doc})
+        details['PolicyDocuments'] = documents
         return details
+
+    def _managed_policy_document(self, iam_client, policy_arn: str) -> Optional[Dict]:
+        """A managed policy's default version, read once per scan.
+
+        AWSLambdaBasicExecutionRole hangs off nearly every function role;
+        without the memo it costs two IAM calls per role.
+        """
+        cache = self.__dict__.setdefault('_policy_documents', {})
+        if policy_arn in cache:
+            return cache[policy_arn]
+        doc = None
+        try:
+            policy = iam_client.get_policy(PolicyArn=policy_arn).get('Policy', {})
+            version = iam_client.get_policy_version(
+                PolicyArn=policy_arn, VersionId=policy.get('DefaultVersionId', 'v1'),
+            ).get('PolicyVersion', {})
+            candidate = version.get('Document')
+            doc = candidate if isinstance(candidate, dict) else None
+        except (ClientError, TypeError, AttributeError):
+            doc = None
+        cache[policy_arn] = doc
+        return doc
 
     def _get_vpc_details(self, vpc_id: str) -> Dict:
         """Get VPC details."""
@@ -609,7 +668,18 @@ class AWSScanner:
         """Get SNS topic details."""
         sns_client = discovery_client(self.session, 'sns', self.region)
         response = sns_client.get_topic_attributes(TopicArn=topic_arn)
-        return response.get('Attributes', {})
+        details = dict(response.get('Attributes', {}))
+        # Who the topic fans out to, so topic -> function/queue edges exist.
+        try:
+            subs = sns_client.list_subscriptions_by_topic(TopicArn=topic_arn)
+            items = subs.get('Subscriptions', [])
+            details['Subscriptions'] = [
+                {k: sub.get(k) for k in ('Protocol', 'Endpoint', 'SubscriptionArn')}
+                for sub in (items if isinstance(items, list) else [])
+            ]
+        except (ClientError, TypeError, AttributeError):
+            details['Subscriptions'] = []
+        return details
 
     def _get_log_group_details(self, log_group_name: str) -> Dict:
         """Get CloudWatch log group details."""
@@ -638,6 +708,13 @@ class AWSScanner:
         secrets_client = discovery_client(self.session, 'secretsmanager', self.region)
         details = dict(secrets_client.describe_secret(SecretId=secret_arn))
         details.pop('ResponseMetadata', None)
+        # Who else may read it: the resource policy names cross-account and
+        # cross-role principals that the role policies alone would miss.
+        try:
+            policy = secrets_client.get_resource_policy(SecretId=secret_arn).get('ResourcePolicy')
+            details['ResourcePolicy'] = json.loads(policy) if isinstance(policy, str) else policy
+        except (ClientError, TypeError, AttributeError, ValueError):
+            details['ResourcePolicy'] = None
         return details
 
     def _get_state_machine_details(self, state_machine_arn: str) -> Dict:
@@ -646,6 +723,88 @@ class AWSScanner:
         details = dict(sfn_client.describe_state_machine(stateMachineArn=state_machine_arn))
         details.pop('ResponseMetadata', None)
         return details
+
+    def _get_snapshot_details(self, snapshot_id: str) -> Dict:
+        """Get EBS snapshot details."""
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
+        response = ec2_client.describe_snapshots(SnapshotIds=[snapshot_id])
+        snapshots = response.get('Snapshots', [])
+        return snapshots[0] if snapshots else {}
+
+    def _get_internet_gateway_details(self, igw_id: str) -> Dict:
+        """Get internet gateway details, including which VPC it is attached to."""
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
+        response = ec2_client.describe_internet_gateways(InternetGatewayIds=[igw_id])
+        gateways = response.get('InternetGateways', [])
+        return gateways[0] if gateways else {}
+
+    def _get_address_details(self, allocation_id: str) -> Dict:
+        """Get Elastic IP details."""
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
+        response = ec2_client.describe_addresses(AllocationIds=[allocation_id])
+        addresses = response.get('Addresses', [])
+        return addresses[0] if addresses else {}
+
+    def _get_load_balancer_details(self, lb_arn: str) -> Dict:
+        """Get ALB/NLB details."""
+        elb_client = discovery_client(self.session, 'elbv2', self.region)
+        response = elb_client.describe_load_balancers(LoadBalancerArns=[lb_arn])
+        balancers = response.get('LoadBalancers', [])
+        return balancers[0] if balancers else {}
+
+    def _get_cloudfront_details(self, distribution_id: str) -> Dict:
+        """Get CloudFront distribution details. Global; any region's client works."""
+        cf_client = discovery_client(self.session, 'cloudfront', 'us-east-1')
+        response = cf_client.get_distribution(Id=distribution_id)
+        details = dict(response.get('Distribution', {}))
+        details.pop('ResponseMetadata', None)
+        return details
+
+    def _get_hosted_zone_details(self, zone_id: str) -> Dict:
+        """Get Route 53 hosted zone details."""
+        r53_client = discovery_client(self.session, 'route53', 'us-east-1')
+        response = r53_client.get_hosted_zone(Id=zone_id)
+        return dict(response.get('HostedZone', {}))
+
+    def _get_kms_key_details(self, key_id: str) -> Dict:
+        """Get KMS key metadata. Never key material; describe_key returns none."""
+        kms_client = discovery_client(self.session, 'kms', self.region)
+        response = kms_client.describe_key(KeyId=key_id)
+        details = dict(response.get('KeyMetadata', {}))
+        try:
+            policy = kms_client.get_key_policy(KeyId=key_id, PolicyName='default').get('Policy')
+            details['KeyPolicy'] = json.loads(policy) if isinstance(policy, str) else policy
+        except (ClientError, TypeError, AttributeError, ValueError):
+            details['KeyPolicy'] = None
+        return details
+
+    def _get_parameter_details(self, name: str) -> Dict:
+        """Get SSM parameter metadata. Never the value: describe_parameters returns none."""
+        ssm_client = discovery_client(self.session, 'ssm', self.region)
+        response = ssm_client.describe_parameters(
+            ParameterFilters=[{'Key': 'Name', 'Values': [name]}],
+        )
+        params = response.get('Parameters', [])
+        return dict(params[0]) if params else {}
+
+    def _get_certificate_details(self, certificate_arn: str) -> Dict:
+        """Get ACM certificate details."""
+        acm_client = discovery_client(self.session, 'acm', self.region)
+        response = acm_client.describe_certificate(CertificateArn=certificate_arn)
+        return dict(response.get('Certificate', {}))
+
+    def _get_instance_profile_details(self, profile_name: str) -> Dict:
+        """Get IAM instance profile details, including its roles."""
+        iam_client = discovery_client(self.session, 'iam')
+        response = iam_client.get_instance_profile(InstanceProfileName=profile_name)
+        return dict(response.get('InstanceProfile', {}))
+
+    def _get_db_instance_details(self, identifier: str) -> Dict:
+        """Get RDS instance details."""
+        rds_client = discovery_client(self.session, 'rds', self.region)
+        response = rds_client.describe_db_instances(DBInstanceIdentifier=identifier)
+        instances = response.get('DBInstances', [])
+        return instances[0] if instances else {}
 
     # Dispatch table, consulted by get_resource_details. Adding a service means
     # adding a reader and one row here.
@@ -668,6 +827,20 @@ class AWSScanner:
         'AWS::Events::Rule': _get_events_rule_details,
         'AWS::SecretsManager::Secret': _get_secret_details,
         'AWS::StepFunctions::StateMachine': _get_state_machine_details,
+        'AWS::EC2::Snapshot': _get_snapshot_details,
+        'AWS::EC2::InternetGateway': _get_internet_gateway_details,
+        'AWS::EC2::EIP': _get_address_details,
+        'AWS::ElasticLoadBalancingV2::LoadBalancer': _get_load_balancer_details,
+        'AWS::CloudFront::Distribution': _get_cloudfront_details,
+        'AWS::Cloudfront::Distribution': _get_cloudfront_details,
+        'AWS::Route53::HostedZone': _get_hosted_zone_details,
+        'AWS::Route53::Hostedzone': _get_hosted_zone_details,
+        'AWS::KMS::Key': _get_kms_key_details,
+        'AWS::ACM::Certificate': _get_certificate_details,
+        'AWS::Acm::Certificate': _get_certificate_details,
+        'AWS::IAM::InstanceProfile': _get_instance_profile_details,
+        'AWS::RDS::DBInstance': _get_db_instance_details,
+        'AWS::SSM::Parameter': _get_parameter_details,
     }
 
     def supported_detail_types(self) -> List[str]:

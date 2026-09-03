@@ -13,7 +13,7 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: {
-    port: 1420,
+    port: 1430,
     // Tauri's devUrl points at this exact port; failing loudly beats Vite
     // quietly moving to 1421 and the app window loading nothing.
     strictPort: true,

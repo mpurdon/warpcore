@@ -100,6 +100,13 @@ code {
   background-color: #dcfce7 !important;
 }
 
+/* Present: White - found in the account; health unknown, so no colour is claimed */
+.react-flow__node .node-inner.node-present,
+.node-inner.node-present {
+  background-color: #ffffff !important;
+  box-shadow: 0 0 0 1px #e5e7eb, 0 1px 3px 0 rgb(0 0 0 / 0.08) !important;
+}
+
 /* Failed: Light red - Deployment failed or errors */
 .react-flow__node .node-inner.node-failed,
 .node-inner.node-failed {

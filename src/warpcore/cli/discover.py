@@ -2,6 +2,7 @@
 
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -11,13 +12,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from warpcore.agentic.scanner import AWSScanner, ScanScope
+from warpcore.agentic.scanner import AWSScanner, ScannedState, ScanScope
 from warpcore.devmode import get_dev_mode
 from warpcore.discovery.adopt import ResourceAdopter
-from warpcore.discovery.config_emitter import ConfigEmitter
+from warpcore.discovery.config_emitter import NAME_RE, ConfigEmitter
+from warpcore.discovery.project_emitter import ProjectEmitter, select_resources
 from warpcore.discovery.detail import ResourceDetailReader
 from warpcore.discovery.inventory import enabled_regions, scan_account
-from warpcore.utils.progress import RESULT, ndjson_writer
+from warpcore.utils.progress import PHASE, RESULT, ProgressEmitter, ndjson_writer
 from warpcore.state.manager import StateManager
 from warpcore.utils.aws_client import AWSClientManager
 from warpcore.utils.logging import get_logger
@@ -535,3 +537,194 @@ def _fmt_metric(value) -> str:
     if value is None:
         return "-"
     return f"{value:,.0f}" if value >= 1000 else f"{value:.2f}"
+
+
+@discover.command("project")
+@click.option("--region", "regions", multiple=True,
+              help="Region to include; repeatable. Default: the profile's region")
+@click.option("--all-regions", is_flag=True, help="Every region enabled for the account")
+@click.option("--project-name", required=True, help="Project name (^[a-z][a-z0-9-]*$)")
+@click.option("--env", "environment", default="dev", show_default=True,
+              help="Environment key this account becomes")
+@click.option("--include", "include", multiple=True,
+              help="Glob to include; repeatable. Matches type, name, ARN, region or tag=value. "
+                   "Prefix with type:, name:, tag: or region: to pin a field. Default: *")
+@click.option("--exclude", "exclude", multiple=True, help="Glob to exclude; repeatable")
+@click.option("--lambda-as", type=click.Choice(["agent", "lambda"]), default="agent", show_default=True,
+              help="Show Lambda functions as deployable agents or as plain Lambda nodes")
+@click.option("--include-env-values", is_flag=True,
+              help="Copy real Lambda environment variable values (often live credentials)")
+@click.option("--adopt", is_flag=True,
+              help="Register the included resources in this environment's deployment state so "
+                   "deploy updates them instead of creating duplicates. Writes only local state.")
+@click.option("--max", "max_resources", type=int, default=5000, show_default=True,
+              help="Stop enumerating a region after this many resources")
+@click.option("--parallelism", type=int, default=6, show_default=True, help="Regions scanned at once")
+@click.option("--progress", "stream_progress", is_flag=True,
+              help="Stream NDJSON progress to stdout, then a final result event")
+@click.option("--json", "as_json", is_flag=True, help="Emit the project as JSON")
+@click.pass_context
+def project(ctx, regions, all_regions, project_name, environment, include, exclude, lambda_as,
+            include_env_values, adopt, max_resources, parallelism, stream_progress, as_json):
+    """Turn an account into a Visual Builder project: resources, relationships, canvas fields."""
+    from warpcore.cli.main import get_state_path
+
+    if not NAME_RE.match(project_name):
+        console.print(f"[red]Project name '{project_name}' must match ^[a-z][a-z0-9-]*$[/red]")
+        sys.exit(2)
+
+    first_region = regions[0] if regions else None
+    scanner, credentials, resolved_region = _scanner(ctx, first_region, project_name, environment)
+    if all_regions:
+        target_regions = enabled_regions(scanner.session, seed_region=resolved_region)
+    else:
+        target_regions = list(regions) or [resolved_region]
+    progress = ndjson_writer() if stream_progress else None
+
+    # Enumerate first, select, then hydrate only what survives: hydration is
+    # one API call per resource and the selection usually drops most of them.
+    account_inventory = scan_account(
+        session=scanner.session,
+        account=credentials.account_id,
+        regions=target_regions,
+        hydrate=False,
+        max_per_region=max_resources,
+        max_workers=parallelism,
+        progress=progress,
+    )
+    kept, dropped = select_resources(
+        account_inventory.scanned.get_all_resources(), list(include), list(exclude),
+    )
+
+    selected = ScannedState()
+    selected.explorer_available = account_inventory.scanned.explorer_available
+    for r in kept:
+        selected.add_resource(r)
+    for e in account_inventory.scanned.errors:
+        selected.add_error(e)
+
+    emitter = ProgressEmitter(progress)
+
+    def hydrate_subset(region: str, members: list) -> None:
+        """Hydrate some resources in place with a scanner bound to their region."""
+        scoped = emitter.child(region=region)
+        scoped.emit(PHASE, phase="hydrate", status="running", found=0)
+        subset = ScannedState()
+        for r in members:
+            subset.add_resource(r)   # same objects: hydration fills them in place
+        AWSScanner(
+            boto_session=scanner.session, project_name=project_name,
+            environment=environment, region=region, account=credentials.account_id,
+        ).hydrate(subset)
+        for e in subset.errors:
+            selected.add_error(e)
+        scoped.emit(PHASE, phase="hydrate", status="done", found=len(members) - len(subset.errors))
+
+    # Regions hydrate in parallel, as they were enumerated.
+    by_region: dict = {}
+    for r in kept:
+        by_region.setdefault((r.metadata or {}).get("region") or resolved_region, []).append(r)
+    with ThreadPoolExecutor(max_workers=max(1, parallelism)) as pool:
+        list(pool.map(lambda item: hydrate_subset(*item), by_region.items()))
+
+    # Second pass: the execution roles of included functions and state
+    # machines are part of the picture even when the patterns did not name
+    # them, and they are only known once the functions are hydrated. Pull
+    # them in from the dropped set so the canvas can show which role each
+    # function runs as. Roles are global; any region's scanner can read them.
+    wanted_roles = set()
+    for r in kept:
+        props = r.properties or {}
+        for key in ("Role", "roleArn"):
+            if props.get(key):
+                wanted_roles.add(props[key])
+    role_pass = [r for r in dropped if r.physical_id in wanted_roles and not selected.has_resource(r.physical_id or "")]
+    if role_pass:
+        for r in role_pass:
+            selected.add_resource(r)
+        hydrate_subset(target_regions[0], role_pass)
+        pulled = {id(r) for r in role_pass}
+        dropped = [r for r in dropped if id(r) not in pulled]
+
+    result = ProjectEmitter(
+        scanned_state=selected,
+        project_name=project_name,
+        environment=environment,
+        account=credentials.account_id,
+        region=target_regions[0],
+        regions=account_inventory.region_summary(),
+        lambda_as=lambda_as,
+        include_env_values=include_env_values,
+    ).emit()
+    payload = result.payload
+    payload["counts"]["excluded"] = len(dropped)
+    payload["adopted"] = None
+
+    if adopt:
+        # Local state only; never touches AWS. Keyed by the same path deploy
+        # uses, so the next deploy sees these as already existing.
+        state_path = get_state_path(environment, project_name)
+        state_manager = StateManager(str(state_path))
+        if not state_manager.exists():
+            state_manager.initialize(
+                environment=environment,
+                region=target_regions[0],
+                account=credentials.account_id,
+                project_name=project_name,
+            )
+        adopter = ResourceAdopter(state_manager)
+        plan = adopter.plan(selected)
+        payload["adopted"] = adopter.apply(plan) if not plan.is_empty() else 0
+        payload["state_path"] = str(state_path)
+        conflicts = plan.conflicts()
+        if conflicts:
+            payload["notes"].append({
+                "level": "warning", "physical_id": "(adopt)",
+                "message": f"{len(conflicts)} resource(s) could not be adopted because another "
+                           f"resource already holds their logical id",
+            })
+
+    if stream_progress:
+        click.echo(json.dumps({"event": RESULT, "data": payload}, default=str, separators=(",", ":")))
+        return
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, default=str))
+        return
+
+    console.print(
+        f"[green]{payload['counts']['shown']}[/green] of {payload['counts']['included']} included "
+        f"resource(s) can be shown on the canvas, {payload['counts']['connections']} connection(s); "
+        f"{payload['counts']['excluded']} excluded by pattern."
+    )
+    if payload["skipped"]:
+        table = Table(title="Not representable on the canvas")
+        table.add_column("Type", style="cyan")
+        table.add_column("Count", justify="right")
+        for rtype, count in payload["skipped"].items():
+            table.add_row(rtype, str(count))
+        console.print(table)
+    if payload["adopted"] is not None:
+        console.print(f"Adopted [green]{payload['adopted']}[/green] resource(s) into {payload['state_path']}")
+    for note in result.notes:
+        if note.level == "warning":
+            console.print(f"  [yellow]{note.physical_id}[/yellow] {note.message}")
+
+
+@discover.command("regions")
+@click.option("--region", help="Region used to ask; any enabled one works")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a table")
+@click.pass_context
+def regions_command(ctx, region, as_json):
+    """List the regions this account has enabled."""
+    scanner, credentials, resolved_region = _scanner(ctx, region, "discovered", "dev")
+    names = enabled_regions(scanner.session, seed_region=resolved_region)
+
+    if as_json:
+        click.echo(json.dumps(names))
+        return
+
+    table = Table(title=f"Enabled regions - {credentials.account_id}")
+    table.add_column("Region", style="cyan")
+    for name in names:
+        table.add_row(name)
+    console.print(table)

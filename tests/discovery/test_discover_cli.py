@@ -13,15 +13,6 @@ REGION = "us-east-1"
 
 
 @pytest.fixture
-def aws_credentials(monkeypatch):
-    for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
-                "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"):
-        monkeypatch.setenv(key, "testing")
-    monkeypatch.setenv("AWS_DEFAULT_REGION", REGION)
-    monkeypatch.delenv("WARPCORE_DEV", raising=False)
-
-
-@pytest.fixture
 def account(aws_credentials):
     """An account with a Lambda, a bucket and a table - none of them tagged."""
     with mock_aws():

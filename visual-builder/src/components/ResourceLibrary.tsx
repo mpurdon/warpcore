@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Bot, Database, Mail, Cloud, Lock, Globe, Zap, Activity, Filter, FileText, Radio, Key, Settings, Workflow, Brain, Package, LayoutDashboard, ChevronDown, ChevronRight, Cpu } from 'lucide-react';
-import { useStore } from '../store/useStore';
+import { useReadOnly, useStore } from '../store/useStore';
+import RailFooter from './RailFooter';
 
 const resourceCategories = [
   {
@@ -78,12 +79,14 @@ const resourceCategories = [
 
 export default function ResourceLibrary() {
   const { setDraggedItem } = useStore();
+  const readOnly = useReadOnly();
   // Initialize with first category (Agents) expanded
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
     new Set(['Agents'])
   );
 
   const handleMouseDown = (resourceType: string, label: string) => {
+    if (readOnly) return;
     setDraggedItem({ type: resourceType, label });
   };
 
@@ -108,8 +111,8 @@ export default function ResourceLibrary() {
   };
 
   return (
-    <div className="w-64 bg-gray-50 border-r border-gray-200 overflow-y-auto">
-      <div className="p-4">
+    <div className="w-64 bg-gray-50 border-r border-gray-200 flex flex-col min-h-0">
+      <div className="flex-1 overflow-y-auto p-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-gray-700">Resources</h2>
           <div className="flex gap-1">
@@ -159,7 +162,8 @@ export default function ResourceLibrary() {
                       <div
                         key={resource.label}
                         onMouseDown={() => handleMouseDown(resource.type, resource.label)}
-                        className="flex items-center gap-2 p-2 rounded cursor-grab active:cursor-grabbing hover:bg-blue-50 transition-colors select-none"
+                        title={readOnly ? 'Unlock the project to add resources' : undefined}
+                        className={`flex items-center gap-2 p-2 rounded transition-colors select-none ${readOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing hover:bg-blue-50'}`}
                       >
                         <resource.icon size={14} className="text-gray-500" />
                         <span className="text-sm text-gray-700">{resource.label}</span>
@@ -172,6 +176,7 @@ export default function ResourceLibrary() {
           })}
         </div>
       </div>
+      <RailFooter />
     </div>
   );
 }

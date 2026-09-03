@@ -1,7 +1,11 @@
-import { Database, Mail, Globe, Lock, Cloud, Key, Settings, Workflow, Brain, Radio, Activity, Package, LayoutDashboard, Cpu, Flame, GitBranch } from 'lucide-react';
+import { Database, Mail, Globe, Lock, Cloud, Key, Settings, Workflow, Brain, Radio, Activity, Package, LayoutDashboard, Cpu, Flame, GitBranch, Paperclip, ShieldAlert } from 'lucide-react';
+import { useStore } from '../../store/useStore';
 import { NodeStatus } from '../../store/useStore';
 import NodeWrapper from './NodeWrapper';
 import BidirectionalHandles from './BidirectionalHandles';
+import { DISCOVERED_TYPES, discoveredTypeLabel } from '../../utils/discoveredTypes';
+import { nameFieldFor } from '../../utils/nodeName';
+import type { NodeMeta } from '../../utils/projectFromAccount';
 
 interface ResourceNodeData {
   label: string;
@@ -11,6 +15,7 @@ interface ResourceNodeData {
     name?: string;
     [key: string]: any;
   };
+  meta?: NodeMeta;
 }
 
 interface Props {
@@ -89,32 +94,6 @@ const typeLabelMap: Record<string, string> = {
   'eventbridge-pipes': 'EventBridge Pipes',
 };
 
-// Map of config key names for each resource type
-const nameFieldMap: Record<string, string> = {
-  's3': 'bucketName',
-  'dynamodb': 'tableName',
-  'sqs': 'queueName',
-  'sns': 'topicName',
-  'api-gateway': 'apiName',
-  'api-route': 'path',
-  'iam-role': 'roleName',
-  'security-group': 'groupName',
-  'vpc': 'name',
-  'kinesis-stream': 'streamName',
-  'kinesis-firehose': 'deliveryStreamName',
-  'secrets-manager': 'secretName',
-  'ssm-parameter': 'parameterName',
-  'step-functions': 'stateMachineName',
-  'bedrock': 'modelId',
-  'cloudwatch-alarm': 'alarmName',
-  'ecr': 'repositoryName',
-  'cloudwatch-dashboard': 'dashboardName',
-  'eventbridge': 'busName',
-  'eventbridge-rule': 'ruleName',
-  'eventbridge-pipes': 'pipeName',
-  'log-group': 'logGroupName',
-  'lambda': 'functionName',
-};
 
 // HTTP method colors for API routes
 const methodColors: Record<string, string> = {
@@ -127,13 +106,23 @@ const methodColors: Record<string, string> = {
 };
 
 export default function ResourceNode({ id, data, selected, type }: Props) {
+  const selectNode = useStore((s) => s.selectNode);
   const statusClass = data.status ? `node-${data.status}` : '';
-  const Icon = iconMap[type] || Database;
-  const iconColor = colorMap[type] || 'text-gray-600';
-  const typeLabel = typeLabelMap[type] || type;
+  const groups = data.meta?.securityGroups || [];
+  // AWS-generated ids are clutter next to a real name; keep them, quietly.
+  const awsId = ['vpcId', 'subnetId', 'routeTableId', 'gatewayId', 'natGatewayId', 'groupId', 'instanceId', 'keyId']
+    .map((k) => data.config?.[k])
+    .find((v) => typeof v === 'string' && v && v !== (data.config?.name ?? data.label)) as string | undefined;
+  const attachments = data.meta?.attachments || [];
+  const isSecure = type === 'ssm-parameter' ? Boolean(data.config?.secure) : type === 'secrets-manager';
+  const warning = data.meta?.warning;
+  const discovered = DISCOVERED_TYPES[type];
+  const Icon = iconMap[type] || discovered?.icon || Database;
+  const iconColor = colorMap[type] || discovered?.color || 'text-gray-600';
+  const typeLabel = typeLabelMap[type] || discoveredTypeLabel(type, data.config) || type;
 
   // Get the custom name from the type-specific config field
-  const nameField = nameFieldMap[type] || 'name';
+  const nameField = nameFieldFor(type);
   const customName = data.config?.[nameField];
   const displayName = customName || data.label;
   const hasCustomName = !!customName;
@@ -156,13 +145,43 @@ export default function ResourceNode({ id, data, selected, type }: Props) {
           ) : (
             <Icon size={18} className={iconColor} />
           )}
-          <div>
-            <div className="font-semibold text-sm">{displayName}</div>
-            {hasCustomName && (
-              <div className="text-xs text-gray-500">{typeLabel}</div>
+          <div className="min-w-0">
+            <div className="font-semibold text-sm flex items-center gap-1.5">
+              <span className="truncate">{displayName}</span>
+              {isSecure && <Lock size={11} className="text-red-500 shrink-0" />}
+              {warning && <ShieldAlert size={13} className="text-amber-600 shrink-0" />}
+              {attachments.length > 0 && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-gray-500 shrink-0" title={attachments.map((a) => `${a.name} (${a.type})`).join('\n')}>
+                  <Paperclip size={10} /> {attachments.length}
+                </span>
+              )}
+            </div>
+            {(hasCustomName || awsId) && (
+              <div className="text-xs text-gray-500">
+                {typeLabel}
+                {awsId && <span className="font-mono text-[10px] text-gray-400"> · {awsId}</span>}
+              </div>
+            )}
+            {type === 'security-group' && typeof data.config?.memberCount === 'number' && (
+              <div className="text-[10px] text-gray-500">{data.config.memberCount} member{data.config.memberCount === 1 ? '' : 's'}{data.config.isDefault ? ' · default' : ''}</div>
             )}
           </div>
         </div>
+        {groups.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5 -mb-0.5">
+            {groups.slice(0, 4).map((g) => (
+              <button
+                key={g.id}
+                onClick={(e) => { e.stopPropagation(); selectNode(g.id); }}
+                className="text-[10px] leading-4 px-1.5 rounded-full bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+                title={`In security group ${g.name}. Click to inspect.`}
+              >
+                {g.name}
+              </button>
+            ))}
+            {groups.length > 4 && <span className="text-[10px] text-gray-400">+{groups.length - 4}</span>}
+          </div>
+        )}
       </div>
     </NodeWrapper>
   );

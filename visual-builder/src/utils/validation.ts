@@ -36,8 +36,10 @@ export function validateCanvas(nodes: Node[], edges: Edge[]): ValidationError[] 
     });
   }
 
-  // Check for resources without connections
+  // Check for resources without connections. Resources discovered from an
+  // account are what they are; an unconnected subnet is not a mistake.
   nodes.forEach(node => {
+    if (node.data?.arn) return;
     if (node.type !== 'agent' && node.type !== 'vpc') {
       const hasConnection = edges.some(e => e.source === node.id || e.target === node.id);
       if (!hasConnection) {
@@ -52,6 +54,7 @@ export function validateCanvas(nodes: Node[], edges: Edge[]): ValidationError[] 
 
   // Check for edges without permissions
   edges.forEach(edge => {
+    if (edge.data?.meta?.discovered) return;
     if (edge.type === 'permission' && (!edge.data?.permissions || edge.data.permissions.length === 0)) {
       errors.push({
         nodeId: edge.source,

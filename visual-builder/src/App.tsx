@@ -20,7 +20,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { useStore } from './store/useStore';
+import { useReadOnly, useStore } from './store/useStore';
 import { generateLogGroupPath } from './utils/logGroupPath';
 import Toolbar from './components/Toolbar';
 import ResourceLibrary from './components/ResourceLibrary';
@@ -29,7 +29,11 @@ import DeploymentTimeline from './components/DeploymentTimeline';
 import RoleAssignmentModal from './components/RoleAssignmentModal';
 import ConfigurationPanel from './components/ConfigurationPanel';
 import RadialMenu from './components/RadialMenu';
-import RightPanel from './components/RightPanel';
+import Inspector from './components/Inspector';
+import SettingsView from './components/settings/SettingsView';
+import { LockBanner } from './components/ProjectLock';
+import LayersControl from './components/LayersControl';
+import type { Layer } from './utils/layers';
 import PermissionLegend from './components/PermissionLegend';
 import { nodeTypes } from './components/nodes';
 import { edgeTypes } from './components/edges';
@@ -50,14 +54,21 @@ function Flow() {
     showExecutionPanel,
     draggedItem,
     setDraggedItem,
+    editingNode,
+    setEditingNode,
+    settingsOpen,
+    openSettings,
+    closeSettings,
+    layers,
   } = useStore();
+  // A locked project is view-only: inspect anything, change nothing.
+  const readOnly = useReadOnly();
 
   const { screenToFlowPosition } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // UI state
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
-  const [editingNode, setEditingNode] = useState<string | null>(null); // For config panel (double-click)
   const [editingEdge, setEditingEdge] = useState<string | null>(null); // For edge modal (double-click)
   const [isDragging, setIsDragging] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -119,10 +130,19 @@ function Flow() {
     return dlqEdgeList;
   }, [nodes]);
 
-  // Combine regular edges with DLQ edges
+  // Combine regular edges with DLQ edges, then apply the layers: an edge on a
+  // layer that is off is hidden unless it touches the selected node, in which
+  // case it shows dimmed. Edges without a layer (drawn by hand) always show.
   const allEdges = useMemo(() => {
-    return [...edges, ...dlqEdges];
-  }, [edges, dlqEdges]);
+    const combined = [...edges, ...dlqEdges];
+    return combined.flatMap((e) => {
+      const layer = e.data?.meta?.layer as Layer | undefined;
+      if (!layer || layers[layer]) return [e];
+      const touchesSelection = selectedNode !== null && (e.source === selectedNode || e.target === selectedNode);
+      if (!touchesSelection) return [];
+      return [{ ...e, data: { ...e.data, dimmed: true } }];
+    });
+  }, [edges, dlqEdges, layers, selectedNode]);
 
   // Compute node groups (DLQ relationships, etc.)
   const nodeGroups = useMemo(() => computeNodeGroups(nodes), [nodes]);
@@ -609,11 +629,11 @@ function Flow() {
   // Double-click on node - open config panel
   const onNodeDoubleClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
-      setEditingNode(node.id);
       setSelectedNode(node.id);
       setEditingEdge(null);
+      if (!readOnly) setEditingNode(node.id);
     },
-    [setSelectedNode]
+    [setSelectedNode, setEditingNode, readOnly]
   );
 
   // Single click on edge - select it (visual feedback)
@@ -628,10 +648,10 @@ function Flow() {
   // Double-click on edge - open role assignment modal
   const onEdgeDoubleClick = useCallback(
     (_event: React.MouseEvent, edge: any) => {
-      setEditingEdge(edge.id);
       setSelectedEdge(edge.id);
+      if (!readOnly) setEditingEdge(edge.id);
     },
-    []
+    [readOnly]
   );
 
   // Track edge being reconnected for visual feedback
@@ -778,15 +798,43 @@ function Flow() {
     }
   }, [nodes, edges, setNodes, setEdges, setSelectedNode, selectedEdge]);
 
-  // Keyboard handler for delete
+  // Keyboard handler for delete and the settings view
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't delete if typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      // Cmd/Ctrl+R reloads the frontend in a dev build: the webview has no
+      // menu for it, and a missed hot-reload otherwise looks like a bug.
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r' && import.meta.env.DEV) {
+        e.preventDefault();
+        window.location.reload();
         return;
       }
 
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Cmd/Ctrl+, opens application settings, from anywhere - including
+      // inside an input, the way every desktop app does it.
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        openSettings();
+        return;
+      }
+
+      const inField = e.target instanceof HTMLInputElement
+        || e.target instanceof HTMLTextAreaElement
+        || e.target instanceof HTMLSelectElement;
+
+      if (e.key === 'Escape' && settingsOpen) {
+        // An open modal on top of settings gets Escape first; it stops
+        // propagation itself when it handles it.
+        if (inField) (e.target as HTMLElement).blur();
+        else closeSettings();
+        return;
+      }
+
+      // Don't delete if typing in an input
+      if (inField) {
+        return;
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !settingsOpen && !readOnly) {
         e.preventDefault();
         deleteSelected();
       }
@@ -794,7 +842,7 @@ function Flow() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [deleteSelected]);
+  }, [deleteSelected, settingsOpen, openSettings, closeSettings, readOnly]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden">
@@ -803,7 +851,11 @@ function Flow() {
       <div className="flex-1 flex relative min-h-0">
         <ResourceLibrary />
 
-        <div ref={canvasRef} className="flex-1 relative min-h-0">
+        {/* Application settings take the workspace; the canvas is hidden,
+            not unmounted, so nothing on it is lost. */}
+        {settingsOpen && <SettingsView />}
+
+        <div ref={canvasRef} className={settingsOpen ? 'hidden' : 'flex-1 relative min-h-0'}>
           <ReactFlow
             nodes={nodes}
             edges={allEdges}
@@ -838,7 +890,9 @@ function Flow() {
             panOnDrag={draggedItem ? false : [1, 2]} // Pan with middle/right mouse button (disabled when dragging from palette)
             selectionKeyCode="Shift" // Hold Shift for multi-select
             multiSelectionKeyCode="Shift"
-            deleteKeyCode={['Backspace', 'Delete']}
+            deleteKeyCode={readOnly ? null : ['Backspace', 'Delete']}
+            nodesConnectable={!readOnly}
+            edgesUpdatable={!readOnly}
             className="h-full w-full"
           >
             <Background variant={BackgroundVariant.Dots} gap={15} size={1} />
@@ -853,6 +907,8 @@ function Flow() {
             <div className="absolute inset-0 z-10 pointer-events-none border-4 border-dashed border-blue-500" />
           )}
 
+          <LockBanner />
+          <LayersControl />
           <PermissionLegend />
           <DeploymentTimeline />
 
@@ -867,8 +923,8 @@ function Flow() {
           )}
         </div>
 
-        {/* Right panel with tabs (Roles, Environment) */}
-        <RightPanel />
+        {/* Contextual inspector: environment, node or project */}
+        {!settingsOpen && <Inspector />}
 
         {/* Execution log panel - shows during deployment */}
         {showExecutionPanel && selectedNode && (

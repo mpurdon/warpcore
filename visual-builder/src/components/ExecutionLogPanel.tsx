@@ -11,26 +11,37 @@ const LEVEL_ORDER: LogEntry['level'][] = ['DEBUG', 'INFO', 'WARNING', 'ERROR'];
 
 interface Props {
   nodeId: string;
+  /**
+   * Render as a block inside the inspector rather than as the slide-in
+   * overlay. The content is identical; only the frame and the close button
+   * differ, because the inspector owns its own header.
+   */
+  inline?: boolean;
 }
 
-export default function ExecutionLogPanel({ nodeId }: Props) {
+export default function ExecutionLogPanel({ nodeId, inline = false }: Props) {
   const { executionLogs, setShowExecutionPanel, debugMode } = useStore();
   const log = executionLogs.get(nodeId);
   const [levelFilter, setLevelFilter] = useState<LevelFilter>('ALL');
+  const frameClass = inline ? 'flex flex-col min-h-0 overflow-y-auto' : 'execution-log-panel open';
 
   if (!log) {
     return (
-      <div className="execution-log-panel open">
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Execution Log</h2>
-          <button
-            onClick={() => setShowExecutionPanel(false)}
-            className="p-1 hover:bg-gray-100 rounded"
-          >
-            <X size={20} />
-          </button>
+      <div className={frameClass}>
+        {!inline && (
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Execution Log</h2>
+            <button
+              onClick={() => setShowExecutionPanel(false)}
+              className="p-1 hover:bg-gray-100 rounded"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        )}
+        <div className="p-4 text-sm text-gray-500">
+          No execution data yet. It appears here after this resource has been deployed.
         </div>
-        <div className="p-4 text-gray-500">No execution data available</div>
       </div>
     );
   }
@@ -42,6 +53,7 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
     warning: AlertTriangle,
     configured: CheckCircle,
     draft: Clock,
+    present: Clock,
   }[log.status];
 
   // DEBUG is noise unless it was asked for; everything else always shows.
@@ -61,14 +73,15 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
     warning: 'text-yellow-600',
     configured: 'text-blue-600',
     draft: 'text-gray-600',
+    present: 'text-gray-600',
   }[log.status];
 
   return (
-    <div className="execution-log-panel open">
+    <div className={frameClass}>
       {/* Header */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">{nodeId}</h2>
+          {!inline && <h2 className="text-lg font-semibold">{nodeId}</h2>}
           <div className={`flex items-center gap-2 mt-1 ${statusColor}`}>
             <StatusIcon size={16} />
             <span className="text-sm font-medium">
@@ -84,12 +97,14 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
             <span className="text-xs text-gray-500">Duration: {log.duration}s</span>
           )}
         </div>
-        <button
-          onClick={() => setShowExecutionPanel(false)}
-          className="p-1 hover:bg-gray-100 rounded"
-        >
-          <X size={20} />
-        </button>
+        {!inline && (
+          <button
+            onClick={() => setShowExecutionPanel(false)}
+            className="p-1 hover:bg-gray-100 rounded"
+          >
+            <X size={20} />
+          </button>
+        )}
       </div>
 
       {/* Physical ID */}
@@ -112,6 +127,7 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
               warning: AlertTriangle,
               configured: CheckCircle,
               draft: Clock,
+              present: Clock,
             }[step.status] || Clock;
 
             const stepColor = {
@@ -121,6 +137,7 @@ export default function ExecutionLogPanel({ nodeId }: Props) {
               warning: 'text-yellow-600',
               configured: 'text-blue-600',
               draft: 'text-gray-400',
+              present: 'text-gray-400',
             }[step.status] || 'text-gray-400';
 
             return (

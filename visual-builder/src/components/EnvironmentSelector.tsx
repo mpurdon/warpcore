@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Plus, ExternalLink, Search } from 'lucide-react';
-import { useStore, DEFAULT_ENVIRONMENT_CONFIGS, EnvironmentConfig } from '../store/useStore';
+import { useStore, ENVIRONMENT_TEMPLATES, environmentFromTemplate, summariseEnvironment } from '../store/useStore';
 
 interface Props {
   onOpenEnvironment: (env: string) => void;
@@ -13,6 +13,9 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
   const [hoveredEnv, setHoveredEnv] = useState<string | null>(null);
   const [showNewEnvInput, setShowNewEnvInput] = useState(false);
   const [newEnvName, setNewEnvName] = useState('');
+  // A new environment always starts from a template or an existing
+  // environment, never from silently invented values.
+  const [newEnvBase, setNewEnvBase] = useState('template:dev');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -57,6 +60,12 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
     onOpenEnvironment(env);
   };
 
+  // What the new environment starts from: a built-in template or a copy.
+  const baseConfig = (() => {
+    const [kind, key] = newEnvBase.split(':');
+    return (kind === 'env' ? environmentConfigs[key] : ENVIRONMENT_TEMPLATES[key]) ?? ENVIRONMENT_TEMPLATES.dev;
+  })();
+
   const handleAddEnvironment = () => {
     if (!newEnvName.trim()) return;
 
@@ -66,10 +75,7 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
       return;
     }
 
-    const newConfig: EnvironmentConfig = {
-      ...DEFAULT_ENVIRONMENT_CONFIGS.dev,
-      name: newEnvName.trim(),
-    };
+    const newConfig = environmentFromTemplate(baseConfig, newEnvName.trim());
 
     setEnvironmentConfig(envKey, newConfig);
     setCurrentEnvironment(envKey);
@@ -134,6 +140,20 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
                 className="w-full px-2 py-1.5 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
                 autoFocus
               />
+              <select
+                value={newEnvBase}
+                onChange={(e) => setNewEnvBase(e.target.value)}
+                className="w-full mt-2 px-2 py-1 text-xs border border-blue-300 rounded bg-white text-gray-900"
+                title="Settings to start from"
+              >
+                {Object.entries(ENVIRONMENT_TEMPLATES).map(([key, cfg]) => (
+                  <option key={`template:${key}`} value={`template:${key}`}>Start from {cfg.name} (built-in)</option>
+                ))}
+                {Object.entries(environmentConfigs).map(([key, cfg]) => (
+                  <option key={`env:${key}`} value={`env:${key}`}>Copy {cfg.name}</option>
+                ))}
+              </select>
+              <div className="text-[10px] text-gray-500 mt-1">{summariseEnvironment(baseConfig)}</div>
               <div className="flex gap-2 mt-2">
                 <button
                   onClick={handleAddEnvironment}

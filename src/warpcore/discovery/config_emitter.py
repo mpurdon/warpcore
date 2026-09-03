@@ -32,8 +32,10 @@ logger = get_logger(__name__)
 # than quietly push a wrong secret.
 REDACTED = "<redacted - see warpcore discover config --include-env-values>"
 
-# Mirrors AgentConfig's validators in warpcore/config/models.py.
-_AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+# Mirrors AgentConfig's validators in warpcore/config/models.py. The same
+# rule names projects, so the CLI checks --project-name against it too.
+NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+_AGENT_NAME_RE = NAME_RE
 _SUPPORTED_RUNTIME_RE = re.compile(r"^python3\.(9|10|11|12)$")
 
 # Resource types that map onto config `resources` entries, with the short type
@@ -77,6 +79,12 @@ class EmitResult:
 
     def warnings(self) -> List[EmitNote]:
         return [n for n in self.notes if n.level == "warning"]
+
+
+def user_tags(resource: Resource) -> Dict[str, str]:
+    """Tags the operator set, minus warpcore's own and the Name tag."""
+    return {k: v for k, v in (resource.tags or {}).items()
+            if not k.startswith("warpcore:") and k != "Name"}
 
 
 def sanitize_agent_name(raw: str) -> Optional[str]:
@@ -252,10 +260,9 @@ class ConfigEmitter:
                             f"--include-env-values to copy the real values",
                 ))
 
-        user_tags = {k: v for k, v in (resource.tags or {}).items()
-                     if not k.startswith("warpcore:") and k != "Name"}
-        if user_tags:
-            agent["tags"] = user_tags
+        tags = user_tags(resource)
+        if tags:
+            agent["tags"] = tags
 
         return agent
 
@@ -271,10 +278,9 @@ class ConfigEmitter:
         if config:
             entry["config"] = config
 
-        user_tags = {k: v for k, v in (resource.tags or {}).items()
-                     if not k.startswith("warpcore:") and k != "Name"}
-        if user_tags:
-            entry["tags"] = user_tags
+        tags = user_tags(resource)
+        if tags:
+            entry["tags"] = tags
 
         return entry
 

@@ -756,3 +756,21 @@ Deployment state for each environment.
 - Roadmap: `ROADMAP.md`
 - Examples: `examples/`
 - Architecture: `docs/design.md`
+
+
+### Discover: account to project
+
+Turn what is deployed in an account into a Visual Builder project:
+
+```bash
+warpcore --profile prod discover project \
+  --project-name shop --env prod \
+  --region us-east-1 --region eu-west-1 \
+  --include 'AWS::Lambda::*' --include type:dynamodb --exclude 'name:*-test' \
+  --lambda-as agent --adopt --json
+```
+
+Globs match type, name, ARN, region or `tag=value`; prefix with `type:`, `name:`,
+`tag:` or `region:` to pin a field. `--adopt` registers the included resources in
+local deployment state so `deploy` updates them instead of creating duplicates.
+Use `--progress` for NDJSON progress events ending in a `result` event.

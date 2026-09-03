@@ -53,7 +53,7 @@ export default function FileMenu({ onOpenFile, onOpenRecent }: FileMenuProps) {
         onClick={() => setIsOpen(!isOpen)}
         className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded flex items-center gap-1 text-sm"
       >
-        File
+        Project
         <ChevronDown size={14} />
       </button>
 

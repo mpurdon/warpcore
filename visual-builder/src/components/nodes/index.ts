@@ -3,6 +3,8 @@ import ResourceNode from './ResourceNode';
 import EventBridgeNode from './EventBridgeNode';
 import EventBridgeRuleNode from './EventBridgeRuleNode';
 import LogGroupNode from './LogGroupNode';
+import ContainerNode from './ContainerNode';
+import { DISCOVERED_TYPES } from '../../utils/discoveredTypes';
 
 // Note: IAM roles are managed via the RolesPanel only (no canvas nodes)
 // Role data is stored as hidden nodes for policy computation
@@ -17,7 +19,8 @@ export const nodeTypes = {
   'api-route': ResourceNode,
   // 'iam-role' removed - roles are managed via panel only
   'security-group': ResourceNode,
-  'vpc': ResourceNode,
+  // VPCs and subnets contain things; the vault and keyring are containers only.
+  'vpc': ContainerNode,
   'eventbridge': EventBridgeNode,
   'eventbridge-rule': EventBridgeRuleNode,
   'eventbridge-pipes': ResourceNode,
@@ -32,4 +35,8 @@ export const nodeTypes = {
   'bedrock': ResourceNode,
   'ecr': ResourceNode,
   'lambda': ResourceNode,
+  // Types that only appear when a project is made from an account.
+  ...Object.fromEntries(Object.keys(DISCOVERED_TYPES).map((t) => [t, ResourceNode])),
+  'subnet': ContainerNode,
+  'enclosure': ContainerNode,
 };

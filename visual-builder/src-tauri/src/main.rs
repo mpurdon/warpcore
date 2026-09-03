@@ -828,9 +828,24 @@ async fn run_cancellable_scan(
     window: &tauri::Window,
     args: &[&str],
 ) -> Result<String, String> {
+    run_cancellable_scan_in(state, window, args, None).await
+}
+
+/// As run_cancellable_scan, optionally from a given working directory. The
+/// project command writes deployment state relative to the CWD, so it has
+/// to run from the new project's directory.
+async fn run_cancellable_scan_in(
+    state: &ActiveScan,
+    window: &tauri::Window,
+    args: &[&str],
+    cwd: Option<&Path>,
+) -> Result<String, String> {
     use tokio::io::AsyncReadExt;
 
     let mut cmd = warpcore_command();
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
     cmd.args(args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -912,9 +927,7 @@ async fn run_cancellable_scan(
                 return Err("cancelled".to_string());
             }
         }
-        let stderr = String::from_utf8_lossy(&err);
-        let tail: String = stderr.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-        return Err(format!("warpcore exited with {}:\n{}", status, tail));
+        return Err(cli_failure(status, &err));
     }
 
     match result {
@@ -953,6 +966,22 @@ async fn cancel_scan(state: tauri::State<'_, ActiveScan>) -> Result<bool, String
     }
 }
 
+/// Turn the CLI's stderr tail into an error message. A "No such command"
+/// from the bundled CLI means the sidecar predates the feature the app just
+/// asked for; say so, because "Usage: warpcore discover" on its own sent
+/// someone to the wrong place.
+fn cli_failure(status: std::process::ExitStatus, stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let tail: String = text.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+    let mut message = format!("warpcore exited with {status}:\n{tail}");
+    if text.contains("No such command") || text.contains("No such option") {
+        message.push_str(
+            "\n\nThe bundled CLI is older than this app. Rebuild it from the repo root with\n  python packaging/build.py --sidecar\nthen restart the app (tauri dev) so it picks the new one up.",
+        );
+    }
+    message
+}
+
 /// Run the CLI and return its stdout, which is expected to be JSON.
 ///
 /// stderr carries logs and progress and is folded into the error message on
@@ -965,9 +994,7 @@ async fn run_warpcore_json(args: &[&str]) -> Result<String, String> {
         .map_err(|e| format!("could not start warpcore: {e}"))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail: String = stderr.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-        return Err(format!("warpcore exited with {}:\n{}", output.status, tail));
+        return Err(cli_failure(output.status, &output.stderr));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -1010,6 +1037,7 @@ async fn discover_account(
     regions: Vec<String>,
     all_regions: bool,
     hydrate: bool,
+    parallelism: Option<u32>,
 ) -> Result<String, String> {
     let mut args: Vec<String> = vec![
         "--profile".into(), profile,
@@ -1018,6 +1046,10 @@ async fn discover_account(
         "--progress".into(),
         if hydrate { "--hydrate" } else { "--no-hydrate" }.into(),
     ];
+    if let Some(n) = parallelism.filter(|n| *n > 0) {
+        args.push("--parallelism".into());
+        args.push(n.to_string());
+    }
     if all_regions {
         args.push("--all-regions".into());
     } else {
@@ -1028,6 +1060,70 @@ async fn discover_account(
     }
     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
     run_cancellable_scan(&state, &window, &borrowed).await
+}
+
+/// Turn a scanned account into a Visual Builder project. Streams the same
+/// progress events as discover_account and returns the CLI's project JSON.
+/// Runs from `project_dir` (created if missing) so `--adopt` writes the
+/// deployment state beside the warpcore.yaml the app is about to save there.
+#[tauri::command]
+async fn create_project_from_account(
+    state: tauri::State<'_, ActiveScan>,
+    window: tauri::Window,
+    profile: String,
+    project_dir: String,
+    project_name: String,
+    environment: String,
+    regions: Vec<String>,
+    all_regions: bool,
+    include: Vec<String>,
+    exclude: Vec<String>,
+    lambda_as: String,
+    include_env_values: bool,
+    adopt: bool,
+    parallelism: Option<u32>,
+) -> Result<String, String> {
+    let dir = std::path::PathBuf::from(&project_dir);
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| format!("could not create {project_dir}: {e}"))?;
+
+    let mut args: Vec<String> = vec![
+        "--profile".into(), profile,
+        "discover".into(), "project".into(),
+        "--project-name".into(), project_name,
+        "--env".into(), environment,
+        "--lambda-as".into(), lambda_as,
+        "--progress".into(),
+    ];
+    if all_regions {
+        args.push("--all-regions".into());
+    } else {
+        for region in regions {
+            args.push("--region".into());
+            args.push(region);
+        }
+    }
+    for pattern in include {
+        args.push("--include".into());
+        args.push(pattern);
+    }
+    for pattern in exclude {
+        args.push("--exclude".into());
+        args.push(pattern);
+    }
+    if include_env_values {
+        args.push("--include-env-values".into());
+    }
+    if adopt {
+        args.push("--adopt".into());
+    }
+    if let Some(n) = parallelism.filter(|n| *n > 0) {
+        args.push("--parallelism".into());
+        args.push(n.to_string());
+    }
+    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_cancellable_scan_in(&state, &window, &borrowed, Some(&dir)).await
 }
 
 /// Regions this account has enabled, for the region picker.
@@ -1051,6 +1147,366 @@ async fn resource_detail(profile: String, arn: String, hours: u32) -> Result<Str
     .await
 }
 
+// ------------------------------------------------------------- workstation
+//
+// Commands about this machine rather than about AWS: where the app keeps its
+// files, how big they are, and the bundled CLI. They back the application
+// settings view. None of them touch warpcore.yaml.
+
+fn home_dir() -> Result<std::path::PathBuf, String> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| "could not determine home directory".to_string())
+}
+
+/// Only paths inside a `.warpcore` directory may be listed, opened or
+/// cleared from the webview. Rust commands are not permission-gated, so this
+/// is the whole guard; without it a bug in the frontend could clear `~`.
+fn warpcore_owned_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let p = std::path::PathBuf::from(path);
+    let inside = p.components().any(|c| c.as_os_str() == ".warpcore");
+    if !inside || p.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err(format!("{path} is not inside a .warpcore directory"));
+    }
+    Ok(p)
+}
+
+fn unix_seconds(t: std::time::SystemTime) -> u64 {
+    t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// `warpcore --version`, run once: a PyInstaller binary takes seconds to
+/// start and the answer cannot change while this process lives. A failure
+/// is not cached, so a sidecar built later is picked up on the next ask.
+static CLI_VERSION: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+
+async fn cli_version() -> (Option<String>, Option<String>) {
+    if let Some(v) = CLI_VERSION.get() {
+        return (Some(v.clone()), None);
+    }
+    match warpcore_command().arg("--version").output().await {
+        Ok(out) if out.status.success() => {
+            let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let _ = CLI_VERSION.set(v.clone());
+            (Some(v), None)
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let tail = stderr.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+            (None, Some(format!("warpcore exited with {}: {}", out.status, tail.trim())))
+        }
+        Err(e) => (None, Some(format!("could not start warpcore: {e}"))),
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+struct AppPaths {
+    home_warpcore: String,
+    project_warpcore: Option<String>,
+    sidecar_path: String,
+    sidecar_bundled: bool,
+    app_version: String,
+    cli_version: Option<String>,
+    cli_error: Option<String>,
+    platform: String,
+    /// True for `tauri dev` / debug builds. Two copies of the app can be
+    /// running after a dev restart; this plus the build stamp tells them apart.
+    debug: bool,
+    git_sha: String,
+    git_dirty: bool,
+    /// Unix seconds when this binary was compiled.
+    build_time: u64,
+    /// Unix seconds the sidecar file was last written: when the CLI was built.
+    sidecar_modified: Option<u64>,
+}
+
+const GIT_SHA: &str = env!("WARPCORE_GIT_SHA");
+const GIT_DIRTY: &str = env!("WARPCORE_GIT_DIRTY");
+const BUILD_TIME: &str = env!("WARPCORE_BUILD_TIME");
+
+/// What to call this build in a title bar: "dev a1b2c3d4e*" or "" for release.
+fn build_label() -> String {
+    if cfg!(debug_assertions) {
+        format!("dev {GIT_SHA}{}", if GIT_DIRTY == "1" { "*" } else { "" })
+    } else {
+        String::new()
+    }
+}
+
+/// Where the app's files live, plus the bundled CLI's version. The CLI is
+/// actually run so "sidecar ok" in the UI means it started, not that a file
+/// exists.
+#[tauri::command]
+async fn app_paths(app: tauri::AppHandle, config_path: Option<String>) -> Result<AppPaths, String> {
+    let home = home_dir()?;
+    let project_warpcore = config_path
+        .as_deref()
+        .and_then(|p| Path::new(p).parent())
+        .filter(|d| d.is_dir())
+        .map(|d| d.join(".warpcore").to_string_lossy().into_owned());
+
+    let sidecar = warpcore_path();
+    let sidecar_bundled = sidecar.is_absolute() && sidecar.is_file();
+    let (cli_version, cli_error) = cli_version().await;
+
+    Ok(AppPaths {
+        home_warpcore: home.join(".warpcore").to_string_lossy().into_owned(),
+        project_warpcore,
+        sidecar_path: sidecar.to_string_lossy().into_owned(),
+        sidecar_bundled,
+        app_version: app.package_info().version.to_string(),
+        cli_version,
+        cli_error,
+        platform: std::env::consts::OS.to_string(),
+        debug: cfg!(debug_assertions),
+        git_sha: GIT_SHA.to_string(),
+        git_dirty: GIT_DIRTY == "1",
+        build_time: BUILD_TIME.parse().unwrap_or(0),
+        sidecar_modified: std::fs::metadata(&sidecar).and_then(|m| m.modified()).ok().map(unix_seconds),
+    })
+}
+
+#[derive(Clone, serde::Serialize)]
+struct DirUsage {
+    path: String,
+    exists: bool,
+    bytes: u64,
+    files: u64,
+    newest: Option<u64>,
+}
+
+/// Size and file count of a directory tree. Missing directories are reported
+/// as empty rather than as errors: "no logs yet" is a normal state.
+#[tauri::command]
+async fn dir_usage(path: String) -> Result<DirUsage, String> {
+    let dir = warpcore_owned_path(&path)?;
+    tokio::task::spawn_blocking(move || {
+        let mut usage = DirUsage { path: path.clone(), exists: dir.is_dir(), bytes: 0, files: 0, newest: None };
+        if !usage.exists {
+            return usage;
+        }
+        for entry in WalkDir::new(&dir).into_iter().filter_map(Result::ok) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                usage.files += 1;
+                usage.bytes += meta.len();
+                if let Ok(modified) = meta.modified() {
+                    let secs = unix_seconds(modified);
+                    usage.newest = Some(usage.newest.map_or(secs, |n| n.max(secs)));
+                }
+            }
+        }
+        usage
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Clone, serde::Serialize)]
+struct DirEntryInfo {
+    name: String,
+    path: String,
+    bytes: u64,
+    modified: u64,
+    is_dir: bool,
+}
+
+/// Immediate children of a directory, newest first.
+#[tauri::command]
+async fn list_dir(path: String) -> Result<Vec<DirEntryInfo>, String> {
+    let dir = warpcore_owned_path(&path)?;
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    tokio::task::spawn_blocking(move || list_dir_blocking(&dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn list_dir_blocking(dir: &Path) -> Result<Vec<DirEntryInfo>, String> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten() {
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let bytes = if meta.is_dir() {
+            WalkDir::new(entry.path())
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_type().is_file())
+                .filter_map(|e| e.metadata().ok())
+                .map(|m| m.len())
+                .sum()
+        } else {
+            meta.len()
+        };
+        entries.push(DirEntryInfo {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: entry.path().to_string_lossy().into_owned(),
+            bytes,
+            modified: meta.modified().map(unix_seconds).unwrap_or(0),
+            is_dir: meta.is_dir(),
+        });
+    }
+    entries.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
+    Ok(entries)
+}
+
+/// Reveal a `.warpcore` path in the desktop's file manager.
+#[tauri::command]
+async fn open_path(path: String) -> Result<(), String> {
+    let target = warpcore_owned_path(&path)?;
+    if !target.exists() {
+        return Err(format!("{path} does not exist yet"));
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
+    std::process::Command::new(opener)
+        .arg(&target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not open {path}: {e}"))
+}
+
+/// Delete the files under a `.warpcore` subdirectory, optionally only those
+/// older than N days. Directories are kept. Deployment state is refused: it
+/// is not cache, and losing it orphans real AWS resources.
+#[tauri::command]
+async fn clear_dir(path: String, older_than_days: Option<u32>) -> Result<u64, String> {
+    let dir = warpcore_owned_path(&path)?;
+    if dir.components().any(|c| c.as_os_str() == "state") {
+        return Err("deployment state cannot be cleared from the app".to_string());
+    }
+    if dir.components().last().map(|c| c.as_os_str() == ".warpcore").unwrap_or(true) {
+        return Err("refusing to clear a whole .warpcore directory; pick a subdirectory".to_string());
+    }
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    let cutoff = older_than_days.map(|days| {
+        std::time::SystemTime::now() - std::time::Duration::from_secs(u64::from(days) * 86_400)
+    });
+    tokio::task::spawn_blocking(move || {
+        let mut removed = 0u64;
+        for entry in WalkDir::new(&dir).into_iter().filter_map(Result::ok) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if let Some(cutoff) = cutoff {
+                match std::fs::metadata(entry.path()).and_then(|m| m.modified()) {
+                    Ok(modified) if modified < cutoff => {}
+                    _ => continue,
+                }
+            }
+            if std::fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The last `lines` lines of a text file. Reads at most the final 512 KB so
+/// a week of debug logs does not have to come through the IPC bridge.
+#[tauri::command]
+async fn read_text_tail(path: String, lines: usize) -> Result<String, String> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let file = warpcore_owned_path(&path)?;
+    const WINDOW: u64 = 512 * 1024;
+    let mut handle = tokio::fs::File::open(&file).await.map_err(|e| format!("could not read {path}: {e}"))?;
+    let len = handle.metadata().await.map_err(|e| e.to_string())?.len();
+    let start = len.saturating_sub(WINDOW);
+    handle.seek(std::io::SeekFrom::Start(start)).await.map_err(|e| e.to_string())?;
+    let mut bytes = Vec::with_capacity((len - start) as usize);
+    handle.read_to_end(&mut bytes).await.map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&bytes);
+    let mut tail: Vec<&str> = text.lines().rev().take(lines.max(1)).collect();
+    tail.reverse();
+    Ok(tail.join("\n"))
+}
+
+/// Audit entries for one environment as the CLI's JSON, newest first. Runs
+/// from the project directory when one is open so the project-local trail is
+/// the one that is read.
+#[tauri::command]
+async fn list_audit_entries(
+    config_path: Option<String>,
+    environment: String,
+    limit: u32,
+) -> Result<String, String> {
+    let mut cmd = warpcore_command();
+    if let Some(cfg) = config_path.as_deref() {
+        cmd = with_project_dir(cmd, cfg);
+    }
+    let limit = limit.max(1).to_string();
+    let output = cmd
+        .args(["audit", "list", "--env", &environment, "--limit", &limit, "--json"])
+        .output()
+        .await
+        .map_err(|e| format!("could not start warpcore: {e}"))?;
+    if !output.status.success() {
+        return Err(cli_failure(output.status, &output.stderr));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+// --------------------------------------------------------------- scan cache
+//
+// Completed account scans, kept under ~/.warpcore/cache/explorer so the
+// Explorer can open instantly and the operator decides how stale is too
+// stale (Settings › Exploration). Account scans are not project-specific,
+// so the cache is always in the home directory.
+
+fn scan_cache_dir() -> Result<std::path::PathBuf, String> {
+    Ok(home_dir()?.join(".warpcore").join("cache").join("explorer"))
+}
+
+fn scan_cache_file(key: &str) -> Result<std::path::PathBuf, String> {
+    let safe: String = key
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '+' | '.') { c } else { '_' })
+        .take(150)
+        .collect();
+    if safe.is_empty() {
+        return Err("empty cache key".to_string());
+    }
+    Ok(scan_cache_dir()?.join(format!("{safe}.json")))
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ScanCacheHit {
+    saved_at: u64,
+    content: String,
+}
+
+#[tauri::command]
+async fn read_scan_cache(key: String) -> Result<Option<ScanCacheHit>, String> {
+    let file = scan_cache_file(&key)?;
+    let meta = match tokio::fs::metadata(&file).await {
+        Ok(m) => m,
+        Err(_) => return Ok(None),
+    };
+    let content = tokio::fs::read_to_string(&file).await.map_err(|e| e.to_string())?;
+    Ok(Some(ScanCacheHit {
+        saved_at: meta.modified().map(unix_seconds).unwrap_or(0),
+        content,
+    }))
+}
+
+#[tauri::command]
+async fn write_scan_cache(key: String, content: String) -> Result<(), String> {
+    let file = scan_cache_file(&key)?;
+    if let Some(dir) = file.parent() {
+        tokio::fs::create_dir_all(dir).await.map_err(|e| e.to_string())?;
+    }
+    tokio::fs::write(&file, content).await.map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(ActiveScan::default())
@@ -1058,6 +1514,19 @@ fn main() {
         // All file IO happens in Rust commands via tokio::fs/std::fs, which
         // needs no plugin and is not reachable from the webview.
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // A dev build says so in its title bar, with the commit it was
+            // built from, so a stale instance left behind by a `tauri dev`
+            // restart is recognisable at a glance.
+            let label = build_label();
+            if !label.is_empty() {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_title(&format!("Warpcore Visual Builder \u{2014} {label}"));
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             execute_cli_command,
             read_config_file,
@@ -1074,6 +1543,16 @@ fn main() {
             resource_detail,
             cancel_scan,
             list_regions,
+            app_paths,
+            dir_usage,
+            list_dir,
+            open_path,
+            clear_dir,
+            read_text_tail,
+            list_audit_entries,
+            read_scan_cache,
+            write_scan_cache,
+            create_project_from_account,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

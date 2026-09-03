@@ -1,22 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Radar, RefreshCw, AlertCircle, ChevronDown, ChevronRight, Search, EyeOff, Eye, Square } from 'lucide-react';
+import { X, Radar, RefreshCw, AlertCircle, ChevronDown, ChevronRight, Search, EyeOff, Eye, Square, Settings, Clock, FolderPlus } from 'lucide-react';
 import {
   AccountInventory,
   DiscoveredResource,
-  RegionProgress,
-  applyScanEvent,
   cancelScan,
   discoverAccount,
   isBaseline,
   isCancellation,
-  onScanProgress,
   LAST_PROFILE_KEY,
   listAwsProfiles,
+  parseInventory,
+  preferredProfile,
+  scanCacheKey,
   shortType,
   typeRank,
+  useScanProgress,
 } from '../utils/accountExplorer';
+import { formatAgo, readScanCache, writeScanCache } from '../utils/host';
 import ResourceDetailDrawer from './ResourceDetailDrawer';
 import ScanProgressView from './ScanProgressView';
+import CreateProjectDialog from './CreateProjectDialog';
 import { useStore } from '../store/useStore';
 import { regionLabel } from '../utils/regions';
 
@@ -29,14 +32,12 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
   const [profiles, setProfiles] = useState<string[]>([]);
   const [profile, setProfile] = useState<string>('');
   const [allRegions, setAllRegions] = useState(false);
-  const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const [progress, setProgress] = useState<Map<string, RegionProgress>>(new Map());
-  const [parallelism, setParallelism] = useState<number | undefined>();
-  const { selectedRegions } = useStore();
+  const { selectedRegions, prefs, openSettings } = useStore();
   // Which of the configured regions to scan this time. Empty = all of them.
   const [scanRegions, setScanRegions] = useState<string[]>([]);
   const [inventory, setInventory] = useState<AccountInventory | null>(null);
+  // Unix seconds the shown inventory was scanned, when it came from the cache.
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hideBaseline, setHideBaseline] = useState(true);
@@ -44,49 +45,30 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
   const [selected, setSelected] = useState<DiscoveredResource | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [autoExpanded, setAutoExpanded] = useState<Set<string>>(new Set());
+  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || showCreate) return;
       // Escape closes the drawer first, then the panel.
       if (selected) setSelected(null);
       else onClose();
     };
     if (isOpen) window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose, selected]);
+  }, [isOpen, onClose, selected, showCreate]);
 
   useEffect(() => {
     if (!isOpen || profiles.length) return;
     listAwsProfiles()
       .then((names) => {
         setProfiles(names);
-        let remembered = '';
-        try { remembered = localStorage.getItem(LAST_PROFILE_KEY) || ''; } catch { /* storage unavailable */ }
-        setProfile(remembered && names.includes(remembered) ? remembered : names[0] || '');
+        setProfile(preferredProfile(names));
       })
       .catch((e) => setError(String(e)));
   }, [isOpen, profiles.length]);
 
-  useEffect(() => {
-    if (scanStartedAt === null) return;
-    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - scanStartedAt) / 1000)), 500);
-    return () => window.clearInterval(id);
-  }, [scanStartedAt]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    onScanProgress((event) => {
-      if (event.event === 'scan_start') setParallelism(event.parallelism);
-      setProgress((current) => applyScanEvent(current, event));
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => { cancelled = true; unlisten?.(); };
-  }, [isOpen]);
+  const { progress, parallelism, elapsed, begin, end } = useScanProgress(isOpen);
 
   const cancel = async () => {
     try { await cancelScan(); } catch { /* nothing to cancel */ }
@@ -97,32 +79,66 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
   // profile's own, so a fresh install still does something sensible.
   const effectiveRegions = scanRegions.length ? scanRegions : selectedRegions;
 
-  const scan = async () => {
+  const scanOptions = () => ({
+    profile,
+    // Empty means "the profile's own region"; the CLI resolves it.
+    regions: allRegions ? [] : effectiveRegions,
+    allRegions,
+  });
+
+  /**
+   * Show the cached scan for this profile and region set if it is younger
+   * than Settings › Exploration allows. Returns true when one was used.
+   */
+  const loadFromCache = async (): Promise<boolean> => {
+    if (!profile || prefs.scanCacheMinutes <= 0) return false;
+    try {
+      const hit = await readScanCache(scanCacheKey(scanOptions()));
+      if (!hit) return false;
+      const ageSeconds = Date.now() / 1000 - hit.saved_at;
+      if (ageSeconds > prefs.scanCacheMinutes * 60) return false;
+      setInventory(parseInventory(hit.content));
+      setCachedAt(hit.saved_at);
+      setError(null);
+      return true;
+    } catch {
+      // A corrupt or unreadable cache entry is just a miss.
+      return false;
+    }
+  };
+
+  const scan = async (force = false) => {
     if (!profile) return;
+    try { localStorage.setItem(LAST_PROFILE_KEY, profile); } catch { /* ignore */ }
+    if (!force && await loadFromCache()) return;
+
     setIsScanning(true);
-    setScanStartedAt(Date.now());
-    setElapsed(0);
+    begin();
     setError(null);
     setSelected(null);
-    setProgress(new Map());
+    setCachedAt(null);
     try {
-      try { localStorage.setItem(LAST_PROFILE_KEY, profile); } catch { /* ignore */ }
-      const result = await discoverAccount({
-        profile,
-        // Empty means "the profile's own region"; the CLI resolves it.
-        regions: allRegions ? [] : effectiveRegions,
-        allRegions,
-        hydrate: false,
-      });
+      const opts = scanOptions();
+      const result = await discoverAccount({ ...opts, hydrate: false, parallelism: prefs.scanParallelism });
       setInventory(result);
+      // Best effort: a failed cache write must not turn a good scan into an error.
+      writeScanCache(scanCacheKey(opts), JSON.stringify(result)).catch(() => undefined);
     } catch (e) {
       // A cancellation is the user's own action, not something to report.
       if (!isCancellation(e)) setError(String(e));
     } finally {
       setIsScanning(false);
-      setScanStartedAt(null);
+      end();
     }
   };
+
+  // Opening the Explorer with a fresh-enough cached scan shows it at once,
+  // without spending a scan. The operator can still press Rescan.
+  useEffect(() => {
+    if (!isOpen || !profile || inventory || isScanning) return;
+    loadFromCache();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, profile]);
 
   // region -> type -> resources, after the baseline and search filters.
   const grouped = useMemo(() => {
@@ -190,6 +206,16 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
                 {inventory.account} · {inventory.resources.length} resources across {Object.keys(inventory.regions).length} region{Object.keys(inventory.regions).length === 1 ? '' : 's'}
               </span>
             )}
+            {inventory && cachedAt && (
+              <button
+                onClick={() => { onClose(); openSettings('exploration'); }}
+                className="inline-flex items-center gap-1 text-xs text-gray-500 border border-gray-200 rounded-full px-2 py-0.5 hover:bg-gray-50"
+                title="From the scan cache. Reuse time is set in Settings › Exploration."
+              >
+                <Clock size={12} />
+                cached {formatAgo(cachedAt)}
+              </button>
+            )}
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full" title="Close (Esc)">
             <X size={20} className="text-gray-500" />
@@ -220,7 +246,7 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
             }}
             className="text-sm border border-gray-300 rounded px-2 py-1 bg-white min-w-[240px]"
             disabled={isScanning}
-            title="Configured in Settings › Regions of interest"
+            title="Regions of interest are chosen in Settings › Regions"
           >
             {selectedRegions.length > 0 && (
               <option value="__configured__">
@@ -235,6 +261,13 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
             ))}
             <option value="__all__">Every enabled region (slow)</option>
           </select>
+          <button
+            onClick={() => { onClose(); openSettings('regions'); }}
+            className="p-1.5 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+            title="Choose regions of interest (Settings › Regions)"
+          >
+            <Settings size={14} />
+          </button>
 
           {isScanning ? (
             <button
@@ -248,9 +281,10 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
             </button>
           ) : (
             <button
-              onClick={scan}
+              onClick={() => scan(Boolean(inventory))}
               disabled={!profile}
               className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
+              title={inventory ? 'Scan again now, ignoring the cache' : (prefs.scanCacheMinutes > 0 ? `Uses a scan younger than ${prefs.scanCacheMinutes} min if there is one` : 'Scan the account')}
             >
               <RefreshCw size={14} />
               {inventory ? 'Rescan' : 'Scan'}
@@ -258,6 +292,17 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
           )}
 
           <div className="flex-1" />
+
+          {inventory && !isScanning && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700"
+              title="Turn what you are looking at into a project on the canvas"
+            >
+              <FolderPlus size={14} />
+              Create project…
+            </button>
+          )}
 
           {inventory && (
             <>
@@ -396,6 +441,16 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
           )}
         </div>
       </div>
+
+      {showCreate && inventory && (
+        <CreateProjectDialog
+          inventory={inventory}
+          profile={profile}
+          scannedAllRegions={allRegions}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); onClose(); }}
+        />
+      )}
     </div>
   );
 }

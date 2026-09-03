@@ -89,6 +89,13 @@ _TYPE_MAP: Dict[str, str] = {
     "guardduty:detector": "AWS::GuardDuty::Detector",
     "config:config-rule": "AWS::Config::ConfigRule",
     "bedrock:agent": "AWS::Bedrock::Agent",
+    # Types the canvas draws; named here so the generic title-casing fallback
+    # never produces a second spelling (Cloudfront, Hostedzone, Acm...).
+    "cloudfront:distribution": "AWS::CloudFront::Distribution",
+    "route53:hostedzone": "AWS::Route53::HostedZone",
+    "acm:certificate": "AWS::ACM::Certificate",
+    "elasticache:cluster": "AWS::ElastiCache::CacheCluster",
+    "ssm:managed-instance": "AWS::SSM::ManagedInstance",
 }
 
 

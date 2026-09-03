@@ -2,11 +2,13 @@ import { BaseEdge, EdgeLabelRenderer, EdgeProps, getBezierPath, useReactFlow } f
 import { Eye, Pencil, Zap, Route, AlertTriangle } from 'lucide-react';
 
 // Permission type colors
-const PERMISSION_COLORS = {
+export const PERMISSION_COLORS = {
   read: '#3b82f6',    // Blue
   write: '#f59e0b',   // Amber
   execute: '#8b5cf6', // Purple
+  admin: '#dc2626',   // Red: service:* or *
   none: '#d1d5db',    // Gray
+  relationship: '#9ca3af', // Gray dashed: structure, not permission
 };
 
 // Determine permission types based on target resource and config
@@ -176,6 +178,10 @@ export default function PermissionEdge({
   const isDLQ = data?.isDLQ;
   const config = data?.config || {};
   const status = data?.status || 'draft';
+  // Discovered edges: what the relationship is and, for access, who grants it.
+  const discovered = data?.meta?.discovered as { kind: string; detail: string } | undefined;
+  const access = data?.meta?.access as { level: string; via: string; actions: string[] } | undefined;
+  const dimmed = Boolean(data?.dimmed);
 
   // Get source and target node types
   const sourceNode = nodes.find(n => n.id === source);
@@ -183,8 +189,16 @@ export default function PermissionEdge({
   const sourceType = sourceNode?.type || '';
   const targetType = targetNode?.type || '';
 
-  // Determine permission types for this connection
-  const perms = getPermissionTypes(sourceType, targetType, config, isResourceBased);
+  // Determine permission types for this connection. An access edge from a
+  // policy document says exactly what it grants, in the legend's own terms:
+  // read is blue, write is amber, both is the blue-to-amber gradient.
+  const perms = access
+    ? {
+      read: access.level === 'read' || access.level === 'read/write' || access.level === 'admin',
+      write: access.level === 'write' || access.level === 'read/write' || access.level === 'admin',
+      execute: false,
+    }
+    : getPermissionTypes(sourceType, targetType, config, isResourceBased);
   const hasRole = !!roleId;
 
   // Get gradient info for the edge
@@ -192,7 +206,17 @@ export default function PermissionEdge({
 
   // Determine edge style based on state
   let edgeStyle: React.CSSProperties;
-  if (isDLQ) {
+  if (access) {
+    if (access.level === 'admin') {
+      edgeStyle = { stroke: PERMISSION_COLORS.admin, strokeWidth: 3 };
+    } else if (gradientInfo.useGradient) {
+      edgeStyle = { stroke: `url(#${gradientInfo.gradientId})`, strokeWidth: 3 };
+    } else {
+      edgeStyle = { stroke: gradientInfo.color, strokeWidth: 3 };
+    }
+  } else if (discovered && discovered.kind !== 'event-source' && discovered.kind !== 'event-target' && discovered.kind !== 'invokes') {
+    edgeStyle = { stroke: PERMISSION_COLORS.relationship, strokeWidth: 1.5, strokeDasharray: '4 4' };
+  } else if (isDLQ) {
     // DLQ edge - amber dashed line
     edgeStyle = { stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '5 5' };
   } else if (status === 'deployed') {
@@ -260,7 +284,7 @@ export default function PermissionEdge({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        style={edgeStyle}
+        style={dimmed ? { ...edgeStyle, opacity: 0.3 } : edgeStyle}
       />
 
       <EdgeLabelRenderer>
@@ -272,8 +296,28 @@ export default function PermissionEdge({
           }}
           className="nodrag nopan"
         >
-          {/* DLQ badge */}
-          {isDLQ ? (
+          {/* Discovered relationship: access verb, or what the arrow means */}
+          {access ? (
+            <div
+              className={`flex items-center gap-1 bg-white/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-gray-200 ${dimmed ? 'opacity-40' : ''}`}
+              title={`${access.level} via ${access.via}\n${access.actions.join('\n')}`}
+            >
+              {access.level === 'admin' ? (
+                <span className="text-[10px] font-bold" style={{ color: PERMISSION_COLORS.admin }}>*</span>
+              ) : (
+                <>
+                  {(access.level === 'read' || access.level === 'read/write') && <Eye size={11} style={{ color: PERMISSION_COLORS.read }} />}
+                  {(access.level === 'write' || access.level === 'read/write') && <Pencil size={11} style={{ color: PERMISSION_COLORS.write }} />}
+                </>
+              )}
+              <span className="text-[10px] font-medium" style={{ color: access.level === 'admin' ? PERMISSION_COLORS.admin : '#374151' }}>{access.level}</span>
+              <span className="text-[10px] text-gray-400">via {access.via}</span>
+            </div>
+          ) : discovered ? (
+            <div className={`bg-white/90 rounded-full px-2 py-0.5 shadow-sm border border-gray-200 text-[10px] text-gray-500 ${dimmed ? 'opacity-40' : ''}`}>
+              {discovered.detail || discovered.kind}
+            </div>
+          ) : isDLQ ? (
             <div className="flex items-center gap-1 bg-amber-50 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-amber-300">
               <AlertTriangle size={12} className="text-amber-600" />
               <span className="text-[10px] text-amber-700 font-medium">

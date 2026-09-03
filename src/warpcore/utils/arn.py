@@ -8,6 +8,7 @@ identifier that service's API actually expects.
 """
 
 from dataclasses import dataclass
+import re
 from typing import Dict, Optional, Tuple
 
 
@@ -195,15 +196,39 @@ def service_identifier(arn: str) -> str:
         # the https URL form.
         return f"https://sqs.{parsed.region}.amazonaws.com/{parsed.account}/{parsed.resource_id}"
 
-    if service in ("sns", "states", "secretsmanager", "kms"):
+    if service in ("sns", "states", "secretsmanager", "kms", "acm", "elasticloadbalancing"):
         # These APIs take the ARN itself.
         return parsed.raw
+
+    if service in ("ec2", "cloudfront", "route53"):
+        # instance/i-123, distribution/E1ABC, hostedzone/Z1ABC: the describe_*
+        # and get_* calls want the bare id after the type prefix.
+        return parsed.resource_id.rsplit("/", 1)[-1]
+
+    if service == "rds":
+        # db:name, cluster:name.
+        return parsed.resource_id.split(":", 1)[-1]
+
+    if service == "ssm" and parsed.resource_id.startswith("parameter/"):
+        # parameter/name for a plain name, parameter//app/key for a path.
+        return parsed.resource_id[len("parameter/"):]
 
     if service == "lambda":
         # Strip a trailing :version or :alias qualifier.
         return parsed.resource_id.split(":")[0]
 
     return parsed.resource_id
+
+
+_SQS_URL_RE = re.compile(r"https://sqs\.([a-z0-9-]+)\.amazonaws\.com/(\d{12})/(.+)$")
+
+
+def sqs_url_to_arn(url: str) -> Optional[str]:
+    """The inverse of the SQS branch of service_identifier: URL -> ARN."""
+    m = _SQS_URL_RE.match(url or "")
+    if not m:
+        return None
+    return f"arn:aws:sqs:{m.group(1)}:{m.group(2)}:{m.group(3)}"
 
 
 def logical_id_from_arn(arn: str) -> str:

@@ -6,6 +6,8 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { useEffect, useState } from 'react';
+import { getPreferences } from './preferences';
 
 // ---------------------------------------------------------------- inventory
 
@@ -239,6 +241,42 @@ export function applyScanEvent(
   return next;
 }
 
+/**
+ * Live progress of the scan currently running, for a progress view: the
+ * per-region map, the parallelism the CLI chose, and seconds elapsed.
+ * Subscribes while `active`; `begin()` resets the clock and the map.
+ */
+export function useScanProgress(active: boolean) {
+  const [progress, setProgress] = useState<Map<string, RegionProgress>>(new Map());
+  const [parallelism, setParallelism] = useState<number | undefined>();
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (startedAt === null) return;
+    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 500);
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+
+  useEffect(() => {
+    if (!active) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    onScanProgress((event) => {
+      if (event.event === 'scan_start') setParallelism(event.parallelism);
+      setProgress((current) => applyScanEvent(current, event));
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [active]);
+
+  const begin = () => { setProgress(new Map()); setStartedAt(Date.now()); setElapsed(0); };
+  const end = () => setStartedAt(null);
+  return { progress, parallelism, elapsed, begin, end };
+}
+
 /** Fraction 0-1 of a region's planned phases that have finished. */
 export function regionFraction(r: RegionProgress): number {
   if (r.status === 'done' || r.status === 'failed') return 1;
@@ -260,18 +298,28 @@ export async function listAwsProfiles(): Promise<string[]> {
   return invoke<string[]>('list_aws_profiles');
 }
 
-export async function discoverAccount(opts: {
+export interface ScanOptions {
   profile: string;
   regions: string[];
   allRegions: boolean;
   hydrate: boolean;
-}): Promise<AccountInventory> {
+  /** Regions scanned concurrently; omitted means the CLI default. */
+  parallelism?: number;
+}
+
+export async function discoverAccount(opts: ScanOptions): Promise<AccountInventory> {
   const raw = await invoke<string>('discover_account', {
     profile: opts.profile,
     regions: opts.regions,
     allRegions: opts.allRegions,
     hydrate: opts.hydrate,
+    parallelism: opts.parallelism ?? null,
   });
+  return parseInventory(raw);
+}
+
+/** Unwrap the CLI's JSON into an inventory, or throw if it is not one. */
+export function parseInventory(raw: string): AccountInventory {
   // The scan streams progress events and ends with a `result` envelope, so the
   // inventory is under `data` rather than at the top level.
   const parsed = JSON.parse(raw) as { event?: string; data?: AccountInventory };
@@ -282,12 +330,28 @@ export async function discoverAccount(opts: {
   return inventory;
 }
 
+/**
+ * Cache key for a scan: the profile and exactly which regions it covered.
+ * Two scans with the same key would return the same inventory, staleness
+ * aside, so one can stand in for the other.
+ */
+export function scanCacheKey(opts: Pick<ScanOptions, 'profile' | 'regions' | 'allRegions'>): string {
+  const regions = opts.allRegions ? 'all' : ([...opts.regions].sort().join('+') || 'default');
+  return `${opts.profile}__${regions}`;
+}
+
 /** localStorage key for the profile last used in the Account Explorer. */
 export const LAST_PROFILE_KEY = 'warpcore-explorer-profile';
 
-/** The profile to use for incidental AWS calls, e.g. listing regions. */
+/**
+ * The profile to use for incidental AWS calls, e.g. listing regions: the one
+ * chosen in Settings › Exploration, else the one the Explorer used last, else
+ * the first.
+ */
 export function preferredProfile(profiles: string[]): string {
   try {
+    const configured = getPreferences().defaultProfile;
+    if (configured && profiles.includes(configured)) return configured;
     const remembered = localStorage.getItem(LAST_PROFILE_KEY);
     if (remembered && profiles.includes(remembered)) return remembered;
   } catch {
@@ -354,7 +418,7 @@ export const BASELINE_TYPES = new Set<string>([
   'AWS::IAM::SAMLProvider',
 ]);
 
-const BASELINE_NAME_PREFIXES = ['AWSReservedSSO_', 'DO-NOT-DELETE-', 'AWSServiceRole', 'stacksets-exec-', 'stackset-'];
+export const BASELINE_NAME_PREFIXES = ['AWSReservedSSO_', 'DO-NOT-DELETE-', 'AWSServiceRole', 'stacksets-exec-', 'stackset-'];
 
 /** True for org/AWS-managed noise the user usually wants folded away. */
 export function isBaseline(resource: DiscoveredResource): boolean {

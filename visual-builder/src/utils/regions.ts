@@ -37,7 +37,7 @@ export const GROUP_ORDER = [
   'China', 'AWS GovCloud', 'AWS ISO', 'Other',
 ];
 
-const PLACES: Record<string, string> = {
+export const PLACES: Record<string, string> = {
   'us-east-1': 'N. Virginia',
   'us-east-2': 'Ohio',
   'us-west-1': 'N. California',

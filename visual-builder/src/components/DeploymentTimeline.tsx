@@ -50,6 +50,7 @@ export default function DeploymentTimeline() {
               warning: 'bg-yellow-500',
               configured: 'bg-blue-300',
               draft: 'bg-gray-300',
+              present: 'bg-gray-300',
             }[log.status];
             
             return (

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { useStore } from '../../store/useStore';
+import { useReadOnly, useStore } from '../../store/useStore';
 
 interface Props {
   nodeId: string;
@@ -12,6 +12,7 @@ interface Props {
 export default function NodeWrapper({ nodeId, selected, children, className = '' }: Props) {
   const [isHovered, setIsHovered] = useState(false);
   const { nodes, setNodes, edges, setEdges, setSelectedNode } = useStore();
+  const readOnly = useReadOnly();
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent node selection
@@ -20,7 +21,7 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
     setSelectedNode(null);
   };
 
-  const showDelete = isHovered || selected;
+  const showDelete = (isHovered || selected) && !readOnly;
 
   return (
     <div
