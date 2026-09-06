@@ -1,22 +1,23 @@
-// Three groups, left to right: scope (project, environment), tasks (scan,
-// explore, templates) and actions (deploy, destroy, inspector). The project
-// name and the environment selector are selection surfaces: clicking them
-// puts that object in the inspector. See DESIGN_GUIDANCE.md §5.3.
+// Three groups, left to right: scope (project, environment), the search /
+// command box, and actions (tasks, lock, deploy, destroy, panels). The
+// project name and the environment selector are selection surfaces:
+// clicking them puts that object in the inspector. See DESIGN_GUIDANCE.md
+// §5.3 and UX_PLAN.md §3.6: one light chrome, colour only for state and for
+// the two actions that change AWS.
 
-import { Play, Trash2, FileText, FolderSearch, PanelRight, Radar } from 'lucide-react';
+import { Play, Trash2, FileText, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon } from 'lucide-react';
 import { useCurrentEnvName, useStore } from '../store/useStore';
-import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
-import { generateYAMLFromCanvas } from '../utils/configSync';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import TemplateModal from './TemplateModal';
 import FileMenu from './FileMenu';
 import EnvironmentSelector from './EnvironmentSelector';
 import ProjectDiscoveryPanel from './ProjectDiscoveryPanel';
 import AccountExplorerPanel from './AccountExplorerPanel';
-import { addRecentProject, extractProjectName } from '../utils/recentProjects';
-import { openProjectFile } from '../utils/projectIO';
+import ShortcutsHelp from './ShortcutsHelp';
+import { isOwnSaveEcho, openProjectDialog, openProjectFile, saveProject } from '../utils/projectIO';
+import { blockedReason, runDeployment } from '../utils/deployRunner';
+import { isActive } from '../utils/deployEvents';
 import { dirname } from '../utils/paths';
 import { useAppPaths } from '../utils/useAppPaths';
 import { LockControl } from './ProjectLock';
@@ -25,218 +26,77 @@ import DevBuildBadge from './DevBuildBadge';
 // Debounce delay for auto-save (ms)
 const AUTO_SAVE_DELAY = 1000;
 
+const quiet = 'px-2.5 py-1.5 rounded-md text-sm text-gray-700 hover:bg-gray-100 border border-transparent flex items-center gap-1.5';
+const iconButton = (on: boolean) => `p-2 rounded-md transition-colors ${on ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'} disabled:opacity-40`;
+
 export default function Toolbar() {
   const {
     nodes,
     edges,
-    setNodes,
     configPath,
     projectName,
     hasUnsavedChanges,
-    setHasUnsavedChanges,
+    saving,
     currentEnvironment,
     environmentConfigs,
     environmentExtras,
-    isDeploying,
-    setIsDeploying,
     executionsPerMonth,
     rightPanelVisible,
     setRightPanelVisible,
     debugMode,
-    prefs,
     inspectEnvironment,
     setSelectedNode,
     settingsOpen,
     closeSettings,
     locked,
+    run,
+    activityOpen,
+    setActivityOpen,
+    dialog,
+    openDialog,
+    closeDialog,
+    setPaletteOpen,
   } = useStore();
 
-  const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [showDiscoveryPanel, setShowDiscoveryPanel] = useState(false);
-  const [showAccountExplorer, setShowAccountExplorer] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const { paths: appInfo } = useAppPaths();
   const envName = useCurrentEnvName();
-
-  // Track last save time to ignore file watcher events triggered by our saves
-  const lastSaveTimeRef = useRef<number>(0);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // How long to ignore file watcher events after a save (ms)
-  const IGNORE_WATCHER_DURATION = 2000;
-
-  // Global CLI flags. --dev and --log-level are options on the top-level
-  // click group, so they go before the subcommand.
-  const cliFlags = debugMode ? ['--dev'] : ['--log-level', prefs.logLevel];
-
-  const openConfigFile = async (filePath: string) => {
-    try {
-      await openProjectFile(filePath);
-    } catch (error) {
-      console.error('Failed to open file:', error);
-    }
-  };
+  const running = isActive(run);
 
   // Listen for file changes (only from external editors)
   useEffect(() => {
     const unlisten = listen('config-file-changed', async (event) => {
       const changedPath = event.payload as string;
-
-      // Ignore if path doesn't match
-      if (changedPath !== configPath) {
-        return;
-      }
-
-      // Ignore if this event is likely from our own save (within the ignore window)
-      const timeSinceLastSave = Date.now() - lastSaveTimeRef.current;
-      if (timeSinceLastSave < IGNORE_WATCHER_DURATION) {
-        console.log('Ignoring file change event (likely from our own save)');
-        return;
-      }
-
+      if (changedPath !== configPath) return;
+      if (isOwnSaveEcho()) return;
       const shouldReload = confirm('Configuration file changed externally. Reload?');
       if (shouldReload) {
-        await openConfigFile(changedPath);
+        try {
+          await openProjectFile(changedPath);
+        } catch (error) {
+          console.error('Failed to reload file:', error);
+        }
       }
     });
-
     return () => {
-      unlisten.then(fn => fn());
+      unlisten.then((fn) => fn());
     };
   }, [configPath]);
 
-  const handleOpen = async () => {
-    const selected = await open({
-      filters: [{ name: 'YAML', extensions: ['yaml', 'yml'] }],
-      defaultPath: prefs.projectsDir || undefined,
-    });
-
-    if (selected && typeof selected === 'string') {
-      await openConfigFile(selected);
-    }
-  };
-
-  const handleOpenRecent = async (filePath: string) => {
-    await openConfigFile(filePath);
-  };
-
-  // Core save function
-  const performSave = useCallback(async (
-    path: string,
-    nodesData: typeof nodes,
-    edgesData: typeof edges,
-    executions: number,
-    environments: typeof environmentConfigs,
-    extras: typeof environmentExtras,
-  ) => {
-    try {
-      setIsSaving(true);
-
-      // Keep the project's name across saves: deriving it from the first agent
-      // renamed every project after its first function.
-      const yamlContent = generateYAMLFromCanvas(
-        nodesData, edgesData, executions, environments, extras, useStore.getState().projectName || undefined,
-      );
-      await invoke('write_config_file', { path, content: yamlContent });
-
-      // Record the save time so we can ignore file watcher events
-      lastSaveTimeRef.current = Date.now();
-
-      setHasUnsavedChanges(false);
-
-      // Add to recent projects
-      const name = extractProjectName(yamlContent);
-      addRecentProject(name, path);
-
-      setIsSaving(false);
-    } catch (error) {
-      console.error('Failed to save file:', error);
-      setIsSaving(false);
-    }
-  }, [setHasUnsavedChanges]);
-
   // Auto-save when changes are made (debounced)
   useEffect(() => {
-    if (!configPath || !hasUnsavedChanges) {
-      return;
-    }
-
-    // Clear any existing timeout
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    // Set new timeout for auto-save
-    saveTimeoutRef.current = setTimeout(() => {
-      performSave(configPath, nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras);
-    }, AUTO_SAVE_DELAY);
-
+    if (!configPath || !hasUnsavedChanges) return;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => { void saveProject(); }, AUTO_SAVE_DELAY);
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [configPath, hasUnsavedChanges, nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras, performSave]);
-
-  const handleDeploy = async () => {
-    if (locked) return;
-    if (!configPath) {
-      alert('Please save the configuration first');
-      return;
-    }
-
-    setIsDeploying(true);
-
-    // Start mock deployment updates for demo
-    const { createMockDeploymentUpdates } = await import('../utils/deploymentWebSocket');
-    const resourceIds = nodes.map(n => n.id);
-
-    const cleanup = createMockDeploymentUpdates(resourceIds, (update) => {
-      if (update.type === 'resource_status') {
-        // Update node status
-        const updatedNodes = nodes.map(n =>
-          n.id === update.resourceId
-            ? { ...n, data: { ...n.data, status: update.data.status } }
-            : n
-        );
-        setNodes(updatedNodes);
-      }
-    });
-
-    try {
-      await invoke('execute_cli_command', {
-        command: 'warpcore',
-        args: [...cliFlags, 'deploy', '--env', currentEnvironment, '--config', configPath],
-      });
-    } catch (error) {
-      console.error('Deployment failed:', error);
-    } finally {
-      setTimeout(() => {
-        setIsDeploying(false);
-        cleanup();
-      }, resourceIds.length * 3500);
-    }
-  };
+  }, [configPath, hasUnsavedChanges, nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras]);
 
   const handleDestroy = async () => {
-    if (locked) return;
-    if (!configPath) {
-      alert('Please save the configuration first');
-      return;
-    }
-
-    if (!confirm(`Destroy every resource in the ${envName} environment?`)) {
-      return;
-    }
-
-    try {
-      await invoke('execute_cli_command', {
-        command: 'warpcore',
-        args: [...cliFlags, 'destroy', '--env', currentEnvironment, '--config', configPath],
-      });
-    } catch (error) {
-      console.error('Destroy failed:', error);
-    }
+    if (blockedReason('destroy')) return;
+    if (!confirm(`Destroy every resource in the ${envName} environment?\n\nThis runs warpcore destroy against AWS.`)) return;
+    void runDeployment('destroy');
   };
 
   // Put the project in the inspector: nothing narrower selected.
@@ -247,35 +107,27 @@ export default function Toolbar() {
     setRightPanelVisible(true);
   };
 
-  // Why an action is unavailable, so a disabled button still explains itself.
-  const blocked = (verb: string) => (
-    !configPath ? 'Open or save a project first'
-      : locked ? `The project is locked. Unlock it to ${verb}.`
-        : isDeploying ? 'A deployment is in progress'
-          : null
-  );
-  const deployReason = blocked('deploy') ?? `Deploy to ${envName}${debugMode ? ' (developer mode)' : ''}`;
-  const destroyReason = blocked('destroy') ?? `Destroy everything in ${envName}`;
+  const deployReason = blockedReason('deploy') ?? `Deploy to ${envName}${debugMode ? ' (developer mode)' : ''} · ⌘D`;
+  const destroyReason = blockedReason('destroy') ?? `Destroy everything in ${envName}`;
+  const runTone = !run ? '' : running ? 'bg-blue-500 animate-pulse' : run.outcome === 'success' ? 'bg-emerald-500' : run.outcome === 'partial' ? 'bg-amber-500' : 'bg-red-500';
 
   return (
-    <div className="h-14 bg-gray-900 text-white flex items-center justify-between px-4 border-b border-gray-700">
+    <div className="h-12 bg-white text-gray-900 flex items-center px-3 border-b border-gray-200 gap-2">
       {/* Scope */}
-      <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold">Warpcore</h1>
-        <DevBuildBadge paths={appInfo} dark />
-        <span className="text-gray-600">|</span>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="text-[15px] font-semibold tracking-tight pl-1">Warpcore</span>
+        <DevBuildBadge paths={appInfo} />
+        <span className="w-px h-5 bg-gray-200 mx-1" />
         <button
           onClick={inspectProject}
-          className="text-sm text-blue-400 hover:text-blue-300 hover:underline"
-          title="Inspect the project"
+          className="text-sm text-gray-800 hover:bg-gray-100 rounded-md px-2 py-1 truncate max-w-[220px]"
+          title={configPath ? `Inspect the project · ${configPath}` : 'Inspect the project'}
         >
           {projectName || (configPath ? 'Project' : 'No project open')}
         </button>
-        {isSaving && (
-          <span className="text-xs text-blue-400">● Saving...</span>
-        )}
-        {hasUnsavedChanges && !isSaving && (
-          <span className="text-xs text-yellow-400" title="Changes are auto-saved a moment after you stop editing">● Unsaved</span>
+        {saving && <span className="text-xs text-blue-600" title="Writing warpcore.yaml">● Saving</span>}
+        {hasUnsavedChanges && !saving && (
+          <span className="text-xs text-amber-600" title={configPath ? 'Changes are auto-saved a moment after you stop editing' : 'Not saved anywhere yet'}>● Unsaved</span>
         )}
         <EnvironmentSelector
           onOpenEnvironment={(env) => {
@@ -285,95 +137,100 @@ export default function Toolbar() {
         />
       </div>
 
-      <div className="flex items-center gap-2">
+      {/* Search / command box */}
+      <button
+        onClick={() => setPaletteOpen(true)}
+        className="hidden lg:flex items-center gap-2 flex-1 min-w-[140px] max-w-[320px] mx-2 px-3 py-1.5 rounded-md border border-gray-200 bg-gray-50 hover:bg-white hover:border-gray-300 text-sm text-gray-500 text-left"
+        title="Find a resource or run a command (⌘K)"
+      >
+        <Search size={14} className="shrink-0" />
+        <span className="flex-1 truncate">Search resources and commands</span>
+        <kbd className="text-[10px] font-mono text-gray-400 border border-gray-200 rounded px-1 bg-white">⌘K</kbd>
+      </button>
+
+      <div className="flex items-center gap-1 shrink-0 ml-auto">
         {/* Tasks */}
-        <FileMenu onOpenFile={handleOpen} onOpenRecent={handleOpenRecent} />
+        <FileMenu onOpenFile={() => { void openProjectDialog(); }} onOpenRecent={(p) => { void openProjectFile(p); }} />
 
         {configPath && (
-          <button
-            onClick={() => setShowDiscoveryPanel(true)}
-            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 rounded flex items-center gap-2 text-sm"
-            title="Scan project for Strands SDK components"
-          >
-            <FolderSearch size={16} />
-            Discover
+          <button onClick={() => openDialog('discovery')} className={quiet} title="Scan this project's code for Strands SDK components">
+            <FolderSearch size={15} />
+            <span className="hidden 2xl:inline">Discover</span>
           </button>
         )}
 
-        <button
-          onClick={() => setShowAccountExplorer(true)}
-          className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 rounded flex items-center gap-2 text-sm"
-          title="Reverse-engineer an AWS account: every resource, drill in to config, network, metrics and logs"
-        >
-          <Radar size={16} />
-          Explore Account
+        <button onClick={() => openDialog('explorer')} className={quiet} title="Reverse-engineer an AWS account: every resource, drill in to config, network, metrics and logs">
+          <Radar size={15} />
+          <span className="hidden 2xl:inline">Explore</span>
         </button>
 
-        <button
-          onClick={() => setShowTemplateModal(true)}
-          className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded flex items-center gap-2 text-sm"
-        >
-          <FileText size={16} />
-          Templates
+        <button onClick={() => openDialog('templates')} className={quiet} title="Start from a template, or save this canvas as one">
+          <FileText size={15} />
+          <span className="hidden 2xl:inline">Templates</span>
         </button>
 
-        <div className="w-px h-6 bg-gray-700 mx-1" />
+        <span className="w-px h-5 bg-gray-200 mx-1" />
 
         {/* Actions */}
         <LockControl />
 
         <button
-          onClick={handleDeploy}
-          disabled={isDeploying || !configPath || locked}
+          onClick={() => { void runDeployment('deploy'); }}
+          disabled={Boolean(blockedReason('deploy'))}
           title={deployReason}
-          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-1.5 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <Play size={16} />
-          {isDeploying ? 'Deploying...' : 'Deploy'}
+          <Play size={15} />
+          {running && run?.kind === 'deploy' ? 'Deploying…' : 'Deploy'}
         </button>
 
         <button
           onClick={handleDestroy}
-          disabled={isDeploying || !configPath || locked}
+          disabled={Boolean(blockedReason('destroy'))}
           title={destroyReason}
-          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-3 py-1.5 rounded-md flex items-center gap-1.5 text-sm font-medium text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <Trash2 size={16} />
-          Destroy
+          <Trash2 size={15} />
+          {running && run?.kind === 'destroy' ? 'Destroying…' : 'Destroy'}
         </button>
 
-        <div className="w-px h-6 bg-gray-700 mx-1" />
+        <span className="w-px h-5 bg-gray-200 mx-1" />
+
+        <button
+          onClick={() => setActivityOpen(!activityOpen)}
+          disabled={settingsOpen || !run}
+          className={`relative ${iconButton(activityOpen && Boolean(run))}`}
+          title={!run ? 'Activity: nothing has run yet' : activityOpen ? 'Hide the activity drawer' : 'Show the activity drawer'}
+        >
+          <ActivityIcon size={17} />
+          {run && <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${runTone}`} />}
+        </button>
 
         <button
           onClick={() => setRightPanelVisible(!rightPanelVisible)}
           disabled={settingsOpen}
-          className={`p-2 rounded transition-colors disabled:opacity-40 ${
-            rightPanelVisible
-              ? 'bg-gray-700 text-white'
-              : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
-          }`}
+          className={iconButton(rightPanelVisible)}
           title={settingsOpen ? 'Close Settings to use the inspector' : rightPanelVisible ? 'Hide inspector' : 'Show inspector'}
         >
-          <PanelRight size={18} />
+          <PanelRight size={17} />
         </button>
       </div>
 
-      {showTemplateModal && (
-        <TemplateModal onClose={() => setShowTemplateModal(false)} />
-      )}
+      {dialog === 'templates' && <TemplateModal onClose={closeDialog} />}
+      {dialog === 'shortcuts' && <ShortcutsHelp onClose={closeDialog} />}
 
-      <AccountExplorerPanel
-        isOpen={showAccountExplorer}
-        onClose={() => setShowAccountExplorer(false)}
-      />
+      <AccountExplorerPanel isOpen={dialog === 'explorer'} onClose={closeDialog} />
 
       {configPath && (
         <ProjectDiscoveryPanel
-          isOpen={showDiscoveryPanel}
-          onClose={() => setShowDiscoveryPanel(false)}
+          isOpen={dialog === 'discovery'}
+          onClose={closeDialog}
           projectPath={dirname(configPath)}
         />
       )}
+
+      {/* The lock is a property of the deploy scope; keep the two in sight. */}
+      <span className="sr-only">{locked ? 'locked' : 'unlocked'} · {currentEnvironment}</span>
     </div>
   );
 }

@@ -1,13 +1,19 @@
 import { create } from 'zustand';
-import { Node, Edge, Connection } from 'reactflow';
+import { Node, Edge } from 'reactflow';
 import { getPreferences, setPreference, Preferences } from '../utils/preferences';
 import { Layer } from '../utils/layers';
+import { Lens, LENS_LAYERS } from '../utils/lenses';
+import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
+import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
 
 // Sections of the application settings view. Order here is display order.
 export const SETTINGS_SECTIONS = [
   'general', 'regions', 'exploration', 'logs', 'audit', 'sessions', 'storage', 'projects', 'about',
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
+/** Task dialogs. One at a time; they are modal because they run a job. */
+export type Dialog = 'templates' | 'explorer' | 'discovery' | 'shortcuts';
 
 
 // Node status types with meaningful states:
@@ -178,20 +184,99 @@ export interface DeploymentHistory {
   };
 }
 
+// ------------------------------------------------------------------ history
+//
+// Undo and redo over the canvas. A snapshot is taken before a change lands.
+// Two rules keep the stack meaningful: a change that only touches selection
+// is not a change, and changes arriving in quick succession (a drag emits
+// one every frame) fold into the snapshot taken before the first of them.
+
+interface Snapshot {
+  nodes: Node[];
+  edges: Edge[];
+}
+
+const HISTORY_LIMIT = 100;
+const COALESCE_MS = 400;
+let lastRecordedAt = 0;
+
+function sameNodeIgnoringSelection(a: Node, b: Node): boolean {
+  return a === b || (
+    a.id === b.id
+    && a.type === b.type
+    && a.data === b.data
+    && a.parentNode === b.parentNode
+    && a.hidden === b.hidden
+    && a.style === b.style
+    && a.position.x === b.position.x
+    && a.position.y === b.position.y
+    && a.width === b.width
+    && a.height === b.height
+  );
+}
+
+export function selectionOnlyChange(before: Node[], after: Node[]): boolean {
+  if (before === after) return true;
+  if (before.length !== after.length) return false;
+  for (let i = 0; i < before.length; i++) {
+    if (!sameNodeIgnoringSelection(before[i], after[i])) return false;
+  }
+  return true;
+}
+
+/**
+ * The history fields to merge into the next state, given what is about to
+ * change. Empty when the change is not worth a step.
+ */
+function recordHistory(
+  state: { nodes: Node[]; edges: Edge[]; past: Snapshot[] },
+  nextNodes: Node[],
+  nextEdges: Edge[],
+  now = Date.now(),
+): { past: Snapshot[]; future: Snapshot[] } | Record<string, never> {
+  const edgesSame = state.edges === nextEdges;
+  if (edgesSame && selectionOnlyChange(state.nodes, nextNodes)) return {};
+  if (now - lastRecordedAt < COALESCE_MS && state.past.length > 0) {
+    lastRecordedAt = now;
+    return {};
+  }
+  lastRecordedAt = now;
+  const past = [...state.past, { nodes: state.nodes, edges: state.edges }];
+  if (past.length > HISTORY_LIMIT) past.splice(0, past.length - HISTORY_LIMIT);
+  return { past, future: [] };
+}
+
+/** For tests: forget the coalescing clock. */
+export function _resetHistoryClock(): void {
+  lastRecordedAt = 0;
+}
+
+// -------------------------------------------------------------------- store
+
 interface StoreState {
   // Canvas state
   nodes: Node[];
   edges: Edge[];
   setNodes: (nodes: Node[] | ((prev: Node[]) => Node[])) => void;
   setEdges: (edges: Edge[] | ((prev: Edge[]) => Edge[])) => void;
-  onNodesChange: (changes: any) => void;
-  onEdgesChange: (changes: any) => void;
-  onConnect: (connection: Connection) => void;
-  
+  /**
+   * Set node statuses from a deployment run. Not a history step, and only
+   * marks the project dirty when asked: a transient "deploying" is not worth
+   * writing to warpcore.yaml, a final "deployed" is.
+   */
+  setNodeStatuses: (statuses: Record<string, NodeStatus>, dirty?: boolean) => void;
+
+  // Undo / redo
+  past: Snapshot[];
+  future: Snapshot[];
+  undo: () => void;
+  redo: () => void;
+  resetHistory: () => void;
+
   // Execution state
   executionLogs: Map<string, ExecutionLog>;
   setExecutionLog: (resourceId: string, log: ExecutionLog) => void;
-  
+
   // UI state
   selectedNode: string | null;
   setSelectedNode: (nodeId: string | null) => void;
@@ -203,13 +288,21 @@ interface StoreState {
   selectNode: (nodeId: string) => void;
   showExecutionPanel: boolean;
   setShowExecutionPanel: (show: boolean) => void;
-  
-  // Deployment state
+
+  // Deployment state. `run` is the current or most recent deploy/destroy;
+  // `isDeploying` is kept as the simple flag most of the UI asks for.
   isDeploying: boolean;
   setIsDeploying: (deploying: boolean) => void;
+  run: RunState | null;
+  startRun: (kind: RunKind, environment: string) => void;
+  applyRunEvent: (event: RunEvent) => void;
+  appendRunOutput: (text: string, stream: 'out' | 'err') => void;
+  clearRun: () => void;
+  activityOpen: boolean;
+  setActivityOpen: (open: boolean) => void;
   deploymentHistory: DeploymentHistory[];
   addDeploymentHistory: (history: DeploymentHistory) => void;
-  
+
   // Config state
   configPath: string | null;
   setConfigPath: (path: string | null) => void;
@@ -217,7 +310,10 @@ interface StoreState {
   setProjectName: (name: string | null) => void;
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (hasChanges: boolean) => void;
-  
+  /** True while warpcore.yaml is being written. */
+  saving: boolean;
+  setSaving: (saving: boolean) => void;
+
   // Environment state
   currentEnvironment: string;
   setCurrentEnvironment: (env: string) => void;
@@ -265,6 +361,15 @@ interface StoreState {
   openSettings: (section?: SettingsSection) => void;
   closeSettings: () => void;
 
+  // Task dialogs, the command palette and the shortcut sheet. Held here so
+  // the toolbar, the palette, the welcome screen and the keyboard can all
+  // open the same thing.
+  dialog: Dialog | null;
+  openDialog: (dialog: Dialog) => void;
+  closeDialog: () => void;
+  paletteOpen: boolean;
+  setPaletteOpen: (open: boolean) => void;
+
   // Application preferences (machine-local, never written to warpcore.yaml).
   // debugMode and selectedRegions are mirrored at the top level because most
   // of the app reads them; everything else lives under prefs.
@@ -278,8 +383,12 @@ interface StoreState {
   selectedRegions: string[];
   setSelectedRegions: (regions: string[]) => void;
 
-  // Edge layers shown on the canvas (DESIGN_GUIDANCE.md §9.6). A personal
-  // view setting, so it lives in preferences.
+  // The lens the canvas is viewed through, and the edge layers it shows
+  // (DESIGN_GUIDANCE.md §9.6, lenses.ts). Personal view settings, so they
+  // live in preferences. Choosing a lens resets the layers to its preset;
+  // toggling a layer afterwards is an adjustment on top of it.
+  lens: Lens;
+  setLens: (lens: Lens) => void;
   layers: Record<Layer, boolean>;
   setLayer: (layer: Layer, on: boolean) => void;
 }
@@ -300,27 +409,68 @@ export const useStore = create<StoreState>((set) => ({
   // Canvas state
   nodes: [],
   edges: [],
-  setNodes: (nodesOrFn) => set((state) => ({
-    nodes: typeof nodesOrFn === 'function' ? nodesOrFn(state.nodes) : nodesOrFn,
-    hasUnsavedChanges: true,
-  })),
-  setEdges: (edgesOrFn) => set((state) => ({
-    edges: typeof edgesOrFn === 'function' ? edgesOrFn(state.edges) : edgesOrFn,
-    hasUnsavedChanges: true,
-  })),
-  onNodesChange: (changes) => set((state) => ({
-    nodes: applyNodeChanges(changes, state.nodes),
-    hasUnsavedChanges: true,
-  })),
-  onEdgesChange: (changes) => set((state) => ({
-    edges: applyEdgeChanges(changes, state.edges),
-    hasUnsavedChanges: true,
-  })),
-  onConnect: (connection) => set((state) => ({
-    edges: addEdge(connection, state.edges),
-    hasUnsavedChanges: true,
-  })),
-  
+  setNodes: (nodesOrFn) => set((state) => {
+    const nodes = typeof nodesOrFn === 'function' ? nodesOrFn(state.nodes) : nodesOrFn;
+    const selectionOnly = selectionOnlyChange(state.nodes, nodes);
+    return {
+      nodes,
+      hasUnsavedChanges: state.hasUnsavedChanges || !selectionOnly,
+      ...recordHistory(state, nodes, state.edges),
+    };
+  }),
+  setEdges: (edgesOrFn) => set((state) => {
+    const edges = typeof edgesOrFn === 'function' ? edgesOrFn(state.edges) : edgesOrFn;
+    if (edges === state.edges) return {};
+    return {
+      edges,
+      hasUnsavedChanges: true,
+      ...recordHistory(state, state.nodes, edges),
+    };
+  }),
+  setNodeStatuses: (statuses, dirty = false) => set((state) => {
+    let changed = false;
+    const nodes = state.nodes.map((n) => {
+      const status = statuses[n.id];
+      if (!status || n.data?.status === status) return n;
+      changed = true;
+      return { ...n, data: { ...n.data, status } };
+    });
+    if (!changed) return {};
+    return { nodes, hasUnsavedChanges: state.hasUnsavedChanges || dirty };
+  }),
+
+  // Undo / redo
+  past: [],
+  future: [],
+  undo: () => set((state) => {
+    const previous = state.past[state.past.length - 1];
+    if (!previous) return {};
+    return {
+      nodes: previous.nodes,
+      edges: previous.edges,
+      past: state.past.slice(0, -1),
+      future: [{ nodes: state.nodes, edges: state.edges }, ...state.future].slice(0, HISTORY_LIMIT),
+      hasUnsavedChanges: true,
+      editingNode: null,
+    };
+  }),
+  redo: () => set((state) => {
+    const next = state.future[0];
+    if (!next) return {};
+    return {
+      nodes: next.nodes,
+      edges: next.edges,
+      past: [...state.past, { nodes: state.nodes, edges: state.edges }].slice(-HISTORY_LIMIT),
+      future: state.future.slice(1),
+      hasUnsavedChanges: true,
+      editingNode: null,
+    };
+  }),
+  resetHistory: () => {
+    lastRecordedAt = 0;
+    set({ past: [], future: [] });
+  },
+
   // Execution state
   executionLogs: new Map(),
   setExecutionLog: (resourceId, log) => set((state) => {
@@ -328,7 +478,7 @@ export const useStore = create<StoreState>((set) => ({
     newLogs.set(resourceId, log);
     return { executionLogs: newLogs };
   }),
-  
+
   // UI state
   selectedNode: null,
   setSelectedNode: (nodeId) => set((state) => ({
@@ -340,18 +490,37 @@ export const useStore = create<StoreState>((set) => ({
     selectedNode: nodeId,
     inspectedEnvironment: null,
     rightPanelVisible: true,
+    settingsOpen: false,
   })),
   showExecutionPanel: false,
   setShowExecutionPanel: (show) => set({ showExecutionPanel: show }),
-  
+
   // Deployment state
   isDeploying: false,
   setIsDeploying: (deploying) => set({ isDeploying: deploying }),
+  run: null,
+  startRun: (kind, environment) => set({
+    run: newRun(kind, environment),
+    isDeploying: true,
+    activityOpen: true,
+  }),
+  applyRunEvent: (event) => set((state) => {
+    if (!state.run) return {};
+    const run = applyRunEvent(state.run, event);
+    return { run, isDeploying: isActive(run) };
+  }),
+  appendRunOutput: (text, stream) => set((state) => (state.run ? { run: appendOutput(state.run, text, stream) } : {})),
+  clearRun: () => set((state) => (isActive(state.run) ? {} : { run: null })),
+  activityOpen: initialPrefs.activityOpen,
+  setActivityOpen: (open) => {
+    const prefs = setPreference('activityOpen', open);
+    set({ activityOpen: open, prefs });
+  },
   deploymentHistory: [],
   addDeploymentHistory: (history) => set((state) => ({
     deploymentHistory: [history, ...state.deploymentHistory],
   })),
-  
+
   // Config state
   configPath: null,
   setConfigPath: (path) => set({ configPath: path }),
@@ -359,7 +528,9 @@ export const useStore = create<StoreState>((set) => ({
   setProjectName: (name) => set({ projectName: name }),
   hasUnsavedChanges: false,
   setHasUnsavedChanges: (hasChanges) => set({ hasUnsavedChanges: hasChanges }),
-  
+  saving: false,
+  setSaving: (saving) => set({ saving }),
+
   // Environment state
   currentEnvironment: 'dev',
   // Changing the deploy scope re-locks: whatever was unlocked was unlocked
@@ -409,8 +580,16 @@ export const useStore = create<StoreState>((set) => ({
   openSettings: (section) => set((state) => ({
     settingsOpen: true,
     settingsSection: section ?? state.settingsSection,
+    paletteOpen: false,
   })),
   closeSettings: () => set({ settingsOpen: false }),
+
+  // Dialogs and the palette
+  dialog: null,
+  openDialog: (dialog) => set({ dialog, paletteOpen: false }),
+  closeDialog: () => set({ dialog: null }),
+  paletteOpen: false,
+  setPaletteOpen: (open) => set({ paletteOpen: open }),
 
   // Preferences. Restored from localStorage so they survive a restart, and
   // deliberately never set hasUnsavedChanges - none of this is project config.
@@ -432,6 +611,13 @@ export const useStore = create<StoreState>((set) => ({
     set({ selectedRegions: unique, prefs });
   },
 
+  lens: initialPrefs.lens,
+  setLens: (lens) => {
+    const layers = { ...LENS_LAYERS[lens] };
+    setPreference('lens', lens);
+    const prefs = setPreference('layers', layers);
+    set({ lens, layers, prefs });
+  },
   layers: initialPrefs.layers,
   setLayer: (layer, on) => set((state) => {
     const layers = { ...state.layers, [layer]: on };
@@ -439,25 +625,3 @@ export const useStore = create<StoreState>((set) => ({
     return { layers, prefs };
   }),
 }));
-
-// Helper functions for React Flow
-function applyNodeChanges(_changes: any[], nodes: Node[]): Node[] {
-  // Simplified implementation - in real app, use React Flow's applyNodeChanges
-  return nodes;
-}
-
-function applyEdgeChanges(_changes: any[], edges: Edge[]): Edge[] {
-  // Simplified implementation - in real app, use React Flow's applyEdgeChanges
-  return edges;
-}
-
-function addEdge(connection: Connection, edges: Edge[]): Edge[] {
-  const newEdge: Edge = {
-    id: `${connection.source}-${connection.target}`,
-    source: connection.source!,
-    target: connection.target!,
-    type: 'permission',
-    data: { permissions: [] },
-  };
-  return [...edges, newEdge];
-}

@@ -91,7 +91,7 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
       {/* Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm min-w-[140px]"
+        className="flex items-center gap-2 px-2.5 py-1.5 bg-white hover:bg-gray-50 border border-gray-300 rounded-md text-sm text-gray-800 min-w-[140px]"
       >
         <span className="flex-1 text-left truncate">{currentConfig?.name || currentEnvironment}</span>
         <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />

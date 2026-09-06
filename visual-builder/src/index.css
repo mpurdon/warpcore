@@ -339,3 +339,60 @@ code {
     transform: scale(1);
   }
 }
+
+
+/* ---------------------------------------------------------------- lenses */
+
+/* A node the current lens is not about: kept on the map, pushed back. */
+.react-flow__node.lens-context {
+  opacity: 0.28;
+  filter: saturate(0.2);
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+.react-flow__node.lens-context:hover,
+.react-flow__node.lens-context.selected {
+  opacity: 1;
+  filter: none;
+}
+.react-flow__node.lens-focus {
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+
+/* ---------------------------------------------------- activity drawer offsets */
+
+/* The canvas sets --drawer-h to the drawer's height; React Flow's own
+   controls and the minimap move up out of its way. */
+.react-flow__controls {
+  bottom: calc(var(--drawer-h, 0px) + 16px) !important;
+}
+.react-flow__minimap {
+  bottom: calc(var(--drawer-h, 0px) + 16px) !important;
+}
+
+/* ------------------------------------------------------------ sheets & palette */
+
+.config-sheet {
+  animation: sheetIn 0.18s ease-out;
+}
+@keyframes sheetIn {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.palette-enter {
+  animation: paletteIn 0.12s ease-out;
+}
+@keyframes paletteIn {
+  from { transform: translateY(-6px) scale(0.99); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Status dot on every node: small, semantic, never a banner. */
+.node-status-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+}

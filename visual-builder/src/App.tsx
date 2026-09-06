@@ -20,28 +20,44 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { useReadOnly, useStore } from './store/useStore';
+import { useReadOnly, useStore, NodeStatus } from './store/useStore';
 import { generateLogGroupPath } from './utils/logGroupPath';
 import Toolbar from './components/Toolbar';
 import ResourceLibrary from './components/ResourceLibrary';
 import ExecutionLogPanel from './components/ExecutionLogPanel';
-import DeploymentTimeline from './components/DeploymentTimeline';
 import RoleAssignmentModal from './components/RoleAssignmentModal';
 import ConfigurationPanel from './components/ConfigurationPanel';
 import RadialMenu from './components/RadialMenu';
 import Inspector from './components/Inspector';
 import SettingsView from './components/settings/SettingsView';
 import { LockBanner } from './components/ProjectLock';
-import LayersControl from './components/LayersControl';
-import type { Layer } from './utils/layers';
+import LensBar from './components/LensBar';
 import PermissionLegend from './components/PermissionLegend';
+import CommandPalette from './components/CommandPalette';
+import ActivityDrawer, { ACTIVITY_BAR_HEIGHT, ACTIVITY_BODY_HEIGHT } from './components/ActivityDrawer';
+import WelcomeScreen from './components/WelcomeScreen';
+import type { Layer } from './utils/layers';
+import { lensEmphasis, pinnedBySelection } from './utils/lenses';
+import { registerCanvas } from './utils/canvasActions';
+import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
 import { edgeTypes } from './components/edges';
-import { validateCanvas } from './utils/validation';
+import { validateCanvas, ValidationError } from './utils/validation';
 import { isResourceBasedConnection } from './utils/rolePolicy';
 import { getAllValidTargets } from './utils/connectionRules';
 import { computeNodeGroups, findNodeGroup, isParentNode, isChildNode } from './utils/nodeGrouping';
 import GroupingOverlay from './components/GroupingOverlay';
+
+// Minimap colours follow node status, the same semantics as the node tints.
+const MINIMAP_COLOR: Record<NodeStatus, string> = {
+  draft: '#e5e7eb',
+  warning: '#fde68a',
+  configured: '#bfdbfe',
+  deploying: '#93c5fd',
+  deployed: '#86efac',
+  failed: '#fca5a5',
+  present: '#f3f4f6',
+};
 
 function Flow() {
   const {
@@ -57,15 +73,50 @@ function Flow() {
     editingNode,
     setEditingNode,
     settingsOpen,
-    openSettings,
-    closeSettings,
     layers,
+    lens,
+    run,
+    activityOpen,
+    configPath,
   } = useStore();
   // A locked project is view-only: inspect anything, change nothing.
   const readOnly = useReadOnly();
 
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView, zoomIn, zoomOut, getNodes, getZoom, setCenter } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
+  // How much of the bottom the activity drawer takes; React Flow's controls
+  // and the legend move up out of its way, and "fit to node" centres in what
+  // is left rather than under it.
+  const drawerHeight = run ? ACTIVITY_BAR_HEIGHT + (activityOpen ? ACTIVITY_BODY_HEIGHT : 0) : 0;
+  const drawerHeightRef = useRef(drawerHeight);
+  drawerHeightRef.current = drawerHeight;
+
+  // Let the palette, the inspector and the keyboard move the viewport.
+  useEffect(() => {
+    registerCanvas({
+      fitView: () => fitView({ duration: 300, padding: 0.15 }),
+      fitToNodes: (ids) => {
+        const wanted = new Set(ids);
+        const targets = getNodes().filter((n) => wanted.has(n.id));
+        if (targets.length === 0) return;
+        let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+        for (const n of targets) {
+          const p = n.positionAbsolute ?? n.position;
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x + (n.width ?? 180));
+          maxY = Math.max(maxY, p.y + (n.height ?? 80));
+        }
+        const zoom = Math.min(1.25, Math.max(0.5, getZoom()));
+        const drawer = drawerHeightRef.current;
+        // Centre in the part of the canvas the drawer does not cover.
+        setCenter((minX + maxX) / 2, (minY + maxY) / 2 + drawer / (2 * zoom), { zoom, duration: 400 });
+      },
+      zoomIn: () => zoomIn({ duration: 150 }),
+      zoomOut: () => zoomOut({ duration: 150 }),
+    });
+    return () => registerCanvas(null);
+  }, [fitView, zoomIn, zoomOut, getNodes, getZoom, setCenter]);
 
   // UI state
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
@@ -73,7 +124,6 @@ function Flow() {
   const [isDragging, setIsDragging] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isOverCanvas, setIsOverCanvas] = useState(false);
-  const validationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Radial menu state for quick node creation
   const [pendingConnection, setPendingConnection] = useState<{
@@ -147,6 +197,35 @@ function Flow() {
   // Compute node groups (DLQ relationships, etc.)
   const nodeGroups = useMemo(() => computeNodeGroups(nodes), [nodes]);
 
+  // Validation and lens emphasis are derived at render time and never
+  // written back into the store: decorating a node is not editing the
+  // project, so it must not mark it dirty or become an undo step.
+  const lastValidationRef = useRef<ValidationError[]>([]);
+  const errorsByNode = useMemo(() => {
+    const errors = isDragging ? lastValidationRef.current : validateCanvas(nodes, edges);
+    lastValidationRef.current = errors;
+    const map = new Map<string, boolean>();
+    for (const err of errors) {
+      const prev = map.get(err.nodeId) ?? false;
+      map.set(err.nodeId, prev || err.severity === 'error');
+    }
+    return map;
+  }, [nodes, edges, isDragging]);
+
+  const emphasis = useMemo(() => {
+    if (lens === 'all' || lens === 'cost') return null;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const pinned = pinnedBySelection(selectedNode, edges);
+    return new Map(nodes.map((n) => [n.id, lensEmphasis(n, lens, { byId, pinned })]));
+  }, [nodes, edges, lens, selectedNode]);
+
+  const viewNodes = useMemo(() => nodes.map((n) => {
+    const classes: string[] = [];
+    if (errorsByNode.has(n.id)) classes.push(errorsByNode.get(n.id) ? 'validation-error' : 'validation-warning');
+    if (emphasis) classes.push(emphasis.get(n.id) === 'context' ? 'lens-context' : 'lens-focus');
+    const className = classes.join(' ') || undefined;
+    return className === n.className ? n : { ...n, className };
+  }), [nodes, errorsByNode, emphasis]);
 
   // Handle mouse-based drag from palette
   useEffect(() => {
@@ -210,41 +289,6 @@ function Flow() {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [draggedItem, nodes, setNodes, setDraggedItem, screenToFlowPosition]);
-
-  // Validate canvas on changes (debounced, skipped during drag)
-  useEffect(() => {
-    if (isDragging) return;
-
-    if (validationTimeoutRef.current) {
-      clearTimeout(validationTimeoutRef.current);
-    }
-
-    validationTimeoutRef.current = setTimeout(() => {
-      const errors = validateCanvas(nodes, edges);
-      const updatedNodes = nodes.map(node => {
-        const nodeErrors = errors.filter(e => e.nodeId === node.id);
-        if (nodeErrors.length > 0) {
-          const hasError = nodeErrors.some(e => e.severity === 'error');
-          return {
-            ...node,
-            className: hasError ? 'validation-error' : 'validation-warning',
-          };
-        }
-        return { ...node, className: undefined };
-      });
-
-      const hasChanges = updatedNodes.some((node, i) => node.className !== nodes[i]?.className);
-      if (hasChanges) {
-        setNodes(updatedNodes);
-      }
-    }, 300);
-
-    return () => {
-      if (validationTimeoutRef.current) {
-        clearTimeout(validationTimeoutRef.current);
-      }
-    };
-  }, [nodes, edges, isDragging]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -378,11 +422,9 @@ function Flow() {
   const onConnectStart = useCallback(
     (_event: any, { nodeId, handleId }: { nodeId: string | null; handleId: string | null }) => {
       connectionCompletedRef.current = false;
-      console.log('onConnectStart:', { nodeId, handleId });
       if (nodeId) {
         const node = nodes.find(n => n.id === nodeId);
         const nodeType = node?.type || '';
-        console.log('Setting pendingConnection:', { nodeId, nodeType, handleId });
         // Always set pending connection - we'll check valid targets when showing menu
         setPendingConnection({
           nodeId,
@@ -449,8 +491,6 @@ function Flow() {
   // When connection drag ends, try to connect to nearby node or show radial menu
   const onConnectEnd = useCallback(
     (event: MouseEvent | TouchEvent) => {
-      console.log('onConnectEnd:', { pendingConnection, completed: connectionCompletedRef.current, isReconnecting: isReconnecting.current });
-
       // Skip if we're reconnecting an existing edge (handled by onReconnect/onReconnectEnd)
       if (isReconnecting.current) {
         setPendingConnection(null);
@@ -493,8 +533,6 @@ function Flow() {
 
       if (targetNode) {
         // Dropped on/near a node - create connection to it
-        console.log('Auto-connecting to node:', targetNode.id);
-
         const sourceType = pendingConnection.nodeType;
         const targetType = targetNode.type || '';
 
@@ -528,7 +566,6 @@ function Flow() {
 
       // Dropped on empty space - show radial menu if valid targets exist
       const validTargets = getAllValidTargets(pendingConnection.nodeType);
-      console.log('Valid targets for', pendingConnection.nodeType, ':', validTargets);
 
       if (validTargets.length > 0) {
         const canvas = canvasRef.current;
@@ -536,7 +573,6 @@ function Flow() {
         const screenX = canvasRect ? clientX - canvasRect.left : clientX;
         const screenY = canvasRect ? clientY - canvasRect.top : clientY;
 
-        console.log('Showing radial menu at:', { screen: { x: screenX, y: screenY }, flow: flowPos });
         setRadialMenuPos({
           screen: { x: screenX, y: screenY },
           flow: flowPos,
@@ -623,7 +659,7 @@ function Flow() {
       setEditingNode(null);
       setEditingEdge(null);
     },
-    [setSelectedNode]
+    [setSelectedNode, setEditingNode]
   );
 
   // Double-click on node - open config panel
@@ -779,7 +815,7 @@ function Flow() {
     setSelectedEdge(null);
     setEditingNode(null);
     setEditingEdge(null);
-  }, [setSelectedNode]);
+  }, [setSelectedNode, setEditingNode]);
 
   // Delete selected nodes or edges (supports multi-select)
   const deleteSelected = useCallback(() => {
@@ -796,56 +832,14 @@ function Flow() {
       setSelectedEdge(null);
       setEditingEdge(null);
     }
-  }, [nodes, edges, setNodes, setEdges, setSelectedNode, selectedEdge]);
+  }, [nodes, edges, setNodes, setEdges, setSelectedNode, setEditingNode, selectedEdge]);
 
-  // Keyboard handler for delete and the settings view
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl+R reloads the frontend in a dev build: the webview has no
-      // menu for it, and a missed hot-reload otherwise looks like a bug.
-      if ((e.metaKey || e.ctrlKey) && e.key === 'r' && import.meta.env.DEV) {
-        e.preventDefault();
-        window.location.reload();
-        return;
-      }
+  useShortcuts({ deleteSelected });
 
-      // Cmd/Ctrl+, opens application settings, from anywhere - including
-      // inside an input, the way every desktop app does it.
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
-        e.preventDefault();
-        openSettings();
-        return;
-      }
-
-      const inField = e.target instanceof HTMLInputElement
-        || e.target instanceof HTMLTextAreaElement
-        || e.target instanceof HTMLSelectElement;
-
-      if (e.key === 'Escape' && settingsOpen) {
-        // An open modal on top of settings gets Escape first; it stops
-        // propagation itself when it handles it.
-        if (inField) (e.target as HTMLElement).blur();
-        else closeSettings();
-        return;
-      }
-
-      // Don't delete if typing in an input
-      if (inField) {
-        return;
-      }
-
-      if ((e.key === 'Delete' || e.key === 'Backspace') && !settingsOpen && !readOnly) {
-        e.preventDefault();
-        deleteSelected();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [deleteSelected, settingsOpen, openSettings, closeSettings, readOnly]);
+  const showWelcome = !configPath && nodes.length === 0 && !settingsOpen;
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden">
+    <div className="h-screen w-screen flex flex-col overflow-hidden bg-gray-50">
       <Toolbar />
 
       <div className="flex-1 flex relative min-h-0">
@@ -855,9 +849,13 @@ function Flow() {
             not unmounted, so nothing on it is lost. */}
         {settingsOpen && <SettingsView />}
 
-        <div ref={canvasRef} className={settingsOpen ? 'hidden' : 'flex-1 relative min-h-0'}>
+        <div
+          ref={canvasRef}
+          className={settingsOpen ? 'hidden' : 'flex-1 relative min-h-0'}
+          style={{ '--drawer-h': `${drawerHeight}px` } as React.CSSProperties}
+        >
           <ReactFlow
-            nodes={nodes}
+            nodes={viewNodes}
             edges={allEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -890,14 +888,23 @@ function Flow() {
             panOnDrag={draggedItem ? false : [1, 2]} // Pan with middle/right mouse button (disabled when dragging from palette)
             selectionKeyCode="Shift" // Hold Shift for multi-select
             multiSelectionKeyCode="Shift"
-            deleteKeyCode={readOnly ? null : ['Backspace', 'Delete']}
+            // Deletion is handled by useShortcuts so it respects the lock,
+            // dialogs and the palette; React Flow's own handler stays off.
+            deleteKeyCode={null}
             nodesConnectable={!readOnly}
             edgesUpdatable={!readOnly}
             className="h-full w-full"
           >
             <Background variant={BackgroundVariant.Dots} gap={15} size={1} />
-            <Controls className="!bottom-4" />
-            <MiniMap />
+            <Controls />
+            <MiniMap
+              pannable
+              zoomable
+              nodeColor={(n) => MINIMAP_COLOR[(n.data?.status as NodeStatus | undefined) ?? 'draft'] ?? '#e5e7eb'}
+              nodeStrokeColor={(n) => (n.selected ? '#2563eb' : 'transparent')}
+              nodeStrokeWidth={4}
+              maskColor="rgba(243, 244, 246, 0.7)"
+            />
             {/* Visual grouping overlay for related nodes (DLQ, etc.) */}
             <GroupingOverlay groups={nodeGroups} nodes={nodes} onBreakGroup={handleBreakGroup} onMoveGroup={handleMoveGroup} />
           </ReactFlow>
@@ -907,10 +914,11 @@ function Flow() {
             <div className="absolute inset-0 z-10 pointer-events-none border-4 border-dashed border-blue-500" />
           )}
 
+          {showWelcome && <WelcomeScreen />}
           <LockBanner />
-          <LayersControl />
-          <PermissionLegend />
-          <DeploymentTimeline />
+          <LensBar />
+          <PermissionLegend bottomOffset={drawerHeight} />
+          <ActivityDrawer />
 
           {/* Radial menu for quick node creation */}
           {radialMenuPos && pendingConnection && (
@@ -920,6 +928,17 @@ function Flow() {
               onSelect={handleRadialMenuSelect}
               onClose={handleRadialMenuClose}
             />
+          )}
+
+          {/* Selection info bar */}
+          {selectedNodes.length > 1 && (
+            <div
+              className="absolute left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm shadow-lg z-20"
+              style={{ bottom: drawerHeight + 16 }}
+            >
+              {selectedNodes.length} nodes selected
+              <span className="ml-2 text-gray-400">• Press Delete to remove</span>
+            </div>
           )}
         </div>
 
@@ -931,7 +950,7 @@ function Flow() {
           <ExecutionLogPanel nodeId={selectedNode} />
         )}
 
-        {/* Configuration panel - shows on double-click */}
+        {/* Configuration sheet - shows on double-click or Configure */}
         {editingNode && !showExecutionPanel && nodes.find(n => n.id === editingNode) && (
           <ConfigurationPanel
             node={nodes.find(n => n.id === editingNode)!}
@@ -949,15 +968,9 @@ function Flow() {
             }}
           />
         )}
-
-        {/* Selection info bar */}
-        {selectedNodes.length > 1 && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm shadow-lg">
-            {selectedNodes.length} nodes selected
-            <span className="ml-2 text-gray-400">• Press Delete to remove</span>
-          </div>
-        )}
       </div>
+
+      <CommandPalette />
 
       {/* Floating drag preview - only show after mouse has moved */}
       {draggedItem && mousePos.x > 0 && mousePos.y > 0 && (

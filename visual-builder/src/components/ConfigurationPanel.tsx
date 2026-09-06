@@ -1533,17 +1533,18 @@ export default function ConfigurationPanel({ node, onClose }: ConfigurationPanel
     }
   };
 
+  // A sheet, not a modal: it slides in over the inspector and leaves the
+  // canvas in view, so configuring a resource never means losing the picture.
+  // Clicking the canvas closes it.
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed left-0 right-0 top-12 bottom-0 z-50 flex justify-end"
       onClick={onClose}
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-gray-900/10" />
 
-      {/* Modal Content */}
       <div
-        className="relative bg-white rounded-xl shadow-2xl flex flex-col w-full max-w-lg max-h-[85vh]"
+        className="config-sheet relative bg-white border-l border-gray-200 shadow-2xl flex flex-col w-[480px] max-w-[92vw] h-full"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

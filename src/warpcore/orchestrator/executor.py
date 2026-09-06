@@ -27,6 +27,9 @@ class ExecutionStatus(Enum):
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"
+    # A run where some resources succeeded and some failed. The state file
+    # keeps the successes; the CLI and the Visual Builder say which failed.
+    PARTIAL = "partial"
 
 
 @dataclass
@@ -261,7 +264,12 @@ class DeploymentExecutor:
                 failed_resources += wave_result.get_failed_count()
             
             # Determine overall status
-            if failed_resources > 0:
+            if failed_resources > 0 and successful_resources > 0:
+                status = ExecutionStatus.PARTIAL
+                self.logger.warning(
+                    f"Deployment partially succeeded: {failed_resources}/{total_resources} resources failed"
+                )
+            elif failed_resources > 0:
                 status = ExecutionStatus.FAILED
                 self.logger.error(
                     f"Deployment failed: {failed_resources}/{total_resources} resources failed"
@@ -362,7 +370,12 @@ class DeploymentExecutor:
             failed_resources = sum(1 for r in resource_results.values() if r.is_failed())
             
             # Determine overall status
-            if failed_resources > 0:
+            if failed_resources > 0 and successful_resources > 0:
+                status = ExecutionStatus.PARTIAL
+                self.logger.warning(
+                    f"Destruction partially succeeded: {failed_resources}/{len(resource_results)} failed"
+                )
+            elif failed_resources > 0:
                 status = ExecutionStatus.FAILED
                 self.logger.warning(
                     f"Destruction completed with failures: {failed_resources}/{len(resource_results)} failed"

@@ -26,7 +26,7 @@ export default function AgentNode({ id, data, selected }: Props) {
   const hasCustomName = !!data.config?.name;
 
   return (
-    <NodeWrapper nodeId={id} selected={selected}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status} costNode={{ type: 'agent', data }}>
       <div className={`node-inner px-4 py-3 min-w-[180px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

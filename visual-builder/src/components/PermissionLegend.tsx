@@ -12,9 +12,9 @@ function Swatch({ color, children, title }: { color: string; children: React.Rea
 // Line colours mean one thing everywhere: what the connection lets the
 // source do to the target. Structure (membership, routes, origins) is grey
 // and dashed so it never reads as a permission.
-export default function PermissionLegend() {
+export default function PermissionLegend({ bottomOffset = 0 }: { bottomOffset?: number }) {
   return (
-    <div className="absolute bottom-4 left-72 bg-white/90 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 px-3 py-2">
+    <div className="absolute left-72 bg-white/90 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 px-3 py-2" style={{ bottom: bottomOffset + 16 }}>
       <div className="flex items-center gap-4 text-xs">
         <div className="flex items-center gap-1.5">
           <Swatch color={PERMISSION_COLORS.read}><Eye size={10} style={{ color: PERMISSION_COLORS.read }} /></Swatch>

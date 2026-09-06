@@ -54,7 +54,7 @@ export default function EventBridgeRuleNode({ id, data, selected }: Props) {
   const typeLabel = isScheduleRule ? 'Schedule Rule' : 'Event Rule';
 
   return (
-    <NodeWrapper nodeId={id} selected={selected}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status}>
       <div className={`node-inner px-4 py-3 min-w-[180px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

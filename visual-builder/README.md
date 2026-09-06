@@ -105,17 +105,23 @@ visual-builder/
 4. **Save**: Click "Save" to generate `warpcore.yaml`
 5. **Deploy**: Click "Deploy" to deploy to AWS
 
-### Monitoring Deployments
+### Deploying, and watching it happen
 
-1. **Real-Time Status**: Nodes change color based on deployment status:
-   - 🔵 Blue (pulsing): Deploying
-   - 🟢 Green (glow): Success
-   - 🔴 Red (glow): Failed
-   - 🟡 Yellow (glow): Warning
-   - ⚪ Gray (dim): Pending
+Deploy runs `warpcore deploy --env <env> --progress` through the bundled CLI
+and nothing else: there is no simulation. The CLI streams one JSON event per
+line (a `plan` naming every resource it will touch, a `resource` event as each
+one starts and finishes, a `complete` event with the outcome) and the
+**Activity** drawer along the bottom of the canvas shows exactly that: each
+planned resource with its real start and end, any error, and the raw CLI
+output on a second tab. Nodes take their status from the same events:
 
-2. **Execution Logs**: Click any node to see detailed execution logs
-3. **Timeline**: View parallel execution timeline at the bottom
+- 🔵 Ready / deploying (pulsing) · 🟢 Deployed · 🔴 Failed · ⚪ Not configured
+
+An empty plan is reported as an empty plan. Until the orchestrator builds
+resources from the configuration (`UX_PLAN.md` §3, step 0) that is what a
+deploy of a fresh project shows.
+
+Destroy asks first, then runs `warpcore destroy --progress -y` the same way.
 
 ### Node Types
 
@@ -189,9 +195,16 @@ warpcore --profile prod discover project --project-name shop --env prod \
   right in the order things happen. Arrows between members come from IAM
   policy documents and say read, write, read/write or admin, and via which
   role.
-- **Layers** (top right of the canvas) show or hide triggers, access,
-  network, encryption and plumbing edges. Selecting a node shows all of its
-  edges regardless, dimmed for layers that are off.
+- **Lenses** (top left of the canvas, or keys `1`-`5`) view the whole
+  picture through one question. *Security* foregrounds security groups,
+  roles, secrets, keys and anything flagged; *Network* the VPCs, subnets,
+  gateways, load balancers and what sits inside them; *Data flow* agents,
+  functions, queues, topics, streams and stores; *Cost* draws each node's
+  monthly estimate on it. Everything else stays on the map, dimmed. The
+  selected node and its neighbours are never dimmed. **Edges** beside the
+  lens bar are the expert control: show or hide triggers, access, network,
+  encryption and plumbing edges individually. Selecting a node shows all of
+  its edges regardless, dimmed for layers that are off.
 - **Volumes, snapshots, Lambda versions** and the like are folded into their
   parent: a paperclip count on the node, and an "Attached" section in the
   inspector.
@@ -205,6 +218,14 @@ form, the environment settings, Deploy and Destroy are all off. The toolbar
 shows an amber **Locked** button and the canvas a banner; both open the unlock
 dialog, which asks you to type the project's name. Click **Unlocked · env** in
 the toolbar to lock again.
+
+### Finding anything
+
+`⌘K` opens the command palette. Type part of a resource's name, type, id or
+ARN and press Enter: it is selected, the inspector shows it, and the canvas
+pans to it. The same box runs every action in the app - deploy, destroy,
+open, save, templates, explore, discover, lenses, layers, settings sections,
+fit view, undo, redo - so nothing has to be hunted for.
 
 ### The inspector
 
@@ -253,13 +274,21 @@ The Visual Builder integrates seamlessly with the Warpcore CLI:
 
 ## Keyboard Shortcuts
 
-- `Cmd/Ctrl + S`: Save configuration
-- `Cmd/Ctrl + O`: Open configuration
-- `Cmd/Ctrl + D`: Deploy
-- `Cmd/Ctrl + ,`: Application settings (`Esc` returns to the canvas)
-- `Delete`: Delete selected nodes/edges
-- `Cmd/Ctrl + Z`: Undo
-- `Cmd/Ctrl + Shift + Z`: Redo
+Press `?` in the app for the full sheet. The ones worth memorising:
+
+| Keys | What |
+|---|---|
+| `⌘K` | Command palette: find any resource by name, type, id or ARN; run any action |
+| `1` `2` `3` `4` `5` | Lens: All · Security · Network · Data flow · Cost |
+| `⌘Z` / `⇧⌘Z` | Undo / redo (drags fold into one step; selection is not a step) |
+| `⌘S` / `⌘O` | Save now / open a project (changes also auto-save) |
+| `⌘D` | Deploy the current environment, when the project is unlocked |
+| `⌘0`, `⌘=`, `⌘-` | Fit view, zoom in, zoom out |
+| `⌘,` | Application settings |
+| `Esc` | Close what is open, else clear the selection |
+| `⌫` | Delete the selection |
+
+`Ctrl` replaces `⌘` on Windows and Linux.
 
 ## The warpcore sidecar
 

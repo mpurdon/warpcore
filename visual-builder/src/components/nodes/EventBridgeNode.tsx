@@ -25,7 +25,7 @@ export default function EventBridgeNode({ id, data, selected }: Props) {
   const hasCustomName = !!data.config?.name;
 
   return (
-    <NodeWrapper nodeId={id} selected={selected}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status}>
       <div className={`node-inner px-4 py-3 min-w-[160px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

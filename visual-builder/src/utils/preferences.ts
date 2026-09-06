@@ -9,6 +9,7 @@
 // deployed. See DESIGN_GUIDANCE.md §4.2.
 
 import { DEFAULT_LAYERS, Layer } from './layers';
+import { DEFAULT_LENS, Lens } from './lenses';
 
 const STORAGE_KEY = 'warpcore-preferences';
 
@@ -44,6 +45,10 @@ export interface Preferences {
   projectsDir: string;
   /** Which edge layers the canvas shows. */
   layers: Record<Layer, boolean>;
+  /** The lens the canvas is viewed through; see lenses.ts. */
+  lens: Lens;
+  /** Whether the Activity drawer stays open between runs. */
+  activityOpen: boolean;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -55,6 +60,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   logLevel: 'info',
   projectsDir: '',
   layers: { ...DEFAULT_LAYERS },
+  lens: DEFAULT_LENS,
+  activityOpen: false,
 };
 
 export function getPreferences(): Preferences {

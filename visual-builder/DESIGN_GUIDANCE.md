@@ -464,3 +464,31 @@ counts sit over the canvas; selection reveals off-layer edges dimmed.]
 3. Layers (§9.6), because 1 and 2 together produce too many edges without it.
 4. The vault and keyring enclosures (§9.4), the default-group warning (§9.3),
    and folding sub-resources (§9.5).
+
+
+## 10. Lenses, the palette, and an honest deploy loop
+
+[2026-09-04. The assessment and plan are in `UX_PLAN.md`; this section records
+what changed in the model.]
+
+- **Lenses** generalise §9.6. A layer hides or shows one kind of edge; a lens
+  answers a question ("what is the security picture?") by choosing the layers
+  *and* deciding which nodes are the subject. Context nodes are dimmed, never
+  hidden, so the map keeps its shape; containers and the selection's
+  neighbourhood are always the subject. `utils/lenses.ts`, `LensBar.tsx`.
+- **The command palette** (`⌘K`) is the one fast path to any object or action.
+  It does not replace selection as the way into the inspector; it is a way to
+  select without hunting. `CommandPalette.tsx`, `utils/palette.ts`.
+- **The Activity drawer** is the Evidence level for a deployment: the CLI's
+  own `--progress` events, drawn as they arrive, with the raw output one tab
+  away. Nothing on it is simulated. `ActivityDrawer.tsx`, `utils/deployEvents.ts`,
+  `utils/deployRunner.ts`, `run_progress.py`.
+- **Derived, not stored.** Validation classes and lens emphasis are computed at
+  render time. Decorating a node is not editing the project.
+- **Undo and redo** live in the store: selection-only changes are not steps,
+  and a burst of changes (a drag) folds into one.
+- **One chrome.** The toolbar joined the light theme; colour is for state and
+  for Deploy and Destroy.
+- **Three.js was considered and declined** for the editing surface (§2.5 of
+  the plan). Depth is served by lenses; a read-only 3D overview remains an
+  option once the lenses have proved what the strata are.

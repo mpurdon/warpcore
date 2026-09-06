@@ -31,7 +31,9 @@ from warpcore.state.manager import StateManager, StateNotFoundError
 from warpcore.state.checkpoint import CheckpointManager
 from warpcore.orchestrator.orchestrator import DeploymentOrchestrator
 from warpcore.orchestrator.rollback import RollbackStrategy
-from warpcore.orchestrator.executor import ExecutionStatus, ProgressCallback
+from warpcore.orchestrator.executor import DeploymentResult, DestructionResult, ExecutionStatus
+from warpcore.orchestrator.planner import DestructionPlan
+from warpcore.cli.run_progress import JsonRunProgress, RichRunProgress
 from warpcore.audit.recorder import AuditRecorder
 from warpcore.devmode import get_dev_mode, init_dev_mode
 from warpcore.utils.aws_client import AWSClientManager
@@ -272,41 +274,27 @@ def create_orchestrator(
     return orchestrator
 
 
-class RichProgressCallback(ProgressCallback):
-    """Progress callback that displays updates using Rich."""
-    
-    def __init__(self, progress: Progress, task_id):
-        self.progress = progress
-        self.task_id = task_id
-        self.total = 0
-        self.completed = 0
-    
-    def on_start(self, total_resources: int):
-        """Called when execution starts."""
-        self.total = total_resources
-        self.progress.update(self.task_id, total=total_resources)
-    
-    def on_resource_start(self, resource_id: str, resource_type: str):
-        """Called when a resource starts provisioning."""
-        self.progress.update(
-            self.task_id,
-            description=f"[cyan]Provisioning:[/cyan] {resource_id}"
-        )
-    
-    def on_resource_complete(self, resource_id: str, resource_type: str, success: bool):
-        """Called when a resource completes."""
-        self.completed += 1
-        status = "[green]✓[/green]" if success else "[red]✗[/red]"
-        self.progress.update(
-            self.task_id,
-            completed=self.completed,
-            description=f"{status} {resource_id}"
-        )
-    
-    def on_complete(self, success: bool):
-        """Called when execution completes."""
-        status = "[green]Complete[/green]" if success else "[red]Failed[/red]"
-        self.progress.update(self.task_id, description=status)
+# Kept under its old name so anything importing it keeps working; the real
+# classes live in run_progress.py, where they are also callable, which the
+# executor requires. The previous version subclassed a typing.Callable alias
+# and could not be instantiated at all.
+RichProgressCallback = RichRunProgress
+
+
+def _failure_lines(result) -> list:
+    """(resource_id, error) pairs for every resource that failed in a run."""
+    details = getattr(result, "failed_resources_details", None)
+    if isinstance(details, dict):
+        return list(details.items())
+    lines = []
+    for wave in getattr(result, "wave_results", []) or []:
+        for resource_id, r in getattr(wave, "resource_results", {}).items():
+            if getattr(r, "error", None):
+                lines.append((resource_id, r.error))
+    for resource_id, r in (getattr(result, "resource_results", {}) or {}).items():
+        if getattr(r, "error", None):
+            lines.append((resource_id, r.error))
+    return lines
 
 
 @cli.command()
@@ -315,24 +303,28 @@ class RichProgressCallback(ProgressCallback):
 @click.option('--parallel/--sequential', default=True, help='Execute in parallel or sequential mode')
 @click.option('--auto-rollback/--no-auto-rollback', default=False, help='Automatically rollback on failure')
 @click.option('--config', default='warpcore.yaml', help='Path to configuration file')
+@click.option('--progress', 'stream_progress', is_flag=True,
+              help='Stream NDJSON progress to stdout: a plan event, one event per resource, '
+                   'and a complete event. For programs driving the CLI, such as the Visual Builder.')
 @click.pass_context
-def deploy(ctx, env, agent, parallel, auto_rollback, config):
+def deploy(ctx, env, agent, parallel, auto_rollback, config, stream_progress):
     """Deploy infrastructure to AWS."""
+    reporter = JsonRunProgress() if stream_progress else None
     try:
         # Load configuration
         cfg = load_config(config)
-        
-        # Display deployment info
-        console.print(Panel.fit(
-            f"[bold]Deploying to {env}[/bold]\n"
-            f"Project: {cfg.project.name}\n"
-            f"Agent: {agent or 'all'}\n"
-            f"Mode: {'parallel' if parallel else 'sequential'}\n"
-            f"Auto-rollback: {'enabled' if auto_rollback else 'disabled'}",
-            title="Deployment Configuration",
-            border_style="cyan"
-        ))
-        
+
+        if not stream_progress:
+            console.print(Panel.fit(
+                f"[bold]Deploying to {env}[/bold]\n"
+                f"Project: {cfg.project.name}\n"
+                f"Agent: {agent or 'all'}\n"
+                f"Mode: {'parallel' if parallel else 'sequential'}\n"
+                f"Auto-rollback: {'enabled' if auto_rollback else 'disabled'}",
+                title="Deployment Configuration",
+                border_style="cyan"
+            ))
+
         # Create orchestrator
         orchestrator = create_orchestrator(
             cfg,
@@ -340,10 +332,42 @@ def deploy(ctx, env, agent, parallel, auto_rollback, config):
             profile=ctx.obj.get('profile'),
             region=ctx.obj.get('region')
         )
-        
+
         # Determine rollback strategy
         rollback_strategy = RollbackStrategy.AUTOMATIC if auto_rollback else RollbackStrategy.NONE
-        
+
+        # Plan first, so a consumer knows every resource the run will touch
+        # before the first API call is made.
+        plan = orchestrator.plan_deployment(agent_filter=agent)
+
+        if stream_progress:
+            reporter.on_plan("deploy", plan, environment=env, project=cfg.project.name,
+                             parallel=parallel, auto_rollback=auto_rollback)
+            if not plan.has_changes():
+                result = DeploymentResult(status=ExecutionStatus.SUCCESS)
+                reporter.on_complete("deploy", result)
+                return
+            result, rollback_result = orchestrator.execute_deployment(
+                plan=plan,
+                parallel=parallel,
+                rollback_strategy=rollback_strategy,
+                progress_callback=reporter,
+            )
+            reporter.on_complete("deploy", result, rollback_result)
+            if result.status != ExecutionStatus.SUCCESS:
+                sys.exit(1)
+            return
+
+        if not plan.has_changes():
+            console.print(Panel.fit(
+                "[green]✓ Nothing to deploy[/green]\n\n"
+                "The plan has no changes: every resource in the configuration is already "
+                "in the deployment state, or the configuration declares nothing to build.",
+                title="Deployment Complete",
+                border_style="green"
+            ))
+            return
+
         # Execute deployment with progress display
         with Progress(
             SpinnerColumn(),
@@ -353,15 +377,17 @@ def deploy(ctx, env, agent, parallel, auto_rollback, config):
             console=console
         ) as progress:
             task_id = progress.add_task("[cyan]Starting deployment...", total=None)
-            progress_callback = RichProgressCallback(progress, task_id)
-            
-            result, rollback_result = orchestrator.deploy(
-                agent_filter=agent,
+            progress_callback = RichRunProgress(progress, task_id)
+            progress_callback.on_plan("deploy", plan)
+
+            result, rollback_result = orchestrator.execute_deployment(
+                plan=plan,
                 parallel=parallel,
                 rollback_strategy=rollback_strategy,
                 progress_callback=progress_callback
             )
-        
+            progress_callback.on_complete("deploy", result, rollback_result)
+
         # Display results
         console.print()
         if result.status == ExecutionStatus.SUCCESS:
@@ -383,13 +409,14 @@ def deploy(ctx, env, agent, parallel, auto_rollback, config):
                 title="Deployment Partial",
                 border_style="yellow"
             ))
-            
+
             # Show failed resources
-            if result.failed_resources_details:
+            failures = _failure_lines(result)
+            if failures:
                 console.print("\n[bold]Failed Resources:[/bold]")
-                for resource_id, error in result.failed_resources_details.items():
+                for resource_id, error in failures:
                     console.print(f"  [red]✗[/red] {resource_id}: {error}")
-            
+
             # Show rollback result if applicable
             if rollback_result:
                 console.print(f"\n[bold]Rollback Status:[/bold] {rollback_result.status.value}")
@@ -404,25 +431,30 @@ def deploy(ctx, env, agent, parallel, auto_rollback, config):
                 title="Deployment Failed",
                 border_style="red"
             ))
-            
+
             # Show failed resources
-            if result.failed_resources_details:
+            failures = _failure_lines(result)
+            if failures:
                 console.print("\n[bold]Failed Resources:[/bold]")
-                for resource_id, error in result.failed_resources_details.items():
+                for resource_id, error in failures:
                     console.print(f"  [red]✗[/red] {resource_id}: {error}")
-            
+
             # Show rollback result if applicable
             if rollback_result:
                 console.print(f"\n[bold]Rollback Status:[/bold] {rollback_result.status.value}")
                 console.print(f"Rolled back: {rollback_result.successful_resources}/{rollback_result.total_resources}")
-            
+
             sys.exit(1)
-    
+
     except DeploymentError as e:
+        if reporter:
+            reporter.on_error(str(e))
         console.print(f"[red]Deployment error:[/red] {e}")
         sys.exit(1)
     except Exception as e:
         logger.exception("Unexpected error during deployment")
+        if reporter:
+            reporter.on_error(str(e))
         console.print(f"[red]Unexpected error:[/red] {e}")
         sys.exit(1)
 
@@ -432,31 +464,39 @@ def deploy(ctx, env, agent, parallel, auto_rollback, config):
 @click.option('--agent', help='Specific agent to destroy')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompt')
 @click.option('--config', default='warpcore.yaml', help='Path to configuration file')
+@click.option('--progress', 'stream_progress', is_flag=True,
+              help='Stream NDJSON progress to stdout (plan, one event per resource, complete). '
+                   'Implies --yes: a program driving the CLI confirms on its own side.')
 @click.pass_context
-def destroy(ctx, env, agent, yes, config):
+def destroy(ctx, env, agent, yes, config, stream_progress):
     """Remove deployed infrastructure."""
+    reporter = JsonRunProgress() if stream_progress else None
     try:
         # Load configuration
         cfg = load_config(config)
-        
+
         # Check if state exists
         state_path = get_state_path(env, cfg.project.name)
         if not state_path.exists():
+            if reporter:
+                reporter.on_plan("destroy", DestructionPlan(resource_ids=[]), environment=env,
+                                 project=cfg.project.name)
+                reporter.on_complete("destroy", DestructionResult(status=ExecutionStatus.SUCCESS))
             console.print(f"[yellow]No deployment found for environment:[/yellow] {env}")
             return
-        
-        # Display destruction info
-        console.print(Panel.fit(
-            f"[bold red]⚠ WARNING: This will destroy resources[/bold red]\n\n"
-            f"Environment: {env}\n"
-            f"Project: {cfg.project.name}\n"
-            f"Agent: {agent or 'all'}\n",
-            title="Destruction Plan",
-            border_style="red"
-        ))
-        
+
+        if not stream_progress:
+            console.print(Panel.fit(
+                f"[bold red]⚠ WARNING: This will destroy resources[/bold red]\n\n"
+                f"Environment: {env}\n"
+                f"Project: {cfg.project.name}\n"
+                f"Agent: {agent or 'all'}\n",
+                title="Destruction Plan",
+                border_style="red"
+            ))
+
         # Confirmation prompt
-        if not yes:
+        if not yes and not stream_progress:
             confirm = click.confirm(
                 "Are you sure you want to destroy these resources?",
                 default=False
@@ -464,7 +504,7 @@ def destroy(ctx, env, agent, yes, config):
             if not confirm:
                 console.print("[yellow]Destruction cancelled[/yellow]")
                 return
-        
+
         # Create orchestrator
         orchestrator = create_orchestrator(
             cfg,
@@ -472,7 +512,24 @@ def destroy(ctx, env, agent, yes, config):
             profile=ctx.obj.get('profile'),
             region=ctx.obj.get('region')
         )
-        
+
+        plan = orchestrator.plan_destruction(agent_filter=agent)
+
+        if stream_progress:
+            reporter.on_plan("destroy", plan, environment=env, project=cfg.project.name)
+            if plan.get_total_resources() == 0:
+                reporter.on_complete("destroy", DestructionResult(status=ExecutionStatus.SUCCESS))
+                return
+            result = orchestrator.execute_destruction(plan=plan, progress_callback=reporter)
+            reporter.on_complete("destroy", result)
+            if result.status != ExecutionStatus.SUCCESS:
+                sys.exit(1)
+            return
+
+        if plan.get_total_resources() == 0:
+            console.print("[green]Nothing to destroy: the deployment state holds no resources.[/green]")
+            return
+
         # Execute destruction with progress display
         with Progress(
             SpinnerColumn(),
@@ -482,13 +539,15 @@ def destroy(ctx, env, agent, yes, config):
             console=console
         ) as progress:
             task_id = progress.add_task("[cyan]Starting destruction...", total=None)
-            progress_callback = RichProgressCallback(progress, task_id)
-            
-            result = orchestrator.destroy(
-                agent_filter=agent,
+            progress_callback = RichRunProgress(progress, task_id)
+            progress_callback.on_plan("destroy", plan)
+
+            result = orchestrator.execute_destruction(
+                plan=plan,
                 progress_callback=progress_callback
             )
-        
+            progress_callback.on_complete("destroy", result)
+
         # Display results
         console.print()
         if result.status == ExecutionStatus.SUCCESS:
@@ -510,13 +569,13 @@ def destroy(ctx, env, agent, yes, config):
                 title="Destruction Partial",
                 border_style="yellow"
             ))
-            
-            # Show failed resources
-            if result.failed_resources_details:
+
+            failures = _failure_lines(result)
+            if failures:
                 console.print("\n[bold]Failed to Destroy:[/bold]")
-                for resource_id, error in result.failed_resources_details.items():
+                for resource_id, error in failures:
                     console.print(f"  [red]✗[/red] {resource_id}: {error}")
-            
+
             console.print("\n[yellow]Some resources may need manual cleanup[/yellow]")
         else:
             console.print(Panel.fit(
@@ -528,21 +587,25 @@ def destroy(ctx, env, agent, yes, config):
                 title="Destruction Failed",
                 border_style="red"
             ))
-            
-            # Show failed resources
-            if result.failed_resources_details:
+
+            failures = _failure_lines(result)
+            if failures:
                 console.print("\n[bold]Failed to Destroy:[/bold]")
-                for resource_id, error in result.failed_resources_details.items():
+                for resource_id, error in failures:
                     console.print(f"  [red]✗[/red] {resource_id}: {error}")
-            
+
             console.print("\n[red]Resources may need manual cleanup[/red]")
             sys.exit(1)
-    
+
     except DeploymentError as e:
+        if reporter:
+            reporter.on_error(str(e))
         console.print(f"[red]Destruction error:[/red] {e}")
         sys.exit(1)
     except Exception as e:
         logger.exception("Unexpected error during destruction")
+        if reporter:
+            reporter.on_error(str(e))
         console.print(f"[red]Unexpected error:[/red] {e}")
         sys.exit(1)
 

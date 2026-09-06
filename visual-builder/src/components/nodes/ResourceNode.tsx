@@ -132,7 +132,7 @@ export default function ResourceNode({ id, data, selected, type }: Props) {
   const methodColorClass = httpMethod ? methodColors[httpMethod] || methodColors['ANY'] : '';
 
   return (
-    <NodeWrapper nodeId={id} selected={selected}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status} costNode={{ type, data }}>
       <div className={`node-inner px-4 py-3 min-w-[160px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

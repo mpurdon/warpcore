@@ -85,7 +85,7 @@ export function LockControl() {
       {locked ? (
         <button
           onClick={() => setAsking(true)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded bg-amber-500 text-gray-900 hover:bg-amber-400 text-sm font-semibold border border-amber-300"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-100 text-amber-900 hover:bg-amber-200 text-sm font-medium border border-amber-300 whitespace-nowrap"
           title={`${projectName || 'Project'} is locked: view only. Click to unlock by typing its name.`}
         >
           <Lock size={16} />
@@ -94,11 +94,11 @@ export function LockControl() {
       ) : (
         <button
           onClick={lock}
-          className="flex items-center gap-2 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-emerald-300 text-sm border border-emerald-800"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-sm border border-emerald-200 whitespace-nowrap"
           title={`Unlocked for ${envName}. Click to lock again.`}
         >
           <Unlock size={16} />
-          Unlocked · {envName}
+          Unlocked<span className="hidden 2xl:inline"> · {envName}</span>
         </button>
       )}
       {asking && <UnlockDialog onClose={() => setAsking(false)} />}
@@ -106,7 +106,10 @@ export function LockControl() {
   );
 }
 
-/** A band across the top of the canvas while locked, so the state is never a surprise. */
+/** Height of the lock band, so overlays below it (the lens bar) can make room. */
+export const LOCK_BANNER_HEIGHT = 36;
+
+/** A band across the full top of the canvas while locked, so the state is never a surprise. */
 export function LockBanner() {
   const { locked, configPath, projectName } = useStore();
   const envName = useCurrentEnvName();
@@ -114,12 +117,17 @@ export function LockBanner() {
   if (!locked || !configPath) return null;
   return (
     <>
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 rounded-full bg-amber-50 border border-amber-300 shadow text-sm text-amber-900">
-        <Lock size={16} className="text-amber-700" />
-        <span>
-          <strong>{projectName || 'Project'}</strong> is locked. Look, inspect and rearrange freely; changing, connecting, deleting, Deploy and Destroy for <strong>{envName}</strong> are off.
+      <div
+        className="absolute top-0 left-0 right-0 z-30 flex items-center gap-3 px-4 bg-amber-50 border-b border-amber-200 text-sm text-amber-900"
+        style={{ height: LOCK_BANNER_HEIGHT }}
+        role="status"
+      >
+        <Lock size={14} className="text-amber-700 shrink-0" />
+        <span className="truncate min-w-0">
+          <strong>{projectName || 'Project'}</strong> is locked: view only.
+          <span className="hidden lg:inline"> Inspect and rearrange freely; edits, Deploy and Destroy for <strong>{envName}</strong> are off.</span>
         </span>
-        <button onClick={() => setAsking(true)} className="text-xs font-semibold px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">
+        <button onClick={() => setAsking(true)} className="ml-auto shrink-0 text-xs font-semibold px-2.5 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">
           Unlock…
         </button>
       </div>

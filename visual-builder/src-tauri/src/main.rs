@@ -238,6 +238,121 @@ fn warpcore_args(debug: bool, args: &[&str]) -> Vec<String> {
     argv
 }
 
+/// Run `warpcore deploy --progress` or `warpcore destroy --progress` and
+/// forward what it says.
+///
+/// The CLI streams NDJSON on stdout: a `plan` event naming every resource the
+/// run will touch, a `resource` event each time one starts or finishes, and a
+/// `complete` event with the outcome. Each JSON line becomes a
+/// `deployment-update` event with the CLI's payload untouched, plus a `kind`
+/// so the frontend knows which run it belongs to. Anything that is not JSON
+/// (Rich panels, warnings) is forwarded as `cli-output`; stderr as
+/// `cli-error`. The frontend gets a synthetic `started` first and `exit` last,
+/// so it can tell a CLI that never spoke from one that finished quietly.
+async fn run_with_progress(
+    kind: &str,
+    config_path: String,
+    environment: String,
+    debug: bool,
+    extra_args: &[&str],
+    window: tauri::Window,
+) -> Result<String, String> {
+    use std::time::Instant;
+
+    let start = Instant::now();
+    let emit_update = |value: serde_json::Value| {
+        let _ = window.emit("deployment-update", value);
+    };
+
+    emit_update(serde_json::json!({
+        "event": "started",
+        "kind": kind,
+        "environment": environment,
+        "configPath": config_path,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }));
+
+    let mut args: Vec<&str> = vec![kind, "--env", &environment, "--config", &config_path, "--progress"];
+    args.extend_from_slice(extra_args);
+
+    let mut cmd = with_project_dir(warpcore_command(), &config_path);
+    cmd.args(warpcore_args(debug, &args));
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            let message = format!("could not start the warpcore CLI: {e}");
+            emit_update(serde_json::json!({ "event": "error", "kind": kind, "message": message }));
+            emit_update(serde_json::json!({
+                "event": "exit", "kind": kind, "code": serde_json::Value::Null,
+                "duration": start.elapsed().as_secs_f64(), "success": false,
+            }));
+            return Err(message);
+        }
+    };
+
+    let kind_owned = kind.to_string();
+    let window_stdout = window.clone();
+    let stdout_task = child.stdout.take().map(|stdout| {
+        let kind = kind_owned.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let trimmed = line.trim();
+                if trimmed.starts_with('{') {
+                    if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                        if value.get("event").is_some() {
+                            if let Some(obj) = value.as_object_mut() {
+                                obj.entry("kind").or_insert_with(|| serde_json::Value::String(kind.clone()));
+                            }
+                            let _ = window_stdout.emit("deployment-update", value);
+                            continue;
+                        }
+                    }
+                }
+                let _ = window_stdout.emit("cli-output", &line);
+            }
+        })
+    });
+
+    let window_stderr = window.clone();
+    let stderr_task = child.stderr.take().map(|stderr| {
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = window_stderr.emit("cli-error", &line);
+            }
+        })
+    });
+
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+    // Drain the pipes before announcing the exit, so `complete` always
+    // precedes `exit`.
+    if let Some(task) = stdout_task {
+        let _ = task.await;
+    }
+    if let Some(task) = stderr_task {
+        let _ = task.await;
+    }
+
+    let duration = start.elapsed().as_secs_f64();
+    emit_update(serde_json::json!({
+        "event": "exit",
+        "kind": kind,
+        "code": status.code(),
+        "duration": duration,
+        "success": status.success(),
+    }));
+
+    if status.success() {
+        Ok(format!("{kind} finished in {duration:.1}s"))
+    } else {
+        Err(format!("{kind} failed with status {status}"))
+    }
+}
+
 // Execute deployment with real-time status updates
 #[tauri::command]
 async fn execute_deployment(
@@ -246,144 +361,11 @@ async fn execute_deployment(
     debug: bool,
     window: tauri::Window,
 ) -> Result<String, String> {
-    use std::time::Instant;
-
-    let start = Instant::now();
-
-    // Emit deployment started event
-    let _ = window.emit(
-        "deployment-update",
-        serde_json::json!({
-            "type": "deployment_started",
-            "resourceId": "all",
-            "data": {
-                "environment": environment,
-                "configPath": config_path,
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            }
-        }),
-    );
-
-    let mut cmd = with_project_dir(warpcore_command(), &config_path);
-    cmd.args(warpcore_args(
-        debug,
-        &["deploy", "--env", &environment, "--config", &config_path],
-    ));
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-
-    let window_stdout = window.clone();
-    let window_stderr = window.clone();
-
-    // Parse deployment output to emit structured events
-    if let Some(stdout) = child.stdout.take() {
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-
-        tokio::spawn(async move {
-            // Regex patterns to detect resource status changes
-            let provisioning_re = Regex::new(r"Provisioning:\s*(.+)").ok();
-            let success_re = Regex::new(r"✓\s*(.+)").ok();
-            let failed_re = Regex::new(r"✗\s*(.+):\s*(.+)").ok();
-
-            while let Ok(Some(line)) = lines.next_line().await {
-                // Emit raw output
-                let _ = window_stdout.emit("cli-output", &line);
-
-                // Parse for structured events
-                if let Some(ref re) = provisioning_re {
-                    if let Some(cap) = re.captures(&line) {
-                        let resource_id = cap.get(1).map_or("unknown", |m| m.as_str());
-                        let _ = window_stdout.emit(
-                            "deployment-update",
-                            serde_json::json!({
-                                "type": "resource_status",
-                                "resourceId": resource_id.trim(),
-                                "data": { "status": "deploying" }
-                            }),
-                        );
-                    }
-                }
-
-                if let Some(ref re) = success_re {
-                    if let Some(cap) = re.captures(&line) {
-                        let resource_id = cap.get(1).map_or("unknown", |m| m.as_str());
-                        let _ = window_stdout.emit(
-                            "deployment-update",
-                            serde_json::json!({
-                                "type": "resource_status",
-                                "resourceId": resource_id.trim(),
-                                "data": { "status": "deployed" }
-                            }),
-                        );
-                    }
-                }
-
-                if let Some(ref re) = failed_re {
-                    if let Some(cap) = re.captures(&line) {
-                        let resource_id = cap.get(1).map_or("unknown", |m| m.as_str());
-                        let error = cap.get(2).map_or("", |m| m.as_str());
-                        let _ = window_stdout.emit(
-                            "deployment-update",
-                            serde_json::json!({
-                                "type": "resource_status",
-                                "resourceId": resource_id.trim(),
-                                "data": {
-                                    "status": "failed",
-                                    "error": error.trim()
-                                }
-                            }),
-                        );
-                    }
-                }
-            }
-        });
-    }
-
-    // Stream stderr
-    if let Some(stderr) = child.stderr.take() {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
-
-        tokio::spawn(async move {
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = window_stderr.emit("cli-error", &line);
-            }
-        });
-    }
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    let duration = start.elapsed().as_secs_f64();
-
-    // Emit deployment completed event
-    let final_status = if status.success() {
-        "deployed"
-    } else {
-        "failed"
-    };
-    let _ = window.emit(
-        "deployment-update",
-        serde_json::json!({
-            "type": "deployment_complete",
-            "resourceId": "all",
-            "data": {
-                "status": final_status,
-                "duration": duration,
-                "exitCode": status.code()
-            }
-        }),
-    );
-
-    if status.success() {
-        Ok(format!("Deployment completed in {:.2}s", duration))
-    } else {
-        Err(format!("Deployment failed with status: {}", status))
-    }
+    run_with_progress("deploy", config_path, environment, debug, &[], window).await
 }
 
-// Execute destroy with real-time status updates
+// Execute destroy with real-time status updates. `--progress` implies `-y`:
+// the frontend has already asked.
 #[tauri::command]
 async fn execute_destroy(
     config_path: String,
@@ -391,54 +373,7 @@ async fn execute_destroy(
     debug: bool,
     window: tauri::Window,
 ) -> Result<String, String> {
-    let mut cmd = with_project_dir(warpcore_command(), &config_path);
-    cmd.args(warpcore_args(
-        debug,
-        &[
-            "destroy",
-            "--env",
-            &environment,
-            "--config",
-            &config_path,
-            "-y",
-        ],
-    ));
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-
-    let window_stdout = window.clone();
-
-    if let Some(stdout) = child.stdout.take() {
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-
-        tokio::spawn(async move {
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = window_stdout.emit("cli-output", &line);
-            }
-        });
-    }
-
-    if let Some(stderr) = child.stderr.take() {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
-
-        tokio::spawn(async move {
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = window.emit("cli-error", &line);
-            }
-        });
-    }
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    if status.success() {
-        Ok("Destroy completed successfully".to_string())
-    } else {
-        Err(format!("Destroy failed with status: {}", status))
-    }
+    run_with_progress("destroy", config_path, environment, debug, &["-y"], window).await
 }
 
 // Validate configuration

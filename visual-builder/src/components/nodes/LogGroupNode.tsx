@@ -58,7 +58,7 @@ export default function LogGroupNode({ id, data, selected }: Props) {
   const hasPath = !!logPath;
 
   return (
-    <NodeWrapper nodeId={id} selected={selected}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status}>
       <div className={`node-inner px-4 py-3 min-w-[180px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 
