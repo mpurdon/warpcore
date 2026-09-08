@@ -3,10 +3,11 @@
 // inspect it, click a resource type to select one.
 
 import { useMemo, useState } from 'react';
-import { FolderKanban } from 'lucide-react';
+import { FolderKanban, Play, Plus } from 'lucide-react';
 import { useReadOnly, useStore } from '../../store/useStore';
 import { EXECUTION_STEPS, estimateCost, formatCost, formatExecutions } from '../../utils/costEstimation';
 import RolesPanel from '../RolesPanel';
+import { checkScenario, createScenario } from '../../utils/scenarios';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot } from './InspectorHeader';
 
 type Tab = 'overview' | 'roles';
@@ -15,6 +16,7 @@ export default function ProjectInspector() {
   const {
     projectName, configPath, hasUnsavedChanges, nodes, environmentConfigs, currentEnvironment,
     inspectEnvironment, deploymentHistory, executionsPerMonth, setExecutionsPerMonth, selectNode,
+    scenarios, edges, addScenario, inspectScenario, playScenario,
   } = useStore();
   const readOnly = useReadOnly();
   const [tab, setTab] = useState<Tab>('overview');
@@ -82,6 +84,40 @@ export default function ProjectInspector() {
                 <Fact key={type} label={type} value={ids.length} onClick={() => selectNode(ids[0])} />
               ))
             )}
+          </Section>
+
+          <Section title="Scenarios" hint={scenarios.length ? `${scenarios.length}` : 'play a request through the system'}>
+            {scenarios.length === 0 && (
+              <p className="text-xs text-gray-500 mb-2">A scenario is a named event played step by step through the resources it touches, with every hop checked against the wiring.</p>
+            )}
+            {scenarios.map((sc) => {
+              const check = checkScenario(sc, nodes, edges);
+              return (
+                <div key={sc.id} className="flex items-center gap-2 py-1">
+                  <button
+                    onClick={() => playScenario(sc.id)}
+                    disabled={sc.steps.length === 0}
+                    className="p-1 rounded text-blue-700 hover:bg-blue-50 disabled:text-gray-300 shrink-0"
+                    title={sc.steps.length ? 'Play' : 'No steps yet'}
+                  >
+                    <Play size={12} />
+                  </button>
+                  <button onClick={() => inspectScenario(sc.id)} className="flex-1 min-w-0 text-left text-xs text-blue-700 hover:underline truncate" title="Inspect">
+                    {sc.name}
+                  </button>
+                  <span className="text-[10px] text-gray-400 shrink-0">{sc.steps.length} {sc.steps.length === 1 ? 'step' : 'steps'}</span>
+                  <StatusDot tone={sc.steps.length === 0 ? 'muted' : check.ok ? 'ok' : 'warn'} label="" />
+                </div>
+              );
+            })}
+            <button
+              onClick={() => { const sc = createScenario(nodes, scenarios); if (sc) addScenario(sc); }}
+              disabled={readOnly || nodes.length === 0}
+              className="mt-1 inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-200 text-gray-800 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={readOnly ? 'Unlock the project to add scenarios' : 'New scenario'}
+            >
+              <Plus size={12} /> New scenario
+            </button>
           </Section>
 
           <Section title="Cost" hint="estimate">

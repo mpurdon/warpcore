@@ -226,6 +226,51 @@ application uses.
   parent: a paperclip count on the node, and an "Attached" section in the
   inspector.
 
+### Scenarios: play a request through the system
+
+A **scenario** is a named event played step by step through the resources
+it touches: "a webhook arrives" lights the API, then the authorizer, then
+the key it decrypts with, then the function, then the table, while the log
+groups tick. Scenarios live in `warpcore.yaml` under `scenarios:`, so they
+are shared and reviewed with the project:
+
+```yaml
+scenarios:
+  - name: Webhook received
+    trigger: { at: api-gateway-gitf-api, event: POST /webhook }
+    steps:
+      - at: lambda-gitf-authorizer   # validates the signature
+        takes: 40ms
+      - at: kms-key-gitf-key
+      - at: lambda-gitf
+        takes: 180ms
+      - at: dynamodb-gitf-sessions
+        note: writes the session row
+      - at: sns-gitf-events
+        detached: true               # fire and forget
+```
+
+- **Make one** from the project inspector (*New scenario*), from a node's
+  inspector (*Start a scenario here*), or the palette. Then press
+  **Record** and click resources on the canvas in order, or pick from the
+  hops the graph offers next, or **Suggest a path** to let the graph draft
+  the steps from the trigger. Steps can be reordered, annotated, timed and
+  marked *detached* in the inspector. Editing respects the lock; playing
+  does not.
+- **Play** puts a transport bar over the canvas: play, pause, step, jump to
+  a step, speed. The request travels each hop as a pulse, the resource it
+  is at glows, what the scenario does not touch steps back, and every
+  compute step's log group lights and ticks with synthetic lines in the
+  inspector. The lines show data moving; they are not what the code logs.
+  `Space` plays and pauses, `[` and `]` step, `Esc` stops.
+- **Every hop is checked** against the wiring on the canvas: invocations,
+  event sources and targets, and the access arrows from IAM policies. A
+  step with nothing behind it is flagged *no permission or trigger found*,
+  and so is a function with no log group. A scenario that passes is a
+  statement about the system: this request can happen, and here is the
+  policy that lets it.
+- Log groups are never steps: they are reached through their function.
+
 ### The project lock
 
 Every project opens **locked**, and locks again whenever you switch
@@ -302,7 +347,8 @@ Press `?` in the app for the full sheet. The ones worth memorising:
 | `⌘D` | Deploy the current environment, when the project is unlocked |
 | `⌘0`, `⌘=`, `⌘-` | Fit view, zoom in, zoom out |
 | `⌘,` | Application settings |
-| `Esc` | Close what is open, else clear the selection |
+| `Space`, `[`, `]` | Play or pause, previous and next step, while a scenario is on the transport bar |
+| `Esc` | Close what is open, else clear the selection, else stop recording or playback |
 | `⌫` | Delete the selection |
 
 `Ctrl` replaces `⌘` on Windows and Linux.

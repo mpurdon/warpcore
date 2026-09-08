@@ -396,3 +396,119 @@ code {
   border-radius: 9999px;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 }
+
+/* ------------------------------------------------------------- scenarios */
+
+/* While a scenario plays, what it does not touch steps back. */
+.react-flow__node.scn-dim {
+  opacity: 0.2;
+  filter: saturate(0.3);
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+.react-flow__node.scn-dim:hover {
+  opacity: 0.9;
+  filter: none;
+}
+/* The request is here. */
+.react-flow__node.scn-active .node-inner {
+  box-shadow: 0 0 0 3px #2563eb, 0 0 20px 5px rgba(37, 99, 235, 0.45) !important;
+  animation: scn-glow 1.2s ease-in-out infinite;
+}
+/* The request is on its way here. */
+.react-flow__node.scn-travelling .node-inner {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.55) !important;
+}
+/* It has been here. */
+.react-flow__node.scn-visited .node-inner {
+  box-shadow: 0 0 0 2px #1f2937 !important;
+}
+/* A log group receiving lines. */
+.react-flow__node.scn-logging .node-inner {
+  box-shadow: 0 0 0 2px #f59e0b, 0 0 14px 3px rgba(245, 158, 11, 0.4) !important;
+}
+@keyframes scn-glow {
+  0%, 100% { box-shadow: 0 0 0 3px #2563eb, 0 0 16px 3px rgba(37, 99, 235, 0.35); }
+  50% { box-shadow: 0 0 0 3px #2563eb, 0 0 28px 9px rgba(37, 99, 235, 0.6); }
+}
+/* Step numbers on the resources a scenario touches. */
+.scn-badges {
+  position: absolute;
+  top: -9px;
+  left: -6px;
+  display: flex;
+  gap: 2px;
+  z-index: 11;
+  pointer-events: none;
+}
+.scn-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  background: #111827;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px #fff;
+  font-variant-numeric: tabular-nums;
+}
+.scn-badge.trigger { background: #2563eb; font-size: 8px; }
+.scn-badge.active { background: #2563eb; }
+.scn-badge.pending { background: #9ca3af; }
+/* Three ticking bars on a log group that is being written to. */
+.scn-writing {
+  position: absolute;
+  bottom: -8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  padding: 2px 4px;
+  background: #fff;
+  border: 1px solid #fcd34d;
+  border-radius: 9999px;
+  z-index: 11;
+}
+.scn-writing span {
+  width: 3px;
+  background: #f59e0b;
+  border-radius: 1px;
+  animation: scn-tick 0.9s ease-in-out infinite;
+}
+.scn-writing span:nth-child(1) { height: 4px; animation-delay: 0s; }
+.scn-writing span:nth-child(2) { height: 7px; animation-delay: 0.15s; }
+.scn-writing span:nth-child(3) { height: 5px; animation-delay: 0.3s; }
+@keyframes scn-tick {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1.2); }
+}
+/* Log writes flow along their edge while the function runs. */
+.scn-log-flow {
+  animation: dash 0.6s linear infinite;
+}
+/* The transport bar's current segment fills over the phase. */
+.scn-fill {
+  width: 0;
+  animation-name: scn-fill;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes scn-fill {
+  from { width: 0; }
+  to { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node.scn-active .node-inner { animation: none; }
+  .scn-writing span { animation: none; transform: none; }
+  .scn-log-flow { animation: none; }
+}
+
+/* Edge labels sit with the edges: above the containers, under the cards. */
+.react-flow__edgelabel-renderer {
+  z-index: 1;
+}

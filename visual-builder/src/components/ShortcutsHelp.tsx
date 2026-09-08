@@ -24,6 +24,14 @@ export const SHORTCUT_GROUPS: { title: string; items: { keys: string[]; what: st
     items: LENSES.map((l) => ({ keys: [l.key], what: `${l.label}: ${l.description}` })),
   },
   {
+    title: 'Scenarios',
+    items: [
+      { keys: ['Space'], what: 'Play or pause the scenario on the transport bar' },
+      { keys: ['[', ']'], what: 'Previous and next step' },
+      { keys: ['Esc'], what: 'Stop recording, then stop playback' },
+    ],
+  },
+  {
     title: 'Edit',
     items: [
       { keys: [`${MOD} Z`], what: 'Undo' },

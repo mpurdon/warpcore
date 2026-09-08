@@ -186,6 +186,8 @@ export default function PermissionEdge({
   const discovered = data?.meta?.discovered as { kind: string; detail: string } | undefined;
   const access = data?.meta?.access as { level: string; via: string; actions: string[] } | undefined;
   const dimmed = Boolean(data?.dimmed);
+  // Scenario playback: the hop being travelled, the path so far, log writes.
+  const scn = data?.scenario as { onPath?: boolean; logging?: boolean; pulse?: { reverse: boolean; durationMs: number }; dim?: boolean } | undefined;
 
   // Get source and target node types
   const sourceNode = nodes.find(n => n.id === source);
@@ -238,6 +240,14 @@ export default function PermissionEdge({
     edgeStyle = { stroke: gradientInfo.color, strokeWidth: 3 };
   }
 
+  if (scn?.logging) {
+    edgeStyle = { stroke: '#f59e0b', strokeWidth: 2.5, strokeDasharray: '4 6' };
+  } else if (scn?.onPath) {
+    edgeStyle = { ...edgeStyle, strokeWidth: Number(edgeStyle.strokeWidth ?? 2) + 1.5, strokeDasharray: undefined };
+  }
+  const faded = dimmed || Boolean(scn?.dim);
+  const edgeOpacity = scn?.dim ? 0.15 : dimmed ? 0.3 : 1;
+
   // Get config summary for display
   const getConfigSummary = () => {
     // API Gateway → Lambda: show route
@@ -288,15 +298,29 @@ export default function PermissionEdge({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        style={dimmed ? { ...edgeStyle, opacity: 0.3 } : edgeStyle}
+        style={faded ? { ...edgeStyle, opacity: edgeOpacity } : edgeStyle}
+        {...(scn?.logging ? { className: 'scn-log-flow' } : {})}
       />
+
+      {/* The request travelling this hop: a dot that runs the path once and stays at the far end. */}
+      {scn?.pulse && (
+        <g key={`pulse-${id}-${scn.pulse.durationMs}-${scn.pulse.reverse}`} className="scn-pulse" style={{ pointerEvents: 'none' }}>
+          <circle r={10} fill="rgba(37, 99, 235, 0.22)">
+            <animateMotion dur={`${scn.pulse.durationMs}ms`} fill="freeze" path={edgePath} keyPoints={scn.pulse.reverse ? '1;0' : '0;1'} keyTimes="0;1" calcMode="linear" />
+          </circle>
+          <circle r={5} fill="#2563eb" stroke="#ffffff" strokeWidth={1.5}>
+            <animateMotion dur={`${scn.pulse.durationMs}ms`} fill="freeze" path={edgePath} keyPoints={scn.pulse.reverse ? '1;0' : '0;1'} keyTimes="0;1" calcMode="linear" />
+          </circle>
+        </g>
+      )}
 
       <EdgeLabelRenderer>
         <div
           style={{
             position: 'absolute',
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            pointerEvents: 'all',
+            pointerEvents: scn?.dim ? 'none' : 'all',
+            opacity: scn?.dim ? 0.15 : 1,
           }}
           className="nodrag nopan"
         >

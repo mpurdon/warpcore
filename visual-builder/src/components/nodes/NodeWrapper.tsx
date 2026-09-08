@@ -5,8 +5,9 @@
 
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { Node } from 'reactflow';
+import { Node, useStore as useFlowStore } from 'reactflow';
 import { NodeStatus, useReadOnly, useStore } from '../../store/useStore';
+import type { StepState } from '../../utils/scenarios';
 import { estimateCost, formatCost } from '../../utils/costEstimation';
 
 interface Props {
@@ -35,6 +36,9 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
   const lens = useStore((s) => s.lens);
   const executionsPerMonth = useStore((s) => s.executionsPerMonth);
   const readOnly = useReadOnly();
+  // Scenario marks are put on the view node by App; read them back here so
+  // every node kind gets the badges without threading a prop through each.
+  const scenario = useFlowStore((s) => s.nodeInternals.get(nodeId)?.data?.scenario as { numbers: number[]; state?: StepState; logging?: boolean } | undefined);
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent node selection
@@ -60,6 +64,22 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
       onMouseLeave={() => setIsHovered(false)}
     >
       {children}
+
+      {scenario && scenario.numbers.length > 0 && (
+        <span className="scn-badges" aria-label={`Scenario step ${scenario.numbers.join(', ')}`}>
+          {scenario.numbers.slice(0, 3).map((n) => (
+            <span key={n} className={`scn-badge ${n === 0 ? 'trigger' : scenario.state === 'active' ? 'active' : scenario.state === 'pending' || scenario.state === 'travelling' ? 'pending' : ''}`} title={n === 0 ? 'Where the request arrives' : `Step ${n}`}>
+              {n === 0 ? '▶' : n}
+            </span>
+          ))}
+          {scenario.numbers.length > 3 && <span className="scn-badge pending">+{scenario.numbers.length - 3}</span>}
+        </span>
+      )}
+      {scenario?.logging && (
+        <span className="scn-writing" title="Receiving log lines (synthetic)">
+          <span /><span /><span />
+        </span>
+      )}
 
       {dot && (
         <span

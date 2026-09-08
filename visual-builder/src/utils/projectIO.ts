@@ -19,6 +19,7 @@ export async function openProjectFile(filePath: string): Promise<void> {
   s.setConfigPath(filePath);
   s.setHasUnsavedChanges(false);
   s.setExecutionsPerMonth(parsed.executionsPerMonth);
+  s.setScenarios(parsed.scenarios);
   // A project's current environment must be one it has.
   if (!parsed.environmentConfigs[s.currentEnvironment]) {
     const first = Object.keys(parsed.environmentConfigs)[0];
@@ -74,7 +75,7 @@ export async function saveProject(): Promise<boolean> {
     // Keep the project's name across saves: deriving it from the first agent
     // renamed every project after its first function.
     const yamlContent = generateYAMLFromCanvas(
-      s.nodes, s.edges, s.executionsPerMonth, s.environmentConfigs, s.environmentExtras, s.projectName || undefined,
+      s.nodes, s.edges, s.executionsPerMonth, s.environmentConfigs, s.environmentExtras, s.projectName || undefined, s.scenarios,
     );
     await invoke('write_config_file', { path: s.configPath, content: yamlContent });
     lastSaveTime = Date.now();

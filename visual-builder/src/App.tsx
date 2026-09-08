@@ -36,6 +36,8 @@ import PermissionLegend from './components/PermissionLegend';
 import CommandPalette from './components/CommandPalette';
 import ActivityDrawer, { ACTIVITY_BAR_HEIGHT, ACTIVITY_BODY_HEIGHT } from './components/ActivityDrawer';
 import WelcomeScreen from './components/WelcomeScreen';
+import ScenarioTransport from './components/ScenarioTransport';
+import { canBeStep, checkScenario, playbackMarks, TRAVEL_MS } from './utils/scenarios';
 import type { Layer } from './utils/layers';
 import { lensEmphasis, pinnedBySelection } from './utils/lenses';
 import { isStackCanvas, reflowStack } from './utils/stackLayout';
@@ -48,6 +50,13 @@ import { isResourceBasedConnection } from './utils/rolePolicy';
 import { getAllValidTargets } from './utils/connectionRules';
 import { computeNodeGroups, findNodeGroup, isParentNode, isChildNode } from './utils/nodeGrouping';
 import GroupingOverlay from './components/GroupingOverlay';
+
+// Stacking: containers (tiles, bands, VPCs) at the bottom, edges above
+// them, resources on top, so a line is never hidden behind an opaque tile
+// and never drawn across a card. React Flow puts everything at 0 otherwise.
+const CONTAINER_Z = 0;
+const EDGE_Z = 1;
+const RESOURCE_Z = 2;
 
 // Minimap colours follow node status, the same semantics as the node tints.
 const MINIMAP_COLOR: Record<NodeStatus, string> = {
@@ -79,6 +88,9 @@ function Flow() {
     run,
     activityOpen,
     configPath,
+    scenarios,
+    inspectedScenario,
+    playhead,
   } = useStore();
   // A locked project is view-only: inspect anything, change nothing.
   const readOnly = useReadOnly();
@@ -181,19 +193,50 @@ function Flow() {
     return dlqEdgeList;
   }, [nodes]);
 
+  // The scenario on show: the one playing, else the one in the inspector.
+  // Derived here, never stored: marks on nodes and edges are a view of the
+  // playhead, and the playhead is the only thing the store holds.
+  const scenarioView = useMemo(() => {
+    const id = playhead?.scenarioId ?? inspectedScenario;
+    const scenario = id ? scenarios.find((s) => s.id === id) : undefined;
+    if (!scenario) return null;
+    const check = checkScenario(scenario, nodes, edges);
+    const head = playhead && playhead.scenarioId === scenario.id ? playhead : null;
+    const marks = playbackMarks(scenario, head, check, nodes, edges);
+    const pathEdges = new Set(check.steps.flatMap((st) => (st.evidence ? [st.evidence.edgeId] : [])));
+    const logEdges = new Set<string>();
+    for (const st of check.steps) {
+      for (const g of st.logGroups) {
+        for (const e of edges) {
+          if ((e.source === st.at && e.target === g) || (e.target === st.at && e.source === g)) logEdges.add(e.id);
+        }
+      }
+    }
+    return { scenario, head, marks, pathEdges, logEdges, speed: head?.speed ?? 1 };
+  }, [scenarios, inspectedScenario, playhead, nodes, edges]);
+
   // Combine regular edges with DLQ edges, then apply the layers: an edge on a
   // layer that is off is hidden unless it touches the selected node, in which
   // case it shows dimmed. Edges without a layer (drawn by hand) always show.
+  // A scenario's own edges - the hops and the log writes - always show too:
+  // they are the story being told.
   const allEdges = useMemo(() => {
     const combined = [...edges, ...dlqEdges];
+    const sv = scenarioView;
     return combined.flatMap((e) => {
+      const onPath = sv ? sv.pathEdges.has(e.id) : false;
+      const isLog = sv ? sv.logEdges.has(e.id) : false;
       const layer = e.data?.meta?.layer as Layer | undefined;
-      if (!layer || layers[layer]) return [e];
+      const layerOn = !layer || layers[layer];
       const touchesSelection = selectedNode !== null && (e.source === selectedNode || e.target === selectedNode);
-      if (!touchesSelection) return [];
-      return [{ ...e, data: { ...e.data, dimmed: true } }];
-    });
-  }, [edges, dlqEdges, layers, selectedNode]);
+      if (!layerOn && !touchesSelection && !onPath && !isLog) return [];
+      const dimmed = !layerOn && !onPath && !isLog;
+      if (!sv) return dimmed ? [{ ...e, data: { ...e.data, dimmed: true } }] : [e];
+      const pulse = sv.marks.pulse?.edgeId === e.id ? { reverse: sv.marks.pulse.reverse, durationMs: TRAVEL_MS / sv.speed } : undefined;
+      const scenario = { onPath, logging: sv.marks.logEdges.has(e.id), pulse, dim: Boolean(sv.head) && !onPath && !isLog };
+      return [{ ...e, data: { ...e.data, ...(dimmed ? { dimmed: true } : {}), scenario } }];
+    }).map((e) => (e.zIndex === EDGE_Z ? e : { ...e, zIndex: EDGE_Z }));
+  }, [edges, dlqEdges, layers, selectedNode, scenarioView]);
 
   // Compute node groups (DLQ relationships, etc.)
   const nodeGroups = useMemo(() => computeNodeGroups(nodes), [nodes]);
@@ -231,26 +274,42 @@ function Flow() {
   }, [nodes, emphasis]);
 
   const viewNodes = useMemo(() => nodes.map((n) => {
+    const classes: string[] = [];
+    if (errorsByNode.has(n.id)) classes.push(errorsByNode.get(n.id) ? 'validation-error' : 'validation-warning');
+    let out: Node = n;
     if (reflow) {
       if (reflow.hidden.has(n.id)) return { ...n, hidden: true };
       const placed = reflow.placed.get(n.id);
       const hiddenCount = reflow.hiddenCount.get(n.id);
-      const classes: string[] = [];
-      if (errorsByNode.has(n.id)) classes.push(errorsByNode.get(n.id) ? 'validation-error' : 'validation-warning');
-      return {
+      out = {
         ...n,
-        className: classes.join(' ') || undefined,
         draggable: false,
         ...(placed ? { position: placed.position, style: { ...(n.style || {}), ...placed.style } } : {}),
         ...(hiddenCount ? { data: { ...n.data, meta: { ...(n.data?.meta || {}), hiddenCount } } } : {}),
       };
+    } else if (emphasis) {
+      classes.push(emphasis.get(n.id) === 'context' ? 'lens-context' : 'lens-focus');
     }
-    const classes: string[] = [];
-    if (errorsByNode.has(n.id)) classes.push(errorsByNode.get(n.id) ? 'validation-error' : 'validation-warning');
-    if (emphasis) classes.push(emphasis.get(n.id) === 'context' ? 'lens-context' : 'lens-focus');
+    // Scenario marks: step numbers on the resources it touches, the state
+    // of each at the playhead, and everything else pushed back while it plays.
+    if (scenarioView) {
+      const { marks, head } = scenarioView;
+      const numbers = marks.numbers.get(n.id);
+      const state = marks.state.get(n.id);
+      const logging = marks.logging.has(n.id);
+      if (numbers || logging) {
+        classes.push(state ? `scn-${state}` : 'scn-marked');
+        if (logging) classes.push('scn-logging');
+        out = { ...out, data: { ...out.data, scenario: { numbers: numbers ?? [], state, logging } } };
+      } else if (head && !n.data?.meta?.isGroup) {
+        classes.push('scn-dim');
+      }
+    }
     const className = classes.join(' ') || undefined;
-    return className === n.className ? n : { ...n, className };
-  }), [nodes, errorsByNode, emphasis, reflow]);
+    const zIndex = n.data?.meta?.isGroup ? CONTAINER_Z : RESOURCE_Z;
+    if (out === n) return className === n.className && n.zIndex === zIndex ? n : { ...n, className, zIndex };
+    return { ...out, className, zIndex };
+  }), [nodes, errorsByNode, emphasis, reflow, scenarioView]);
 
   // Handle mouse-based drag from palette
   useEffect(() => {
@@ -687,6 +746,12 @@ function Flow() {
     [setSelectedNode, setEditingNode]
   );
 
+  // While a scenario is recording, a click on a resource is its next step.
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    const s = useStore.getState();
+    if (s.recording && s.inspectedScenario && canBeStep(node)) s.recordStep(node.id);
+  }, []);
+
   // Double-click on node - open config panel
   const onNodeDoubleClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
@@ -888,6 +953,7 @@ function Flow() {
             onConnect={onConnect}
             onConnectEnd={onConnectEnd}
             onSelectionChange={onSelectionChange}
+            onNodeClick={onNodeClick}
             onNodeDoubleClick={onNodeDoubleClick}
             onEdgeClick={onEdgeClick}
             onEdgeDoubleClick={onEdgeDoubleClick}
@@ -943,6 +1009,7 @@ function Flow() {
           <LockBanner />
           <LensBar />
           <PermissionLegend bottomOffset={drawerHeight} />
+          <ScenarioTransport bottomOffset={drawerHeight} />
           <ActivityDrawer />
 
           {/* Radial menu for quick node creation */}

@@ -516,3 +516,51 @@ only exist when they have members, platform resources are chips.
   nodes, drops empty containers, lays out what remains, and counts what
   went per band. Hand-drawn canvases keep dimming.
 - The old `enclosure` nodes still render, so older files open unchanged.
+
+## 12. Scenarios
+
+[2026-09-08. Designed in the "Application Stack" design note, §Scenarios;
+shipped in `utils/scenarios.ts`, the `scenarios` and `playhead` slices of
+the store, `inspector/ScenarioInspector`, and `ScenarioTransport`.]
+
+A scenario is a named event played step by step through the resources it
+touches. It is **data in `warpcore.yaml`** (`scenarios:`), not a recording
+on this machine, so it is versioned and reviewed with the project. Each
+step names a node on the canvas; a note, a `takes` duration and a
+`detached` flag are optional. Log groups are never steps: every compute
+step's log edge is pulsed during playback and synthetic lines stream into
+the group, which shows data moving without claiming to know what the code
+logs.
+
+- **Checked, not just drawn.** Every hop is matched against the wiring the
+  import found or the operator drew: invocations, event sources and
+  targets, DNS and origins, access arrows from IAM policies, hand-drawn
+  permission edges. The evidence for a hop is looked for from the nearest
+  earlier step, so "authorizer, then the key it reads, then the function"
+  resolves the function's hop back to the API. A hop with nothing behind it
+  and a compute step with no log group are flagged in the inspector and on
+  the transport bar. That check is the point: a scenario that passes says
+  "this request can happen, and here is the policy that lets it."
+- **One playhead in the store.** Playback is two facts - which step, and
+  whether the request is travelling to it or dwelling on it - plus playing
+  and speed. The transport bar owns the clock and advances the playhead
+  when a phase ends; everything continuous (the pulse along the edge, the
+  segment fill, the log-group ticker) is CSS driven by those facts. The
+  store therefore changes a handful of times per scenario, and any other
+  view of the system (the 3D system view, §13) reads the same playhead and
+  shows the same instant.
+- **Derived marks.** Step numbers, node states, the pulse edge, the lit log
+  groups and the dimming of everything else are computed in `App` from the
+  playhead and put on the *view* nodes and edges, never in the store: they
+  are a view of the playhead, not project state, and must not mark the
+  project dirty or become undo steps. The scenario's own edges (hops and
+  log writes) always draw, whatever the edge layers say.
+- **Recording is clicking.** With Record on, a click on a resource appends
+  it as the next step; the inspector also offers the hops the graph allows
+  from the last step, and "Suggest a path" drafts the steps with a
+  depth-first walk (triggers first, then access, then references). Editing
+  a scenario is a project change and respects the lock; playing never does.
+- **Stacking on the canvas.** Containers, edges and resources have explicit
+  z levels (0, 1, 2) so a line runs above an opaque tile and under a card.
+  React Flow puts everything at 0 otherwise, and an opaque application
+  tile hid every edge.

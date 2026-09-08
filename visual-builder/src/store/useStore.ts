@@ -5,6 +5,8 @@ import { Layer } from '../utils/layers';
 import { Lens, LENS_LAYERS } from '../utils/lenses';
 import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
 import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
+import type { Playhead, Scenario } from '../utils/scenarios';
+import { advance as advancePlayhead, seekTo } from '../utils/scenarios';
 
 // Sections of the application settings view. Order here is display order.
 export const SETTINGS_SECTIONS = [
@@ -347,6 +349,35 @@ interface StoreState {
   editingNode: string | null;
   setEditingNode: (nodeId: string | null) => void;
 
+  // Scenarios (utils/scenarios.ts): part of the project, saved to
+  // warpcore.yaml, so editing them is a project change and respects the
+  // lock. Playing one is not. `inspectedScenario` puts a scenario in the
+  // inspector the way inspectedEnvironment does; selecting a node clears it
+  // unless the scenario is recording, when node clicks are its input.
+  scenarios: Scenario[];
+  /** Replace every scenario, e.g. after opening a file. Dirty only when asked. */
+  setScenarios: (scenarios: Scenario[], dirty?: boolean) => void;
+  addScenario: (scenario: Scenario) => void;
+  updateScenario: (id: string, update: (scenario: Scenario) => Scenario) => void;
+  removeScenario: (id: string) => void;
+  inspectedScenario: string | null;
+  inspectScenario: (id: string | null) => void;
+  recording: boolean;
+  setRecording: (on: boolean) => void;
+  /** Append a step to the scenario being recorded. */
+  recordStep: (nodeId: string) => void;
+  // Playback: one playhead in the store drives the canvas and the system
+  // view, so both show the same instant. See Playhead in scenarios.ts.
+  playhead: Playhead | null;
+  playScenario: (id: string) => void;
+  stopPlayback: () => void;
+  setPlaying: (playing: boolean) => void;
+  /** The next phase: travel → dwell → next step's travel … → end. */
+  advancePlayback: () => void;
+  /** Jump to the start of a step; -1 is the trigger. */
+  seekPlayback: (index: number) => void;
+  setPlaybackSpeed: (speed: number) => void;
+
   // The project lock. On by default whenever a project is opened or the
   // environment changes; off only after the operator types the project's
   // name. While locked the canvas is view-only and Deploy/Destroy are off.
@@ -484,11 +515,13 @@ export const useStore = create<StoreState>((set) => ({
   setSelectedNode: (nodeId) => set((state) => ({
     selectedNode: nodeId,
     inspectedEnvironment: nodeId ? null : state.inspectedEnvironment,
+    inspectedScenario: nodeId && !state.recording ? null : state.inspectedScenario,
   })),
   selectNode: (nodeId) => set((state) => ({
     nodes: state.nodes.map((n) => (n.selected === (n.id === nodeId) ? n : { ...n, selected: n.id === nodeId })),
     selectedNode: nodeId,
     inspectedEnvironment: null,
+    inspectedScenario: state.recording ? state.inspectedScenario : null,
     rightPanelVisible: true,
     settingsOpen: false,
   })),
@@ -562,12 +595,107 @@ export const useStore = create<StoreState>((set) => ({
   inspectedEnvironment: null,
   inspectEnvironment: (env) => set((state) => ({
     inspectedEnvironment: env,
+    inspectedScenario: env ? null : state.inspectedScenario,
     // Opening an environment is a selection too: make sure it can be seen.
     rightPanelVisible: env ? true : state.rightPanelVisible,
     settingsOpen: env ? false : state.settingsOpen,
   })),
   editingNode: null,
   setEditingNode: (nodeId) => set({ editingNode: nodeId }),
+
+  // Scenarios
+  scenarios: [],
+  setScenarios: (scenarios, dirty = false) => set((state) => ({
+    scenarios,
+    hasUnsavedChanges: state.hasUnsavedChanges || dirty,
+    inspectedScenario: state.inspectedScenario && scenarios.some((s) => s.id === state.inspectedScenario) ? state.inspectedScenario : null,
+    playhead: state.playhead && scenarios.some((s) => s.id === state.playhead!.scenarioId) ? state.playhead : null,
+    recording: false,
+  })),
+  addScenario: (scenario) => set((state) => ({
+    scenarios: [...state.scenarios, scenario],
+    hasUnsavedChanges: true,
+    inspectedScenario: scenario.id,
+    inspectedEnvironment: null,
+    rightPanelVisible: true,
+    settingsOpen: false,
+  })),
+  updateScenario: (id, update) => set((state) => {
+    let changed = false;
+    const scenarios = state.scenarios.map((s) => {
+      if (s.id !== id) return s;
+      const next = update(s);
+      if (next !== s) changed = true;
+      return next;
+    });
+    if (!changed) return {};
+    // A playhead past the end of a shortened scenario is clamped.
+    const playhead = state.playhead && state.playhead.scenarioId === id
+      ? seekTo(scenarios.find((s) => s.id === id)!, state.playhead, Math.min(state.playhead.index, scenarios.find((s) => s.id === id)!.steps.length - 1))
+      : state.playhead;
+    return { scenarios, hasUnsavedChanges: true, playhead };
+  }),
+  removeScenario: (id) => set((state) => ({
+    scenarios: state.scenarios.filter((s) => s.id !== id),
+    hasUnsavedChanges: true,
+    inspectedScenario: state.inspectedScenario === id ? null : state.inspectedScenario,
+    playhead: state.playhead?.scenarioId === id ? null : state.playhead,
+    recording: state.inspectedScenario === id ? false : state.recording,
+  })),
+  inspectedScenario: null,
+  inspectScenario: (id) => set((state) => ({
+    inspectedScenario: id,
+    inspectedEnvironment: id ? null : state.inspectedEnvironment,
+    recording: id ? state.recording : false,
+    rightPanelVisible: id ? true : state.rightPanelVisible,
+    settingsOpen: id ? false : state.settingsOpen,
+  })),
+  recording: false,
+  setRecording: (on) => set((state) => (on && !state.inspectedScenario ? {} : { recording: on, playhead: on ? null : state.playhead })),
+  recordStep: (nodeId) => set((state) => {
+    const id = state.inspectedScenario;
+    if (!state.recording || !id) return {};
+    const scenario = state.scenarios.find((s) => s.id === id);
+    if (!scenario) return {};
+    const last = scenario.steps[scenario.steps.length - 1]?.at ?? scenario.trigger.at;
+    if (last === nodeId) return {};
+    const next = { ...scenario, steps: [...scenario.steps, { at: nodeId }] };
+    return { scenarios: state.scenarios.map((s) => (s.id === id ? next : s)), hasUnsavedChanges: true };
+  }),
+  playhead: null,
+  playScenario: (id) => set((state) => {
+    const scenario = state.scenarios.find((s) => s.id === id);
+    if (!scenario) return {};
+    const speed = state.playhead?.speed ?? 1;
+    const playhead: Playhead = scenario.steps.length
+      ? { scenarioId: id, index: 0, phase: 'travel', playing: true, speed }
+      : { scenarioId: id, index: -1, phase: 'dwell', playing: false, speed };
+    return { playhead, recording: false, inspectedScenario: state.inspectedScenario ?? id };
+  }),
+  stopPlayback: () => set({ playhead: null }),
+  setPlaying: (playing) => set((state) => {
+    if (!state.playhead) return {};
+    const scenario = state.scenarios.find((s) => s.id === state.playhead!.scenarioId);
+    if (!scenario) return { playhead: null };
+    // Play at the end starts over.
+    if (playing && state.playhead.phase === 'end') {
+      return { playhead: { ...state.playhead, index: 0, phase: scenario.steps.length ? 'travel' : 'dwell', playing: scenario.steps.length > 0 } };
+    }
+    return { playhead: { ...state.playhead, playing } };
+  }),
+  advancePlayback: () => set((state) => {
+    if (!state.playhead) return {};
+    const scenario = state.scenarios.find((s) => s.id === state.playhead!.scenarioId);
+    if (!scenario) return { playhead: null };
+    return { playhead: advancePlayhead(scenario, state.playhead) };
+  }),
+  seekPlayback: (index) => set((state) => {
+    if (!state.playhead) return {};
+    const scenario = state.scenarios.find((s) => s.id === state.playhead!.scenarioId);
+    if (!scenario) return { playhead: null };
+    return { playhead: seekTo(scenario, state.playhead, index) };
+  }),
+  setPlaybackSpeed: (speed) => set((state) => (state.playhead ? { playhead: { ...state.playhead, speed } } : {})),
 
   // Project lock
   locked: true,

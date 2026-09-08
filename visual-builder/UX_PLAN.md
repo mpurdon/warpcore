@@ -184,10 +184,12 @@ platform as chips); resources are clustered by tags, name prefix, then
 wiring, with the reason shown in the inspector; lenses on a computed layout
 remove rather than dim and re-flow the tile. See DESIGN_GUIDANCE.md §11.
 
-Next: scenarios. A scenario is a named event played step by step through
-the resources it touches, stored in `warpcore.yaml`, recorded by clicking
-hops or drafted from the graph, played with a transport bar in both the
-canvas and a read-only Three.js system view. Every hop is checked against
-the wiring (a hop with no permission is flagged), and log groups tick with
-synthetic lines to show data moving. Order: model and inspector (2 days),
-canvas playback (2 days), system view (5 to 7 days).
+Scenarios, shipped 2026-09-08: a scenario is a named event played step by
+step through the resources it touches, stored in `warpcore.yaml`
+(`scenarios:`), recorded by clicking hops or drafted from the graph, and
+played with a transport bar over the canvas. Every hop is checked against
+the wiring (a hop with no permission or trigger is flagged, and so is a
+function with no log group), and log groups tick with synthetic lines to
+show data moving. One playhead in the store drives every view. See
+DESIGN_GUIDANCE.md §12; the Three.js system view that reads the same
+playhead is §13.

@@ -2,6 +2,7 @@ import { Node, Edge } from 'reactflow';
 import YAML from 'yaml';
 import { DEFAULT_ENVIRONMENT_CONFIGS, EnvironmentConfig, RemovalPolicy } from '../store/useStore';
 import { orderParentsFirst } from './nodeTree';
+import { Scenario, ScenarioYaml, scenariosFromYaml, scenariosToYaml } from './scenarios';
 
 export interface ResourceConfig {
   name: string;
@@ -53,6 +54,8 @@ export interface WarpcoreConfig {
     };
   };
   environments: Record<string, EnvironmentYaml>;
+  /** Named events played through the canvas; see scenarios.ts. */
+  scenarios?: ScenarioYaml[];
   canvas?: {
     nodes: Array<{
       id: string;
@@ -209,6 +212,7 @@ export function generateYAMLFromCanvas(
   environments: Record<string, EnvironmentConfig> = DEFAULT_ENVIRONMENT_CONFIGS,
   extras: EnvironmentExtras = {},
   projectName?: string,
+  scenarios: Scenario[] = [],
 ): string {
   // The project's own name when it has one; otherwise derived from the first
   // agent, which is how untitled canvases have always been named.
@@ -234,6 +238,7 @@ export function generateYAMLFromCanvas(
     environments: Object.fromEntries(
       Object.entries(environments).map(([key, cfg]) => [key, environmentBlock(key, cfg, extras[key])]),
     ),
+    ...(scenarios.length ? { scenarios: scenariosToYaml(scenarios) } : {}),
     canvas: {
       nodes: [],
       edges: [],
@@ -344,6 +349,7 @@ export interface ParsedCanvas {
   environmentConfigs: Record<string, EnvironmentConfig>;
   /** Everything else each environment block carried, kept for the round trip. */
   environmentExtras: EnvironmentExtras;
+  scenarios: Scenario[];
 }
 
 export function parseYAMLToCanvas(yamlContent: string): ParsedCanvas {
@@ -351,6 +357,7 @@ export function parseYAMLToCanvas(yamlContent: string): ParsedCanvas {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   const executionsPerMonth = config.project.cost_estimation?.executions_per_month ?? 100000;
+  const scenarios = scenariosFromYaml(config.scenarios);
 
   // Environments: whatever the file declares, else the defaults. A file with
   // only `account`/`region` per environment (older builders, hand-written)
@@ -411,7 +418,7 @@ export function parseYAMLToCanvas(yamlContent: string): ParsedCanvas {
       });
     }
 
-    return { nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras };
+    return { nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras, scenarios };
   }
 
   // Fallback: Generate nodes from semantic config
@@ -533,5 +540,5 @@ export function parseYAMLToCanvas(yamlContent: string): ParsedCanvas {
     }
   });
 
-  return { nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras };
+  return { nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras, scenarios };
 }

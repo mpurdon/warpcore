@@ -4,13 +4,14 @@
 
 import { useMemo, useState } from 'react';
 import { Node } from 'reactflow';
-import { ArrowLeftRight, Box, Settings2, ShieldAlert } from 'lucide-react';
+import { ArrowLeftRight, Box, Play, Plus, Settings2, ShieldAlert } from 'lucide-react';
 import { useReadOnly, useStore, NodeStatus } from '../../store/useStore';
 import { displayNameFor, isOpenToWorld } from '../../utils/nodeName';
 import { shortType } from '../../utils/accountExplorer';
 import type { NodeMeta } from '../../utils/projectFromAccount';
 import { estimateCost, formatCost, formatExecutions } from '../../utils/costEstimation';
 import ExecutionLogPanel from '../ExecutionLogPanel';
+import { canBeStep, createScenario } from '../../utils/scenarios';
 import ExpertView from './ExpertView';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot, Tone } from './InspectorHeader';
 
@@ -27,7 +28,8 @@ const STATUS: Record<NodeStatus, { tone: Tone; label: string; pulse?: boolean }>
 };
 
 export default function NodeInspector({ node }: { node: Node }) {
-  const { nodes, edges, executionsPerMonth, setEditingNode, selectNode, executionLogs } = useStore();
+  const { nodes, edges, executionsPerMonth, setEditingNode, selectNode, executionLogs, scenarios, addScenario, inspectScenario, playScenario } = useStore();
+  const through = useMemo(() => scenarios.filter((sc) => sc.trigger.at === node.id || sc.steps.some((st) => st.at === node.id)), [scenarios, node.id]);
   const readOnly = useReadOnly();
   const [tab, setTab] = useState<Tab>('overview');
   const status = (node.data?.status as NodeStatus | undefined) ?? 'draft';
@@ -247,6 +249,28 @@ export default function NodeInspector({ node }: { node: Node }) {
               ))
             )}
           </Section>
+
+          {(through.length > 0 || canBeStep(node)) && (
+            <Section title="Scenarios" hint={through.length ? `${through.length} through here` : undefined}>
+              {through.map((sc) => (
+                <div key={sc.id} className="flex items-center gap-2 py-1">
+                  <button onClick={() => playScenario(sc.id)} disabled={sc.steps.length === 0} className="p-1 rounded text-blue-700 hover:bg-blue-50 disabled:text-gray-300 shrink-0" title="Play"><Play size={12} /></button>
+                  <button onClick={() => inspectScenario(sc.id)} className="flex-1 min-w-0 text-left text-xs text-blue-700 hover:underline truncate">{sc.name}</button>
+                  <span className="text-[10px] text-gray-400 shrink-0">{sc.trigger.at === node.id ? 'starts here' : `step ${sc.steps.findIndex((st) => st.at === node.id) + 1}`}</span>
+                </div>
+              ))}
+              {canBeStep(node) && (
+                <button
+                  onClick={() => { const sc = createScenario(nodes, scenarios, node.id); if (sc) addScenario(sc); }}
+                  disabled={readOnly}
+                  className="mt-1 inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-gray-900 disabled:text-gray-400"
+                  title={readOnly ? 'Unlock the project to add scenarios' : 'A new scenario whose request arrives here'}
+                >
+                  <Plus size={11} /> Start a scenario here
+                </button>
+              )}
+            </Section>
+          )}
 
           <Section title="Cost" hint={`at ${formatExecutions(executionsPerMonth)}/month`}>
             <Fact label="Estimated monthly" value={formatCost(cost)} />
