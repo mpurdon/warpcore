@@ -4,7 +4,7 @@
 
 import { Node } from 'reactflow';
 import { useStore } from '../store/useStore';
-import { ADD_COLUMN_W, CELL_H, CELL_W, GROUP_GAP, GROUP_HEADER, GROUP_PAD, SUBNET_MIN_H } from './projectFromAccount';
+import { ADD_COLUMN_W, CELL_H, CELL_W, GROUP_GAP, GROUP_HEADER, GROUP_PAD, SUBNET_MIN_H } from './stackLayout';
 import { orderParentsFirst } from './nodeTree';
 
 const SUBNET_W = CELL_W + GROUP_PAD * 2;

@@ -17,6 +17,14 @@ import { orderParentsFirst } from './nodeTree';
 import { isOpenToWorld } from './nodeName';
 import { Activity, Boxes, Cloud, Database, Globe, KeyRound, LucideIcon, Mail, Network, Settings, UserSquare, Vault } from 'lucide-react';
 import { Layer, layerFor } from './layers';
+import { clusterApplications, ClusterItem, SHARED_ID } from './applications';
+import {
+  assignHandles, bandFor, BandKind, BAND_ORDER, layoutStackCanvas,
+  CELL_W, CELL_H, GROUP_HEADER, GROUP_PAD, GROUP_GAP, ADD_COLUMN_W, SUBNET_MIN_H, EMPTY_SUBNET_W,
+} from './stackLayout';
+
+// The grid constants moved to stackLayout.ts; re-exported for older callers.
+export { CELL_W, CELL_H, GROUP_HEADER, GROUP_PAD, GROUP_GAP, ADD_COLUMN_W, SUBNET_MIN_H, EMPTY_SUBNET_W };
 
 // ---------------------------------------------------------------- payload
 
@@ -254,6 +262,14 @@ export interface NodeMeta {
   warning?: string;
   /** Where the node's colour came from. */
   health?: { level: 'ok' | 'warn' | 'unknown'; reason: string };
+  /** The application this resource was clustered into, and why. */
+  application?: { id: string; name: string; reason: string };
+  /** For band containers: which band. */
+  band?: BandKind;
+  /** Drawn as a one-line chip (platform resources). */
+  compact?: boolean;
+  /** Set by the lens re-flow on containers: how many members it removed. Not persisted. */
+  hiddenCount?: number;
 }
 
 export interface EdgeMeta {
@@ -312,35 +328,15 @@ export const ENCLOSURES: Record<EnclosureKind, EnclosureInfo> = {
   other: { label: 'Other', subtitle: 'no node of their own yet', column: 4, types: ['aws-resource'],
     icon: Cloud, border: 'border-gray-300', bg: 'bg-gray-50/40', header: 'text-gray-700' },
 };
-const COLUMNS = 5;
-
 const ENCLOSURE_OF_TYPE: Record<string, EnclosureKind> = Object.fromEntries(
   (Object.entries(ENCLOSURES) as [EnclosureKind, EnclosureInfo][]).flatMap(([kind, info]) => info.types.map((t) => [t, kind])),
 );
 
-/** Which group a top-level node belongs in. SecureString parameters are secrets. */
+/** Which legacy group a top-level node belongs in. SecureString parameters are secrets. */
 export function enclosureFor(node: Node): EnclosureKind {
   if (node.type === 'ssm-parameter') return node.data?.config?.secure ? 'secrets' : 'config';
   return ENCLOSURE_OF_TYPE[node.type || ''] ?? 'other';
 }
-
-const BAND_GAP = 140;
-
-// Cells inside groups. Nodes measure themselves; these are the spacing the
-// layout assumes, generous enough for the widest label. Exported so the
-// "+ subnet" affordance in subnets.ts places new partitions on the same grid.
-export const CELL_W = 250;
-export const CELL_H = 84;
-export const GROUP_HEADER = 44;
-export const GROUP_PAD = 20;
-export const GROUP_GAP = 12;
-/** Room the VPC keeps on its right for the "+ subnet" column. */
-export const ADD_COLUMN_W = 56;
-const ADD_COLUMN_MIN_H = 120;
-export const SUBNET_MIN_H = 150;
-/** Slim column for a subnet with nothing in it. */
-export const EMPTY_SUBNET_W = 64;
-const EMPTY_SUBNET_H = 120;
 
 /** Which layout band a node belongs to; global services join the busiest region. */
 export function regionBand(node: Node): string {
@@ -372,7 +368,6 @@ export interface BuiltCanvas {
   droppedConnections: number;
 }
 
-interface Box { w: number; h: number }
 
 export function buildCanvas(project: AccountProject): BuiltCanvas {
   const usedIds = new Set<string>();
@@ -498,38 +493,88 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
     }
   }
 
-  // ---- enclosures: every top-level node outside a VPC joins a group by role,
-  // one group per role per region.
-  const enclosures: Node[] = [];
-  const loose = nodes.filter((n) => !n.hidden && n.type !== 'vpc' && !parentOf.has(n.id));
-  // Global services (IAM, CloudFront, Route 53) join the busiest region's
-  // groups rather than forming a second "Edge & DNS" of their own.
-  const regionCounts = new Map<string, number>();
-  for (const n of loose) { const r = regionBand(n); if (r) regionCounts.set(r, (regionCounts.get(r) || 0) + 1); }
-  const primaryRegion = [...regionCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-  const buckets = new Map<string, Node[]>();
-  for (const n of loose) {
-    pushTo(buckets, `${enclosureFor(n)}|${regionBand(n) || primaryRegion}`, n);
+  // ---- applications: every resource gets a home and a reason. VPCs and
+  // what is inside them travel together; roles are hidden but still vote.
+  const topLevelOf = (n: Node): Node => {
+    let cur = n;
+    for (let hops = 0; hops < 6 && parentOf.has(cur.id); hops++) cur = nodeById0.get(parentOf.get(cur.id)!) ?? cur;
+    return cur;
+  };
+  const nodeById0 = new Map(nodes.map((n) => [n.id, n]));
+  const tagsByNodeId = new Map<string, Record<string, string>>();
+  for (const item of all) { const n = byArn.get(item.arn); if (n) tagsByNodeId.set(n.id, item.tags || {}); }
+  for (const role of project.roles) { const n = byArn.get(role.arn); if (n) tagsByNodeId.set(n.id, role.tags || {}); }
+  const clusterItems: ClusterItem[] = nodes.map((n) => ({
+    id: n.id,
+    name: String(n.data?.label ?? n.id),
+    type: n.type || '',
+    tags: tagsByNodeId.get(n.id),
+    platform: bandFor(n) === 'platform' || n.type === 'vpc' || n.type === 'subnet' || n.type === 'security-group',
+    parent: parentOf.get(n.id),
+  }));
+  const clusterLinks = project.connections.flatMap((c) => {
+    const from = byArn.get(c.from_arn);
+    const to = byArn.get(c.to_arn);
+    return from && to ? [{ source: from.id, target: to.id }] : [];
+  });
+  const clustering = clusterApplications(clusterItems, clusterLinks, project.project.name);
+  for (const n of nodes) {
+    const a = clustering.assignments.get(n.id);
+    if (a) metaOf(n).application = a;
   }
-  for (const [key, members] of buckets) {
-    const [kind, region] = key.split('|') as [EnclosureKind, string];
-    const info = ENCLOSURES[kind];
-    const node: Node = {
-      id: idFor('enclosure', `${kind}-${region || 'global'}`),
-      type: 'enclosure',
+
+  // One tile per application, one band per kind that has members. A VPC
+  // is a member of its application's compute band; things inside the VPC
+  // stay inside it wherever it goes.
+  const containers: Node[] = [];
+  const regionsOf = new Map<string, Set<string>>();
+  for (const app of clustering.applications) {
+    const tileId = idFor('application', app.id);
+    const members = nodes.filter((n) => !n.hidden && !parentOf.has(n.id) && (metaOf(topLevelOf(n)).application?.id ?? SHARED_ID) === app.id);
+    if (members.length === 0) continue;
+    const regions = new Set<string>();
+    for (const m of members) { const r = regionBand(m); if (r) regions.add(r); }
+    regionsOf.set(tileId, regions);
+    const tile: Node = {
+      id: tileId,
+      type: 'application',
       position: { x: 0, y: 0 },
       data: {
-        label: info.label,
-        config: { name: info.label, subtitle: info.subtitle, kind },
+        label: app.name,
+        config: { name: app.name, subtitle: '' },
         status: 'present',
-        region: region || undefined,
-        meta: { isGroup: true, enclosure: kind } as NodeMeta,
+        meta: { isGroup: true, application: { id: app.id, name: app.name, reason: app.id === SHARED_ID ? 'used by more than one application' : 'application' } } as NodeMeta,
       },
     };
-    enclosures.push(node);
-    for (const m of members) parentOf.set(m.id, node.id);
+    containers.push(tile);
+    // Every resource whose top-level ancestor is in this application,
+    // counted before the bands take over as parents.
+    const total = nodes.filter((n) => !n.hidden && n.type !== 'application' && n.type !== 'band'
+      && (metaOf(topLevelOf(n)).application?.id ?? SHARED_ID) === app.id).length;
+    const byBand = new Map<BandKind, Node[]>();
+    for (const m of members) pushTo(byBand, bandFor(m), m);
+    for (const kind of BAND_ORDER) {
+      const list = byBand.get(kind);
+      if (!list?.length) continue;
+      const band: Node = {
+        id: idFor('band', `${app.id}-${kind}`),
+        type: 'band',
+        position: { x: 0, y: 0 },
+        data: { label: kind, config: { name: kind }, status: 'present', meta: { isGroup: true, band: kind } as NodeMeta },
+      };
+      containers.push(band);
+      parentOf.set(band.id, tile.id);
+      for (const m of list) {
+        parentOf.set(m.id, band.id);
+        if (kind === 'platform') metaOf(m).compact = true;
+      }
+    }
+    tile.data.config.subtitle = [
+      `${total} resource${total === 1 ? '' : 's'}`,
+      [...regions].sort().join(', ') || 'global',
+    ].join(' · ');
   }
-  nodes.push(...enclosures);
+  nodes.push(...containers);
 
   // Mark groups.
   const childrenOf = new Map<string, Node[]>();
@@ -588,25 +633,14 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
     });
   }
 
-  // ---- layout
-  layout(nodes, edges, childrenOf, parentOf);
-
-  // Handles depend on final (absolute) positions.
-  const absolute = (n: Node): { x: number; y: number } => {
-    let x = n.position.x;
-    let y = n.position.y;
-    let p = n.parentNode ? nodeById.get(n.parentNode) : undefined;
-    while (p) { x += p.position.x; y += p.position.y; p = p.parentNode ? nodeById.get(p.parentNode) : undefined; }
-    return { x, y };
-  };
-  for (const e of edges) {
-    const a = absolute(nodeById.get(e.source)!);
-    const b = absolute(nodeById.get(e.target)!);
-    if (b.x > a.x + 40) { e.sourceHandle = 'right-2-source'; e.targetHandle = 'left-2-target'; }
-    else if (b.x < a.x - 40) { e.sourceHandle = 'left-2-source'; e.targetHandle = 'right-2-target'; }
-    else if (b.y > a.y) { e.sourceHandle = 'bottom-2-source'; e.targetHandle = 'top-2-target'; }
-    else { e.sourceHandle = 'top-2-source'; e.targetHandle = 'bottom-2-target'; }
+  // ---- layout: parentNode is what the layout reads, so set it first.
+  for (const [child, parent] of parentOf) {
+    const c = nodeById.get(child);
+    if (c && !c.hidden) { c.parentNode = parent; c.extent = 'parent'; }
   }
+  layoutStackCanvas(nodes);
+  assignHandles(nodes, edges);
+  void childrenOf;
 
   // React Flow needs parents before children.
   return { nodes: orderParentsFirst(nodes), edges, droppedConnections: dropped };
@@ -621,188 +655,4 @@ function describeAttachment(item: ProjectItem): string {
     return [c.retentionDays ? `${c.retentionDays}d retention` : 'never expires', size].filter(Boolean).join(' · ');
   }
   return c.awsType ? shortType(String(c.awsType)) : '';
-}
-
-/**
- * Layered layout with containment. Per region band: VPC groups on the left
- * (subnets inside them, public first, laid out in a grid; VPC-level things
- * such as security groups and gateways in a top strip), then the columns
- * for everything regional or global, then the vault and keyring.
- */
-function layout(nodes: Node[], edges: Edge[], childrenOf: Map<string, Node[]>, parentOf: Map<string, string>): void {
-  const isGroup = (n: Node) => Boolean(n.data?.meta?.isGroup);
-
-  const neighbours = new Map<string, string[]>();
-  for (const e of edges) {
-    pushTo(neighbours, e.source, e.target);
-    pushTo(neighbours, e.target, e.source);
-  }
-
-  // Size a group from its children, bottom-up.
-  const sizeOf = new Map<string, Box>();
-  const measure = (n: Node): Box => {
-    if (sizeOf.has(n.id)) return sizeOf.get(n.id)!;
-    let box: Box;
-    if (!isGroup(n)) {
-      box = { w: CELL_W, h: CELL_H };
-    } else if (n.type === 'vpc') {
-      box = layoutVpc(n, childrenOf, measure);
-    } else if (n.type === 'enclosure') {
-      box = layoutGrid(n, childrenOf.get(n.id) || [], measure, neighbours);
-    } else {
-      box = layoutStack(n, childrenOf.get(n.id) || [], measure);
-    }
-    sizeOf.set(n.id, box);
-    n.style = { ...(n.style || {}), width: box.w, height: box.h };
-    return box;
-  };
-
-  // Top-level nodes only; children are positioned by their group.
-  const top = nodes.filter((n) => !n.hidden && !parentOf.has(n.id));
-  const bands = new Map<string, Node[]>();
-  for (const n of top) pushTo(bands, regionBand(n), n);
-  const regionOrder = [...bands.keys()].filter((r) => r).sort((a, b) => bands.get(b)!.length - bands.get(a)!.length);
-  const globals = bands.get('') || [];
-  if (regionOrder.length === 0) regionOrder.push('');
-  else bands.set(regionOrder[0], [...(bands.get(regionOrder[0]) || []), ...globals]);
-
-  let bandTop = 60;
-  for (const region of regionOrder) {
-    const members = bands.get(region) || [];
-    const vpcs = members.filter((n) => n.type === 'vpc');
-    const enclosures = members.filter((n) => n.type === 'enclosure');
-
-    // VPC groups, stacked on the left.
-    let y = bandTop;
-    let vpcWidth = 0;
-    for (const vpc of vpcs) {
-      const box = measure(vpc);
-      vpc.position = { x: 60, y };
-      y += box.h + 60;
-      vpcWidth = Math.max(vpcWidth, box.w);
-    }
-    const columnsLeft = 60 + (vpcs.length ? vpcWidth + 120 : 0);
-
-    // Enclosures, in their columns; a column stacks its groups vertically
-    // and is as wide as its widest group.
-    const encColumns: Node[][] = Array.from({ length: COLUMNS }, () => []);
-    for (const enc of enclosures) encColumns[ENCLOSURES[(enc.data?.meta?.enclosure as EnclosureKind) || 'other'].column].push(enc);
-    let ex = columnsLeft;
-    let encBottom = bandTop;
-    for (const col of encColumns) {
-      col.sort((a, b) => ENCLOSURES[a.data.meta.enclosure as EnclosureKind].label.localeCompare(ENCLOSURES[b.data.meta.enclosure as EnclosureKind].label));
-      let cy = bandTop;
-      let colWidth = 0;
-      for (const enc of col) {
-        const box = measure(enc);
-        enc.position = { x: ex, y: cy };
-        cy += box.h + 40;
-        colWidth = Math.max(colWidth, box.w);
-      }
-      if (col.length) {
-        ex += colWidth + 60;
-        encBottom = Math.max(encBottom, cy - 40);
-      }
-    }
-
-    const bandHeight = Math.max(y - bandTop, encBottom - bandTop, CELL_H);
-    bandTop += bandHeight + BAND_GAP;
-  }
-}
-
-/**
- * Children in a grid inside a labelled box: one column for a few, up to
- * three for many. Rows are ordered so members with edges to the same
- * things sit together.
- */
-function layoutGrid(group: Node, children: Node[], measure: (n: Node) => Box, neighbours: Map<string, string[]>): Box {
-  const key = new Map(children.map((c) => [c.id, (neighbours.get(c.id) || []).slice().sort().join(',')]));
-  children.sort((a, b) => {
-    const na = key.get(a.id)!;
-    const nb = key.get(b.id)!;
-    return (nb ? 1 : 0) - (na ? 1 : 0) || na.localeCompare(nb) || String(a.data?.label).localeCompare(String(b.data?.label));
-  });
-  const cols = children.length <= 3 ? 1 : children.length <= 8 ? 2 : 3;
-  let maxW = CELL_W;
-  let maxH = CELL_H;
-  for (const child of children) {
-    const b = measure(child);
-    maxW = Math.max(maxW, b.w);
-    maxH = Math.max(maxH, b.h);
-  }
-  children.forEach((child, i) => {
-    child.parentNode = group.id;
-    child.extent = 'parent';
-    child.position = { x: GROUP_PAD + (i % cols) * (maxW + GROUP_GAP), y: GROUP_HEADER + Math.floor(i / cols) * (maxH + GROUP_GAP) };
-  });
-  const rows = Math.ceil(children.length / cols);
-  return { w: GROUP_PAD * 2 + cols * maxW + (cols - 1) * GROUP_GAP, h: GROUP_HEADER + GROUP_PAD + rows * maxH + Math.max(0, rows - 1) * GROUP_GAP };
-}
-
-/** Children stacked vertically inside a labelled box. */
-function layoutStack(group: Node, children: Node[], measure: (n: Node) => Box): Box {
-  children.sort((a, b) => String(a.data?.label).localeCompare(String(b.data?.label)));
-  let y = GROUP_HEADER;
-  let w = CELL_W;
-  for (const child of children) {
-    const box = measure(child);
-    child.parentNode = group.id;
-    child.extent = 'parent';
-    child.position = { x: GROUP_PAD, y };
-    y += box.h + GROUP_GAP;
-    w = Math.max(w, box.w);
-  }
-  return { w: w + GROUP_PAD * 2, h: Math.max(y + GROUP_PAD - GROUP_GAP, GROUP_HEADER + CELL_H) };
-}
-
-/** A VPC: a strip of VPC-level things on top, subnets in a grid below. */
-function layoutVpc(vpc: Node, childrenOf: Map<string, Node[]>, measure: (n: Node) => Box): Box {
-  const children = childrenOf.get(vpc.id) || [];
-  const subnets = children.filter((n) => n.type === 'subnet');
-  const strip = children.filter((n) => n.type !== 'subnet');
-  const typeRank: Record<string, number> = { 'internet-gateway': 0, 'nat-gateway': 1, 'route-table': 2, 'vpc-endpoint': 3, 'security-group': 4 };
-  strip.sort((a, b) => (typeRank[a.type || ''] ?? 9) - (typeRank[b.type || ''] ?? 9) || String(a.data?.label).localeCompare(String(b.data?.label)));
-
-  let x = GROUP_PAD;
-  let y = GROUP_HEADER;
-  let width = 0;
-  for (const n of strip) {
-    const box = measure(n);
-    n.parentNode = vpc.id;
-    n.extent = 'parent';
-    n.position = { x, y };
-    x += box.w + 16;
-    width = Math.max(width, x);
-  }
-  if (strip.length) y += CELL_H + 24;
-
-  // Subnets are partitions: side-by-side columns of equal height, public
-  // first, then by availability zone, the way a table editor shows columns.
-  // A trailing gap is left for the "+ subnet" affordance the VPC draws.
-  const isEmpty = (sn: Node) => (childrenOf.get(sn.id) || []).length === 0 && sn.data?.status !== 'draft';
-  subnets.sort((a, b) => {
-    const pa = a.data?.config?.public ? 0 : 1;
-    const pb = b.data?.config?.public ? 0 : 1;
-    // Populated first, so the slim empty ones gather at the right.
-    return Number(isEmpty(a)) - Number(isEmpty(b)) || pa - pb
-      || String(a.data?.config?.availabilityZone || '').localeCompare(String(b.data?.config?.availabilityZone || ''))
-      || String(a.data?.label).localeCompare(String(b.data?.label));
-  });
-  // An empty subnet is a slim column with a vertical label: still a
-  // partition, but it does not get the width of a populated one. The row's
-  // height follows the populated subnets; with none, it is the slim height.
-  const boxes = subnets.map((sn) => (isEmpty(sn) ? { w: EMPTY_SUBNET_W, h: EMPTY_SUBNET_H } : measure(sn)));
-  const populated = boxes.filter((_, i) => !isEmpty(subnets[i]));
-  const columnHeight = populated.length ? Math.max(SUBNET_MIN_H, ...populated.map((b) => b.h)) : EMPTY_SUBNET_H;
-  let cx = GROUP_PAD;
-  subnets.forEach((subnet, i) => {
-    subnet.parentNode = vpc.id;
-    subnet.extent = 'parent';
-    subnet.position = { x: cx, y };
-    subnet.style = { ...(subnet.style || {}), width: boxes[i].w, height: columnHeight };
-    cx += boxes[i].w + GROUP_GAP;
-  });
-  width = Math.max(width, cx + ADD_COLUMN_W);
-  const bottom = subnets.length ? y + columnHeight : y + ADD_COLUMN_MIN_H;
-  return { w: Math.max(width + GROUP_PAD, CELL_W + GROUP_PAD * 2), h: Math.max(bottom + GROUP_PAD, GROUP_HEADER + CELL_H) };
 }

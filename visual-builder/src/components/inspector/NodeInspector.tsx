@@ -138,6 +138,16 @@ export default function NodeInspector({ node }: { node: Node }) {
             )}
           </Section>
 
+          {meta.application && node.type !== 'application' && (
+            <Section title="Application" hint="how it was placed">
+              <Fact
+                label={meta.application.name}
+                value={meta.application.reason}
+                onClick={(() => { const tile = nodes.find((n) => n.type === 'application' && n.data?.meta?.application?.id === meta.application!.id); return tile ? () => selectNode(tile.id) : undefined; })()}
+              />
+            </Section>
+          )}
+
           {meta.warning && (
             <Section title="Why this is flagged">
               <div className="flex items-start gap-2 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded p-2">

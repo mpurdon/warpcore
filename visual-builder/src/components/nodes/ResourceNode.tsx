@@ -6,6 +6,7 @@ import BidirectionalHandles from './BidirectionalHandles';
 import { DISCOVERED_TYPES, discoveredTypeLabel } from '../../utils/discoveredTypes';
 import { nameFieldFor } from '../../utils/nodeName';
 import type { NodeMeta } from '../../utils/projectFromAccount';
+import { CHIP_W } from '../../utils/stackLayout';
 
 interface ResourceNodeData {
   label: string;
@@ -130,6 +131,25 @@ export default function ResourceNode({ id, data, selected, type }: Props) {
   // For API routes, get the HTTP method
   const httpMethod = type === 'api-route' ? (data.config?.method || 'ANY') : null;
   const methodColorClass = httpMethod ? methodColors[httpMethod] || methodColors['ANY'] : '';
+
+  // A platform chip: one line, icon and name, the type in the tooltip. What
+  // everything stands on is numerous and rarely the subject.
+  if (data.meta?.compact) {
+    return (
+      <NodeWrapper nodeId={id} selected={selected} status={data.status}>
+        <div className={`node-inner px-2.5 py-2 ${statusClass}`} style={{ width: CHIP_W - 4 }} title={`${typeLabel}${awsId ? ' · ' + awsId : ''}`}>
+          <BidirectionalHandles nodeId={id} />
+          <div className="flex items-center gap-1.5">
+            <Icon size={13} className={`${iconColor} shrink-0`} />
+            <span className="text-[11px] font-medium truncate">{displayName}</span>
+            {isSecure && <Lock size={10} className="text-red-500 shrink-0" />}
+            {warning && <ShieldAlert size={11} className="text-amber-600 shrink-0" />}
+            {attachments.length > 0 && <span className="text-[10px] text-gray-400 shrink-0">+{attachments.length}</span>}
+          </div>
+        </div>
+      </NodeWrapper>
+    );
+  }
 
   return (
     <NodeWrapper nodeId={id} selected={selected} status={data.status} costNode={{ type, data }}>

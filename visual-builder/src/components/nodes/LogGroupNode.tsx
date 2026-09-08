@@ -2,10 +2,12 @@ import { FileText } from 'lucide-react';
 import { NodeStatus } from '../../store/useStore';
 import NodeWrapper from './NodeWrapper';
 import BidirectionalHandles from './BidirectionalHandles';
+import ResourceNode from './ResourceNode';
 
 interface LogGroupNodeData {
   label: string;
   status?: NodeStatus;
+  meta?: { compact?: boolean; [key: string]: unknown };
   config?: {
     logGroupPath?: string;
     logGroupName?: string; // legacy support
@@ -34,6 +36,8 @@ const retentionLabels: Record<number, string> = {
 };
 
 export default function LogGroupNode({ id, data, selected }: Props) {
+  // In a platform band a log group is a chip like any other platform resource.
+  if (data.meta?.compact) return <ResourceNode id={id} data={data as any} selected={selected} type="log-group" />;
   const statusClass = data.status ? `node-${data.status}` : '';
   const config = data.config || {};
 

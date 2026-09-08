@@ -15,7 +15,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 // Dev aid: the store on window, so the canvas can be driven from a browser
 // console or an automated check without the Tauri host.
 if (import.meta.env.DEV) {
-  Promise.all([import('./store/useStore'), import('./utils/canvasActions')]).then(([store, actions]) => {
-    (window as unknown as { __warpcore?: unknown }).__warpcore = { useStore: store.useStore, canvas: actions.canvas };
+  Promise.all([import('./store/useStore'), import('./utils/canvasActions'), import('./utils/projectFromAccount')]).then(([store, actions, account]) => {
+    (window as unknown as { __warpcore?: unknown }).__warpcore = { useStore: store.useStore, canvas: actions.canvas, buildCanvas: account.buildCanvas };
   });
 }

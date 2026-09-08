@@ -38,6 +38,7 @@ import ActivityDrawer, { ACTIVITY_BAR_HEIGHT, ACTIVITY_BODY_HEIGHT } from './com
 import WelcomeScreen from './components/WelcomeScreen';
 import type { Layer } from './utils/layers';
 import { lensEmphasis, pinnedBySelection } from './utils/lenses';
+import { isStackCanvas, reflowStack } from './utils/stackLayout';
 import { registerCanvas } from './utils/canvasActions';
 import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
@@ -205,7 +206,9 @@ function Flow() {
     const errors = isDragging ? lastValidationRef.current : validateCanvas(nodes, edges);
     lastValidationRef.current = errors;
     const map = new Map<string, boolean>();
+    const discovered = new Set(nodes.filter((n) => n.data?.arn).map((n) => n.id));
     for (const err of errors) {
+      if (discovered.has(err.nodeId)) continue;
       const prev = map.get(err.nodeId) ?? false;
       map.set(err.nodeId, prev || err.severity === 'error');
     }
@@ -219,13 +222,35 @@ function Flow() {
     return new Map(nodes.map((n) => [n.id, lensEmphasis(n, lens, { byId, pinned })]));
   }, [nodes, edges, lens, selectedNode]);
 
+  // On a computed layout (an imported account) a lens removes rather than
+  // dims: context nodes go, empty containers go with them, and the tile is
+  // laid out again. A hand-placed canvas keeps its positions and dims.
+  const reflow = useMemo(() => {
+    if (!emphasis || !isStackCanvas(nodes)) return null;
+    return reflowStack(nodes, (n) => emphasis.get(n.id) !== 'context');
+  }, [nodes, emphasis]);
+
   const viewNodes = useMemo(() => nodes.map((n) => {
+    if (reflow) {
+      if (reflow.hidden.has(n.id)) return { ...n, hidden: true };
+      const placed = reflow.placed.get(n.id);
+      const hiddenCount = reflow.hiddenCount.get(n.id);
+      const classes: string[] = [];
+      if (errorsByNode.has(n.id)) classes.push(errorsByNode.get(n.id) ? 'validation-error' : 'validation-warning');
+      return {
+        ...n,
+        className: classes.join(' ') || undefined,
+        draggable: false,
+        ...(placed ? { position: placed.position, style: { ...(n.style || {}), ...placed.style } } : {}),
+        ...(hiddenCount ? { data: { ...n.data, meta: { ...(n.data?.meta || {}), hiddenCount } } } : {}),
+      };
+    }
     const classes: string[] = [];
     if (errorsByNode.has(n.id)) classes.push(errorsByNode.get(n.id) ? 'validation-error' : 'validation-warning');
     if (emphasis) classes.push(emphasis.get(n.id) === 'context' ? 'lens-context' : 'lens-focus');
     const className = classes.join(' ') || undefined;
     return className === n.className ? n : { ...n, className };
-  }), [nodes, errorsByNode, emphasis]);
+  }), [nodes, errorsByNode, emphasis, reflow]);
 
   // Handle mouse-based drag from palette
   useEffect(() => {

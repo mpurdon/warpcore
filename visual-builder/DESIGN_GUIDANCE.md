@@ -492,3 +492,27 @@ what changed in the model.]
 - **Three.js was considered and declined** for the editing surface (§2.5 of
   the plan). Depth is served by lenses; a read-only 3D overview remains an
   option once the lenses have proved what the strata are.
+
+
+## 11. The application stack
+
+[2026-09-08. Proposal and mockups in the "Application Stack" design note;
+shipped in `utils/applications.ts`, `utils/stackLayout.ts`, and the tile and
+band cases of `ContainerNode`.]
+
+§9's enclosures grouped resources by AWS category and laid the groups out in
+columns. That is AWS's taxonomy, not the application's, and it produced a
+strip with no top or bottom. The canvas of an imported account is now **one
+tile per application** with **five bands in request order**: entry, compute
+(the VPC inside it), bus, data, platform. Width is bounded, bands wrap and
+only exist when they have members, platform resources are chips.
+
+- **Clustering** decides the tile: tags, then a name prefix shared by three
+  or more resources (or the project's name), then the wiring. A platform
+  resource wired into two applications is shared. A single application
+  absorbs its shared bits; a monorepo gets a Shared platform tile. Every
+  assignment carries a reason the inspector shows.
+- **Lenses remove on computed layouts.** `reflowStack` hides the context
+  nodes, drops empty containers, lays out what remains, and counts what
+  went per band. Hand-drawn canvases keep dimming.
+- The old `enclosure` nodes still render, so older files open unchanged.

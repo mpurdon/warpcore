@@ -277,8 +277,9 @@ export function generateYAMLFromCanvas(
         name: node.data?.config?.roleName || node.data?.label || 'Role',
         description: node.data?.config?.description,
       });
-    } else if (node.type !== 'vpc' && node.type !== 'api-gateway') {
-      // Add as a resource (skip vpc and api-gateway as they go in shared)
+    } else if (!['vpc', 'api-gateway', 'application', 'band', 'enclosure'].includes(node.type || '')) {
+      // Add as a resource (skip vpc and api-gateway as they go in shared,
+      // and the layout containers, which are canvas-only)
       config.resources!.push({
         name: node.data?.config?.name || node.data?.label || node.type || 'resource',
         type: node.type || 'unknown',

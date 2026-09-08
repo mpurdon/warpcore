@@ -182,29 +182,46 @@ warpcore --profile prod discover project --project-name shop --env prod \
 
 ### Reading the canvas of an imported account
 
+An account is drawn as **one tile per application**, and a tile reads top
+to bottom the way a request does:
+
+| Band | Holds |
+|---|---|
+| **Entry** | Route 53 zones, CloudFront, certificates, API Gateway, load balancers |
+| **Compute** | Agents, Lambda, Step Functions, ECS, and the VPC with its subnets drawn inside this band |
+| **Bus** | Queues, topics, streams, event rules |
+| **Data** | Buckets, tables, databases, caches, registries |
+| **Platform** | Roles, instance profiles, secrets, keys, parameters, log groups, alarms, as compact chips |
+
+Width is bounded (four cells, or the widest VPC); bands wrap their contents
+and only appear when they have members. A monorepo account gives one tile
+per application plus a *Shared platform* tile for what more than one
+application uses.
+
+- **Which application a resource belongs to** is decided by tags
+  (`Application`, `Service`, `Project`, `app`, ...), then by a name prefix
+  shared by three or more resources or matching the project name, then by
+  the wiring: an untagged resource joins the application it is connected
+  to. The inspector's *Application* section says which rule placed it.
 - **VPCs and subnets are containers.** What runs in a subnet sits inside it;
   VPC-level things (gateways, route tables, endpoints, security groups) sit
   in a strip along the top of the VPC.
 - **Security groups are badges** on their members. Click a badge to inspect
   the group: its inbound rules and members. A default group that admits
   traffic from anywhere and has members is flagged, and the inspector says why.
-- **Everything outside a VPC sits in a group by role**: Edge & DNS
-  (CloudFront, Route 53, certificates, APIs), Messaging & Events, Compute,
-  Data & Storage, Secrets, Keys, Configuration, Identity, Observability, and
-  Other for types with no node of their own. Groups are laid out left to
-  right in the order things happen. Arrows between members come from IAM
-  policy documents and say read, write, read/write or admin, and via which
-  role.
-- **Lenses** (top left of the canvas, or keys `1`-`5`) view the whole
-  picture through one question. *Security* foregrounds security groups,
-  roles, secrets, keys and anything flagged; *Network* the VPCs, subnets,
+- **Lenses** (top left of the canvas, or keys `1`-`5`) view the tile through
+  one question. On an imported account a lens *removes* what it is not
+  about: the nodes go, a band with nothing left goes with them, and the
+  tile re-flows. Each band and the tile carry an *n hidden* pill; click it
+  (or press `1`) to show everything again. *Security* keeps security
+  groups, roles, secrets, keys and anything flagged; *Network* the VPC,
   gateways, load balancers and what sits inside them; *Data flow* agents,
   functions, queues, topics, streams and stores; *Cost* draws each node's
-  monthly estimate on it. Everything else stays on the map, dimmed. The
-  selected node and its neighbours are never dimmed. **Edges** beside the
-  lens bar are the expert control: show or hide triggers, access, network,
-  encryption and plumbing edges individually. Selecting a node shows all of
-  its edges regardless, dimmed for layers that are off.
+  monthly estimate on it. On a hand-drawn canvas a lens dims instead, since
+  there positions carry meaning. **Edges** beside the lens bar are the expert
+  control over which edge kinds are drawn.
+- Arrows between members come from IAM policy documents and say read,
+  write, read/write or admin, and via which role.
 - **Volumes, snapshots, Lambda versions** and the like are folded into their
   parent: a paperclip count on the node, and an "Attached" section in the
   inspector.

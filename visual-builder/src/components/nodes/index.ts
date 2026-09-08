@@ -39,4 +39,6 @@ export const nodeTypes = {
   ...Object.fromEntries(Object.keys(DISCOVERED_TYPES).map((t) => [t, ResourceNode])),
   'subnet': ContainerNode,
   'enclosure': ContainerNode,
+  'application': ContainerNode,
+  'band': ContainerNode,
 };
