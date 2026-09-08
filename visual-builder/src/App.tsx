@@ -37,10 +37,10 @@ import CommandPalette from './components/CommandPalette';
 import ActivityDrawer, { ACTIVITY_BAR_HEIGHT, ACTIVITY_BODY_HEIGHT } from './components/ActivityDrawer';
 import WelcomeScreen from './components/WelcomeScreen';
 import ScenarioTransport from './components/ScenarioTransport';
-import { canBeStep, checkScenario, playbackMarks, TRAVEL_MS } from './utils/scenarios';
+import SystemView from './components/SystemView';
+import { canBeStep, TRAVEL_MS } from './utils/scenarios';
+import { useLensView, useScenarioView } from './hooks/useCanvasView';
 import type { Layer } from './utils/layers';
-import { lensEmphasis, pinnedBySelection } from './utils/lenses';
-import { isStackCanvas, reflowStack } from './utils/stackLayout';
 import { registerCanvas } from './utils/canvasActions';
 import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
@@ -84,13 +84,10 @@ function Flow() {
     setEditingNode,
     settingsOpen,
     layers,
-    lens,
     run,
     activityOpen,
     configPath,
-    scenarios,
-    inspectedScenario,
-    playhead,
+    systemView,
   } = useStore();
   // A locked project is view-only: inspect anything, change nothing.
   const readOnly = useReadOnly();
@@ -193,27 +190,9 @@ function Flow() {
     return dlqEdgeList;
   }, [nodes]);
 
-  // The scenario on show: the one playing, else the one in the inspector.
-  // Derived here, never stored: marks on nodes and edges are a view of the
-  // playhead, and the playhead is the only thing the store holds.
-  const scenarioView = useMemo(() => {
-    const id = playhead?.scenarioId ?? inspectedScenario;
-    const scenario = id ? scenarios.find((s) => s.id === id) : undefined;
-    if (!scenario) return null;
-    const check = checkScenario(scenario, nodes, edges);
-    const head = playhead && playhead.scenarioId === scenario.id ? playhead : null;
-    const marks = playbackMarks(scenario, head, check, nodes, edges);
-    const pathEdges = new Set(check.steps.flatMap((st) => (st.evidence ? [st.evidence.edgeId] : [])));
-    const logEdges = new Set<string>();
-    for (const st of check.steps) {
-      for (const g of st.logGroups) {
-        for (const e of edges) {
-          if ((e.source === st.at && e.target === g) || (e.target === st.at && e.source === g)) logEdges.add(e.id);
-        }
-      }
-    }
-    return { scenario, head, marks, pathEdges, logEdges, speed: head?.speed ?? 1 };
-  }, [scenarios, inspectedScenario, playhead, nodes, edges]);
+  // The scenario on show and the lens re-flow, shared with the system view.
+  const scenarioView = useScenarioView();
+  const { emphasis, reflow } = useLensView();
 
   // Combine regular edges with DLQ edges, then apply the layers: an edge on a
   // layer that is off is hidden unless it touches the selected node, in which
@@ -257,21 +236,6 @@ function Flow() {
     }
     return map;
   }, [nodes, edges, isDragging]);
-
-  const emphasis = useMemo(() => {
-    if (lens === 'all' || lens === 'cost') return null;
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    const pinned = pinnedBySelection(selectedNode, edges);
-    return new Map(nodes.map((n) => [n.id, lensEmphasis(n, lens, { byId, pinned })]));
-  }, [nodes, edges, lens, selectedNode]);
-
-  // On a computed layout (an imported account) a lens removes rather than
-  // dims: context nodes go, empty containers go with them, and the tile is
-  // laid out again. A hand-placed canvas keeps its positions and dims.
-  const reflow = useMemo(() => {
-    if (!emphasis || !isStackCanvas(nodes)) return null;
-    return reflowStack(nodes, (n) => emphasis.get(n.id) !== 'context');
-  }, [nodes, emphasis]);
 
   const viewNodes = useMemo(() => nodes.map((n) => {
     const classes: string[] = [];
@@ -1006,6 +970,7 @@ function Flow() {
           )}
 
           {showWelcome && <WelcomeScreen />}
+          {systemView && !showWelcome && <SystemView />}
           <LockBanner />
           <LensBar />
           <PermissionLegend bottomOffset={drawerHeight} />

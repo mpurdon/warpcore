@@ -78,6 +78,7 @@ export default function CommandPalette() {
       const on = s.layers[layer.id];
       list.push({ id: `layer-${layer.id}`, kind: 'layer', group: 'View', title: `${on ? 'Hide' : 'Show'} ${layer.label.toLowerCase()} edges`, subtitle: layer.description, keywords: ['layer', 'edges'], run: after(() => s.setLayer(layer.id, !on)) });
     }
+    list.push({ id: 'system-view', kind: 'command', group: 'View', title: s.systemView ? 'Back to the canvas' : 'System view', subtitle: s.systemView ? 'The editable canvas' : 'The canvas as terraces in 3D, read only; scenarios play here too', keywords: ['3d', 'three', 'terraces', 'presentation'], tone: s.systemView ? 'info' : undefined, run: after(() => s.setSystemView(!s.systemView)) });
     list.push({ id: 'inspector', kind: 'command', group: 'View', title: `${s.rightPanelVisible ? 'Hide' : 'Show'} inspector`, run: after(() => s.setRightPanelVisible(!s.rightPanelVisible)) });
     list.push({ id: 'activity', kind: 'command', group: 'View', title: `${s.activityOpen ? 'Hide' : 'Show'} activity`, subtitle: s.run ? `Last run: ${s.run.kind} to ${s.run.environment}` : 'Nothing has run yet', run: after(() => s.setActivityOpen(!s.activityOpen)) });
     list.push({ id: 'help', kind: 'command', group: 'View', title: 'Keyboard shortcuts', shortcut: '?', run: after(() => s.openDialog('shortcuts')) });
@@ -128,7 +129,7 @@ export default function CommandPalette() {
     // The palette rebuilds when it opens; the store fields it reads are
     // captured then, which is what a snapshot-style list wants.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paletteOpen, s.nodes, s.environmentConfigs, s.currentEnvironment, s.configPath, s.locked, s.lens, s.layers, s.rightPanelVisible, s.activityOpen, s.run, s.past.length, s.future.length, s.scenarios, s.playhead, s.selectedNode]);
+  }, [paletteOpen, s.nodes, s.environmentConfigs, s.currentEnvironment, s.configPath, s.locked, s.lens, s.layers, s.rightPanelVisible, s.activityOpen, s.run, s.past.length, s.future.length, s.scenarios, s.playhead, s.selectedNode, s.systemView]);
 
   const ranked = useMemo(() => rankItems(query, items, query.trim() ? 40 : 200), [query, items]);
   const groups = useMemo(() => groupItems(ranked), [ranked]);

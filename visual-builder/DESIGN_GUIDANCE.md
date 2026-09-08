@@ -564,3 +564,32 @@ logs.
   z levels (0, 1, 2) so a line runs above an opaque tile and under a card.
   React Flow puts everything at 0 otherwise, and an opaque application
   tile hid every edge.
+
+## 13. The system view
+
+[2026-09-08. §2.5 said a 3D scene earns a place only as a read-only
+presentation of what the 2D lenses have proved, driven by the same
+playhead. Shipped in `utils/systemLayout.ts` (pure, tested) and
+`components/SystemView.tsx` (three.js).]
+
+- **Terraces, not a cake.** Each band keeps its footprint from the canvas
+  and is raised by its order: entry highest, platform lowest. A layered
+  cake would occlude; terraces let the request be seen walking down the
+  stairs, which is how the stack reads in 2D. Plates are trimmed to what
+  sits on them. A VPC is a slab on the compute plate, a subnet a slab on
+  the VPC, and what runs inside is raised accordingly. A hand-drawn canvas
+  is one sheet.
+- **Same store, same instant.** The view derives its geometry from the
+  nodes and edges plus the lens re-flow (`useLensView`) and its decoration
+  from the scenario view (`useScenarioView`), the same hooks the canvas
+  uses. Selection, layers, lens and playhead are read, never duplicated.
+  The only state the view owns is the camera and the wall-clock start of
+  the current hop, which it needs to place the pulse between store updates.
+- **Read only.** A click selects (or, while recording, appends a step);
+  nothing drags, connects or configures. The lock, the palette, the
+  inspector and the transport bar work unchanged over it.
+- **Labels are HTML.** Names and step badges are CSS2D objects, so they
+  stay crisp and use the same classes as the canvas; the WebGL scene draws
+  only plates, cards, arcs and the pulse.
+- **Follow pans.** Following the request moves the camera and the orbit
+  target by the same offset, so the viewpoint the operator chose is kept.

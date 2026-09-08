@@ -5,7 +5,7 @@
 // §5.3 and UX_PLAN.md §3.6: one light chrome, colour only for state and for
 // the two actions that change AWS.
 
-import { Play, Trash2, FileText, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon } from 'lucide-react';
+import { Play, Trash2, FileText, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon, Box } from 'lucide-react';
 import { useCurrentEnvName, useStore } from '../store/useStore';
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -52,6 +52,8 @@ export default function Toolbar() {
     run,
     activityOpen,
     setActivityOpen,
+    systemView,
+    setSystemView,
     dialog,
     openDialog,
     closeDialog,
@@ -204,6 +206,15 @@ export default function Toolbar() {
         >
           <ActivityIcon size={17} />
           {run && <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${runTone}`} />}
+        </button>
+
+        <button
+          onClick={() => setSystemView(!systemView)}
+          disabled={settingsOpen}
+          className={iconButton(systemView)}
+          title={systemView ? 'Back to the canvas' : 'System view: the canvas as terraces, read only. Scenarios play here too.'}
+        >
+          <Box size={17} />
         </button>
 
         <button

@@ -392,6 +392,11 @@ interface StoreState {
   openSettings: (section?: SettingsSection) => void;
   closeSettings: () => void;
 
+  // The system view (SystemView.tsx): the canvas as terraces, read-only.
+  // Replaces the canvas in the workspace while on; everything else stays.
+  systemView: boolean;
+  setSystemView: (on: boolean) => void;
+
   // Task dialogs, the command palette and the shortcut sheet. Held here so
   // the toolbar, the palette, the welcome screen and the keyboard can all
   // open the same thing.
@@ -711,6 +716,10 @@ export const useStore = create<StoreState>((set) => ({
     paletteOpen: false,
   })),
   closeSettings: () => set({ settingsOpen: false }),
+
+  // System view
+  systemView: false,
+  setSystemView: (on) => set({ systemView: on, paletteOpen: false, settingsOpen: on ? false : undefined } as Partial<StoreState>),
 
   // Dialogs and the palette
   dialog: null,

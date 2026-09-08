@@ -271,6 +271,20 @@ scenarios:
   policy that lets it.
 - Log groups are never steps: they are reached through their function.
 
+### The system view
+
+The cube button in the toolbar (or *System view* in the palette) shows the
+canvas as terraces in 3D: the entry band is the highest plate, platform the
+lowest, resources are cards on their plate, edges are arcs between cards,
+and a VPC is a slab on the compute plate with its subnets on top. It is
+read only and reads the same store as the canvas, so the lens, the edge
+layers, the selection and a playing scenario are the same in both: switch
+lenses and plates lift out, click a card and the inspector shows it, press
+Play and the request runs down the stairs with the same transport bar.
+Drag to orbit, scroll to zoom, right-drag to pan; *Follow* pans with the
+request as it plays, *Reset* frames everything again. A hand-drawn canvas
+is one sheet with every card on it.
+
 ### The project lock
 
 Every project opens **locked**, and locks again whenever you switch

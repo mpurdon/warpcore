@@ -191,5 +191,8 @@ played with a transport bar over the canvas. Every hop is checked against
 the wiring (a hop with no permission or trigger is flagged, and so is a
 function with no log group), and log groups tick with synthetic lines to
 show data moving. One playhead in the store drives every view. See
-DESIGN_GUIDANCE.md §12; the Three.js system view that reads the same
-playhead is §13.
+DESIGN_GUIDANCE.md §12.
+
+The system view, also shipped 2026-09-08: the canvas as terraces in
+three.js, read only, reading the same lens, selection and playhead, so a
+scenario plays identically in both. DESIGN_GUIDANCE.md §13.
