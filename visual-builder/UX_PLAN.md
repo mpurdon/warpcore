@@ -174,3 +174,20 @@ written back into it. Opening a project no longer marks it dirty.
   `--progress`; the app fails at build time without a matching sidecar.
 - Run the app and drive it: open a project, ⌘K to a node, switch lenses, press Deploy and
   read the Activity drawer.
+
+
+## 5. Follow-up, 2026-09-08: the application stack and scenarios
+
+Shipped: an imported account is drawn as one tile per application with five
+bands in request order (entry, compute with the VPC inside it, bus, data,
+platform as chips); resources are clustered by tags, name prefix, then
+wiring, with the reason shown in the inspector; lenses on a computed layout
+remove rather than dim and re-flow the tile. See DESIGN_GUIDANCE.md §11.
+
+Next: scenarios. A scenario is a named event played step by step through
+the resources it touches, stored in `warpcore.yaml`, recorded by clicking
+hops or drafted from the graph, played with a transport bar in both the
+canvas and a read-only Three.js system view. Every hop is checked against
+the wiring (a hop with no permission is flagged), and log groups tick with
+synthetic lines to show data moving. Order: model and inspector (2 days),
+canvas playback (2 days), system view (5 to 7 days).
