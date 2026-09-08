@@ -38,9 +38,8 @@ import ActivityDrawer, { ACTIVITY_BAR_HEIGHT, ACTIVITY_BODY_HEIGHT } from './com
 import WelcomeScreen from './components/WelcomeScreen';
 import ScenarioTransport from './components/ScenarioTransport';
 import SystemView from './components/SystemView';
-import { canBeStep, TRAVEL_MS } from './utils/scenarios';
-import { useLensView, useScenarioView } from './hooks/useCanvasView';
-import type { Layer } from './utils/layers';
+import { edgeView, isPlainEdge, ScenarioMarksContext, useLensView, useScenarioView } from './hooks/useCanvasView';
+import { usePlaybackClock } from './hooks/usePlaybackClock';
 import { registerCanvas } from './utils/canvasActions';
 import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
@@ -193,29 +192,19 @@ function Flow() {
   // The scenario on show and the lens re-flow, shared with the system view.
   const scenarioView = useScenarioView();
   const { emphasis, reflow } = useLensView();
+  usePlaybackClock();
 
-  // Combine regular edges with DLQ edges, then apply the layers: an edge on a
-  // layer that is off is hidden unless it touches the selected node, in which
-  // case it shows dimmed. Edges without a layer (drawn by hand) always show.
-  // A scenario's own edges - the hops and the log writes - always show too:
-  // they are the story being told.
-  const allEdges = useMemo(() => {
-    const combined = [...edges, ...dlqEdges];
-    const sv = scenarioView;
-    return combined.flatMap((e) => {
-      const onPath = sv ? sv.pathEdges.has(e.id) : false;
-      const isLog = sv ? sv.logEdges.has(e.id) : false;
-      const layer = e.data?.meta?.layer as Layer | undefined;
-      const layerOn = !layer || layers[layer];
-      const touchesSelection = selectedNode !== null && (e.source === selectedNode || e.target === selectedNode);
-      if (!layerOn && !touchesSelection && !onPath && !isLog) return [];
-      const dimmed = !layerOn && !onPath && !isLog;
-      if (!sv) return dimmed ? [{ ...e, data: { ...e.data, dimmed: true } }] : [e];
-      const pulse = sv.marks.pulse?.edgeId === e.id ? { reverse: sv.marks.pulse.reverse, durationMs: TRAVEL_MS / sv.speed } : undefined;
-      const scenario = { onPath, logging: sv.marks.logEdges.has(e.id), pulse, dim: Boolean(sv.head) && !onPath && !isLog };
-      return [{ ...e, data: { ...e.data, ...(dimmed ? { dimmed: true } : {}), scenario } }];
-    }).map((e) => (e.zIndex === EDGE_Z ? e : { ...e, zIndex: EDGE_Z }));
-  }, [edges, dlqEdges, layers, selectedNode, scenarioView]);
+  // Every edge at the edge level, so a line is never behind a tile.
+  const baseEdges = useMemo(() => [...edges, ...dlqEdges].map((e) => ({ ...e, zIndex: EDGE_Z })), [edges, dlqEdges]);
+
+  // How each edge is drawn (hooks/useCanvasView.ts edgeView): the layers,
+  // the selection and the scenario decide visibility and emphasis. An edge
+  // drawn plainly keeps its identity so React Flow need not re-render it.
+  const allEdges = useMemo(() => baseEdges.flatMap((e) => {
+    const view = edgeView(e, layers, selectedNode, scenarioView);
+    if (!view.visible) return [];
+    return isPlainEdge(view) ? [e] : [{ ...e, data: { ...e.data, view } }];
+  }), [baseEdges, layers, selectedNode, scenarioView]);
 
   // Compute node groups (DLQ relationships, etc.)
   const nodeGroups = useMemo(() => computeNodeGroups(nodes), [nodes]);
@@ -237,7 +226,10 @@ function Flow() {
     return map;
   }, [nodes, edges, isDragging]);
 
-  const viewNodes = useMemo(() => nodes.map((n) => {
+  // Containers under resources; see the z constants above.
+  const baseNodes = useMemo(() => nodes.map((n) => ({ ...n, zIndex: n.data?.meta?.isGroup ? CONTAINER_Z : RESOURCE_Z })), [nodes]);
+
+  const viewNodes = useMemo(() => baseNodes.map((n) => {
     const classes: string[] = [];
     if (errorsByNode.has(n.id)) classes.push(errorsByNode.get(n.id) ? 'validation-error' : 'validation-warning');
     let out: Node = n;
@@ -254,26 +246,21 @@ function Flow() {
     } else if (emphasis) {
       classes.push(emphasis.get(n.id) === 'context' ? 'lens-context' : 'lens-focus');
     }
-    // Scenario marks: step numbers on the resources it touches, the state
-    // of each at the playhead, and everything else pushed back while it plays.
+    // Scenario marks: the state of each resource at the playhead, and
+    // everything else pushed back while it plays. The badges themselves
+    // come from ScenarioMarksContext in NodeWrapper.
     if (scenarioView) {
       const { marks, head } = scenarioView;
-      const numbers = marks.numbers.get(n.id);
       const state = marks.state.get(n.id);
-      const logging = marks.logging.has(n.id);
-      if (numbers || logging) {
-        classes.push(state ? `scn-${state}` : 'scn-marked');
-        if (logging) classes.push('scn-logging');
-        out = { ...out, data: { ...out.data, scenario: { numbers: numbers ?? [], state, logging } } };
-      } else if (head && !n.data?.meta?.isGroup) {
-        classes.push('scn-dim');
-      }
+      const involved = marks.numbers.has(n.id) || marks.logging.has(n.id);
+      if (state) classes.push(`scn-${state}`);
+      if (marks.logging.has(n.id)) classes.push('scn-logging');
+      if (head && !involved && !n.data?.meta?.isGroup) classes.push('scn-dim');
     }
     const className = classes.join(' ') || undefined;
-    const zIndex = n.data?.meta?.isGroup ? CONTAINER_Z : RESOURCE_Z;
-    if (out === n) return className === n.className && n.zIndex === zIndex ? n : { ...n, className, zIndex };
-    return { ...out, className, zIndex };
-  }), [nodes, errorsByNode, emphasis, reflow, scenarioView]);
+    if (out === n) return className === n.className ? n : { ...n, className };
+    return { ...out, className };
+  }), [baseNodes, errorsByNode, emphasis, reflow, scenarioView]);
 
   // Handle mouse-based drag from palette
   useEffect(() => {
@@ -710,10 +697,10 @@ function Flow() {
     [setSelectedNode, setEditingNode]
   );
 
-  // While a scenario is recording, a click on a resource is its next step.
+  // While a scenario is recording, a click on a resource is its next step
+  // (the store ignores the click otherwise).
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    const s = useStore.getState();
-    if (s.recording && s.inspectedScenario && canBeStep(node)) s.recordStep(node.id);
+    useStore.getState().recordStep(node.id);
   }, []);
 
   // Double-click on node - open config panel
@@ -906,8 +893,9 @@ function Flow() {
         <div
           ref={canvasRef}
           className={settingsOpen ? 'hidden' : 'flex-1 relative min-h-0'}
-          style={{ '--drawer-h': `${drawerHeight}px` } as React.CSSProperties}
+          style={{ '--drawer-h': `${drawerHeight}px`, '--edge-z': EDGE_Z } as React.CSSProperties}
         >
+          <ScenarioMarksContext.Provider value={scenarioView?.marks ?? null}>
           <ReactFlow
             nodes={viewNodes}
             edges={allEdges}
@@ -963,6 +951,7 @@ function Flow() {
             {/* Visual grouping overlay for related nodes (DLQ, etc.) */}
             <GroupingOverlay groups={nodeGroups} nodes={nodes} onBreakGroup={handleBreakGroup} onMoveGroup={handleMoveGroup} />
           </ReactFlow>
+          </ScenarioMarksContext.Provider>
 
           {/* Drop indicator overlay - just a border, no background */}
           {draggedItem && isOverCanvas && (
@@ -970,7 +959,7 @@ function Flow() {
           )}
 
           {showWelcome && <WelcomeScreen />}
-          {systemView && !showWelcome && <SystemView />}
+          {systemView && !showWelcome && <SystemView reflow={reflow} />}
           <LockBanner />
           <LensBar />
           <PermissionLegend bottomOffset={drawerHeight} />

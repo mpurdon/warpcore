@@ -21,16 +21,13 @@ export const DEFAULT_LAYERS: Record<Layer, boolean> = {
   plumbing: false,
 };
 
+/** Discovered relationship kinds that carry traffic: drawn as flow, and the hops a request can take. */
+export const TRAFFIC_KINDS: ReadonlySet<string> = new Set(['event-source', 'event-target', 'invokes', 'dlq', 'dns', 'origin']);
+
 /** Which layer a discovered relationship belongs on. */
 export function layerFor(kind: string, detail: string): Layer {
+  if (TRAFFIC_KINDS.has(kind)) return 'triggers';
   switch (kind) {
-    case 'event-source':
-    case 'event-target':
-    case 'invokes':
-    case 'dlq':
-    case 'dns':
-    case 'origin':
-      return 'triggers';
     case 'access':
       return 'access';
     case 'vpc':

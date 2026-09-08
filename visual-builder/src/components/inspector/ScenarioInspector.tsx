@@ -9,7 +9,7 @@ import { useReadOnly, useStore } from '../../store/useStore';
 import { displayNameFor } from '../../utils/nodeName';
 import { canvas } from '../../utils/canvasActions';
 import {
-  canBeStep, checkScenario, clockFor, formatTakes, hopsFrom, logLinesUpTo, modelledTimeMs, parseTakes, Scenario, ScenarioStep, suggestPath,
+  canBeStep, checkScenario, clockFor, formatTakes, hopIndex, logLinesUpTo, modelledTimeMs, parseTakes, Scenario, ScenarioStep, suggestPath,
 } from '../../utils/scenarios';
 import InspectorHeader, { Fact, Section, StatusDot } from './InspectorHeader';
 
@@ -24,12 +24,13 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
   } = useStore();
   const readOnly = useReadOnly();
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
-  const name = (id: string) => (byId.has(id) ? displayNameFor(byId.get(id)!) : id);
-  const check = useMemo(() => checkScenario(scenario, nodes, edges), [scenario, nodes, edges]);
+  const index = useMemo(() => hopIndex(nodes, edges), [nodes, edges]);
+  const { name } = index;
+  const check = useMemo(() => checkScenario(scenario, nodes, edges, index), [scenario, nodes, edges, index]);
   const head = playhead && playhead.scenarioId === scenario.id ? playhead : null;
   const playing = Boolean(head?.playing);
   const lastId = scenario.steps[scenario.steps.length - 1]?.at ?? scenario.trigger.at;
-  const nextHops = useMemo(() => (recording || scenario.steps.length === 0 ? hopsFrom(lastId, nodes, edges) : []), [recording, scenario.steps.length, lastId, nodes, edges]);
+  const nextHops = useMemo(() => (recording || scenario.steps.length === 0 ? index.hops.get(lastId) ?? [] : []), [recording, scenario.steps.length, lastId, index]);
   const logs = useMemo(() => logLinesUpTo(scenario, head, nodes, edges), [scenario, head, nodes, edges]);
   const candidates = useMemo(() => nodes.filter(canBeStep).sort((a, b) => displayNameFor(a).localeCompare(displayNameFor(b))), [nodes]);
   const logRef = useRef<HTMLPreElement>(null);
@@ -54,7 +55,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
   };
   const remove = (i: number) => setSteps(scenario.steps.filter((_, j) => j !== i));
   const append = (id: string) => setSteps([...scenario.steps, { at: id }]);
-  const suggest = () => setSteps(suggestPath(scenario.trigger.at, nodes, edges));
+  const suggest = () => setSteps(suggestPath(scenario.trigger.at, nodes, edges, 12, index));
 
   const show = (id: string) => { if (byId.has(id)) { selectNode(id); canvas.fitToNodes([id]); } };
   const jump = (i: number) => { if (head) seekPlayback(i); else show(scenario.steps[i]?.at ?? scenario.trigger.at); };
@@ -65,7 +66,8 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
       ? <StatusDot tone="ok" label="every hop has evidence" />
       : <StatusDot tone="warn" label={`${check.problems.length} ${check.problems.length === 1 ? 'problem' : 'problems'}`} />;
 
-  const suggested = scenario.steps.length === 0 && suggestPath(scenario.trigger.at, nodes, edges).length > 0;
+  // With no steps, the next hops are the ones from the trigger: a path can be drafted when there are any.
+  const suggested = scenario.steps.length === 0 && nextHops.length > 0;
 
   return (
     <>
@@ -239,9 +241,11 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
           )}
         </Section>
 
-        {!readOnly && (recording || scenario.steps.length === 0) && nextHops.length > 0 && (
+        {!readOnly && (recording || (scenario.steps.length === 0 && nextHops.length > 0)) && (
           <Section title="Next" hint={`from ${name(lastId)}`}>
-            {nextHops.map((h) => (
+            {nextHops.length === 0 ? (
+              <p className="text-xs text-gray-500">The graph offers no hop from here. Click any resource to add it anyway; the hop will be flagged as unverified.</p>
+            ) : nextHops.map((h) => (
               <button
                 key={h.edge.id}
                 onClick={() => append(h.to)}
@@ -252,11 +256,6 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
                 <span className="text-[10px] text-gray-500 truncate shrink-0 max-w-[55%]">{h.label}</span>
               </button>
             ))}
-          </Section>
-        )}
-        {!readOnly && recording && nextHops.length === 0 && (
-          <Section title="Next" hint={`from ${name(lastId)}`}>
-            <p className="text-xs text-gray-500">The graph offers no hop from here. Click any resource to add it anyway; the hop will be flagged as unverified.</p>
           </Section>
         )}
 

@@ -5,23 +5,27 @@
 // selection, the same playhead - so the two always show the same instant.
 // Nothing here writes project state.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
-import { Crosshair, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { useLensView, useScenarioView } from '../hooks/useCanvasView';
-import { CARD_H, Card, layoutSystem, Link, LinkKind, Slab, SystemLayout } from '../utils/systemLayout';
-import { TRAVEL_MS } from '../utils/scenarios';
+import { edgeView, useScenarioView } from '../hooks/useCanvasView';
+import { CARD_H, Card, layoutSystem, Link, LinkKind, SystemLayout } from '../utils/systemLayout';
+import { badgeLabel, badgeTone } from '../utils/scenarios';
+import type { Reflow } from '../utils/stackLayout';
 
 const LINK_COLOR: Record<LinkKind, number> = {
   flow: 0x8b5cf6, access: 0x3b82f6, logs: 0xf59e0b, structure: 0x9ca3af, drawn: 0x6b7280,
 };
 const LINK_OPACITY: Record<LinkKind, number> = { flow: 0.9, access: 0.85, logs: 0.6, structure: 0.3, drawn: 0.7 };
+/** How far a link fades for each emphasis, as a factor of its own opacity. */
+const EMPHASIS_FACTOR = { normal: 1, dimmed: 0.35, background: 0.15 } as const;
 const BLUE = 0x2563eb;
 const AMBER = 0xf59e0b;
 const INK = 0x1f2937;
+const EMPTY: ReadonlySet<string> = new Set();
 
 interface CardObject {
   card: Card;
@@ -29,7 +33,6 @@ interface CardObject {
   outline: THREE.LineSegments<THREE.EdgesGeometry, THREE.LineBasicMaterial>;
   label: CSS2DObject;
   badge: HTMLSpanElement;
-  nameEl: HTMLSpanElement;
 }
 
 interface LinkObject {
@@ -42,7 +45,36 @@ interface Built {
   root: THREE.Group;
   cards: Map<string, CardObject>;
   links: Map<string, LinkObject>;
-  slabs: Map<string, THREE.Mesh>;
+}
+
+/** The request travelling a hop: which link, which way, and its clock. */
+interface Pulse {
+  linkId: string;
+  reverse: boolean;
+  durationMs: number;
+  startedAt: number;
+  /** Set while paused; the elapsed time is frozen at pausedAt - startedAt. */
+  pausedAt: number | null;
+}
+
+interface SceneState {
+  renderer: THREE.WebGLRenderer;
+  labels: CSS2DRenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  controls: OrbitControls;
+  pulseMesh: THREE.Mesh;
+  built: Built | null;
+  pulse: Pulse | null;
+  logging: ReadonlySet<string>;
+  /** Where follow is taking the orbit target, and the camera with it. */
+  target: { look: THREE.Vector3; eye: THREE.Vector3 } | null;
+  fit: () => void;
+  /** The camera has been framed once for this renderer. */
+  fitted: boolean;
+  /** Something changed that the next frame must draw. */
+  dirty: boolean;
+  raf: number;
 }
 
 function cardTop(c: Card): THREE.Vector3 {
@@ -62,7 +94,6 @@ function buildScene(layout: SystemLayout): Built {
   const root = new THREE.Group();
   const cards = new Map<string, CardObject>();
   const links = new Map<string, LinkObject>();
-  const slabs = new Map<string, THREE.Mesh>();
 
   for (const s of layout.slabs) {
     const geo = new THREE.BoxGeometry(s.w, s.t, s.d);
@@ -70,9 +101,7 @@ function buildScene(layout: SystemLayout): Built {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(s.x, s.y, s.z);
     mesh.receiveShadow = true;
-    mesh.userData = { slabId: s.id };
     root.add(mesh);
-    slabs.set(s.id, mesh);
     if (s.label) {
       const el = document.createElement('div');
       el.className = `sv-slab-label sv-slab-${s.kind}`;
@@ -106,21 +135,23 @@ function buildScene(layout: SystemLayout): Built {
     const el = document.createElement('div');
     el.className = `sv-card-label${c.compact ? ' sv-compact' : ''}`;
     const badge = document.createElement('span');
-    badge.className = 'sv-badge';
+    badge.className = 'scn-badge';
     badge.hidden = true;
     const nameEl = document.createElement('span');
     nameEl.className = 'sv-name';
     nameEl.textContent = c.label;
-    const typeEl = document.createElement('span');
-    typeEl.className = 'sv-type';
-    typeEl.textContent = c.type;
     el.append(badge, nameEl);
-    if (!c.compact) el.append(typeEl);
+    if (!c.compact) {
+      const typeEl = document.createElement('span');
+      typeEl.className = 'sv-type';
+      typeEl.textContent = c.type;
+      el.append(typeEl);
+    }
     const label = new CSS2DObject(el);
     label.position.set(c.x, c.y + CARD_H + 0.02, c.z);
     label.center.set(0.5, 1);
     root.add(mesh, outline, label);
-    cards.set(c.id, { card: c, mesh, outline, label, badge, nameEl });
+    cards.set(c.id, { card: c, mesh, outline, label, badge });
   }
 
   for (const l of layout.links) {
@@ -131,56 +162,51 @@ function buildScene(layout: SystemLayout): Built {
     const geo = new THREE.TubeGeometry(curve, 24, l.kind === 'structure' ? 0.01 : 0.016, 6, false);
     const mat = new THREE.MeshBasicMaterial({ color: LINK_COLOR[l.kind], transparent: true, opacity: LINK_OPACITY[l.kind] });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.userData = { linkId: l.id };
     root.add(mesh);
     links.set(l.id, { link: l, curve, mesh });
   }
 
-  return { root, cards, links, slabs };
+  return { root, cards, links };
 }
 
 function disposeBuilt(b: Built): void {
   b.root.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.geometry) m.geometry.dispose();
-    const mat = (m as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    m.geometry?.dispose();
+    const mat = m.material as THREE.Material | THREE.Material[] | undefined;
     if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
     else mat?.dispose();
-    if ((o as CSS2DObject).element) (o as CSS2DObject).element.remove();
+    (o as CSS2DObject).element?.remove();
   });
   b.root.removeFromParent();
 }
 
-export default function SystemView() {
+/** What has to be equal for the built scene to be reusable: every placement, nothing about state. */
+function layoutKey(layout: SystemLayout): string {
+  const r = (v: number) => Math.round(v * 1000);
+  return [
+    ...layout.slabs.map((s) => `s${s.id}:${r(s.x)},${r(s.y)},${r(s.z)},${r(s.w)},${r(s.d)},${s.kind}`),
+    ...layout.cards.map((c) => `c${c.id}:${r(c.x)},${r(c.y)},${r(c.z)},${r(c.w)},${r(c.d)},${c.label}`),
+    ...layout.links.map((l) => `l${l.id}:${l.kind}`),
+    ...layout.captions.map((c) => `t${c.id}:${c.text}`),
+  ].join('|');
+}
+
+export default function SystemView({ reflow }: { reflow: Reflow | null }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const nodes = useStore((s) => s.nodes);
   const edges = useStore((s) => s.edges);
   const layers = useStore((s) => s.layers);
   const selectedNode = useStore((s) => s.selectedNode);
   const selectNode = useStore((s) => s.selectNode);
-  const setSelectedNode = useStore((s) => s.setSelectedNode);
-  const { reflow } = useLensView();
+  const deselectAll = useStore((s) => s.deselectAll);
+  const recordStep = useStore((s) => s.recordStep);
+  const follow = useStore((s) => s.followPlayhead);
   const scenarioView = useScenarioView();
-  const [follow, setFollow] = useState(true);
 
-  // The scene lives outside React: one renderer, rebuilt geometry when the
-  // layout changes, per-frame updates for the pulse and the camera.
-  const sceneRef = useRef<{
-    renderer: THREE.WebGLRenderer;
-    labels: CSS2DRenderer;
-    scene: THREE.Scene;
-    camera: THREE.PerspectiveCamera;
-    controls: OrbitControls;
-    built: Built | null;
-    pulse: { linkId: string; reverse: boolean; durationMs: number; startedAt: number; elapsedAtPause: number; playing: boolean } | null;
-    logging: Set<string>;
-    /** Where follow is taking the orbit target, and the camera with it. */
-    target: { look: THREE.Vector3; eye: THREE.Vector3 } | null;
-    fit: () => void;
-    /** The camera has been framed once for this renderer. */
-    fitted: boolean;
-    raf: number;
-  } | null>(null);
+  // The scene lives outside React: one renderer, geometry rebuilt when a
+  // placement changes, per-frame work only for the pulse and the camera.
+  const sceneRef = useRef<SceneState | null>(null);
 
   // Mount the renderer once.
   useEffect(() => {
@@ -216,6 +242,21 @@ export default function SystemView() {
     sun.shadow.bias = -0.0005;
     scene.add(sun);
 
+    const pulseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshStandardMaterial({ color: BLUE, emissive: BLUE, emissiveIntensity: 0.8 }));
+    pulseMesh.visible = false;
+    pulseMesh.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: BLUE, transparent: true, opacity: 0.18 })));
+    scene.add(pulseMesh);
+
+    const state: SceneState = {
+      renderer, labels, scene, camera, controls, pulseMesh, built: null, pulse: null, logging: EMPTY, target: null,
+      fit: () => {}, fitted: false, dirty: true, raf: 0,
+    };
+    sceneRef.current = state;
+    if (import.meta.env.DEV) {
+      const dev = (window as unknown as { __warpcore?: Record<string, unknown> }).__warpcore;
+      if (dev) dev.systemView = state;
+    }
+
     const resize = () => {
       const w = host.clientWidth || 1;
       const h = host.clientHeight || 1;
@@ -223,17 +264,12 @@ export default function SystemView() {
       labels.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      state.dirty = true;
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(host);
-
-    const state = {
-      renderer, labels, scene, camera, controls, built: null as Built | null, pulse: null as typeof sceneRef.current extends infer T ? T extends { pulse: infer P } ? P : never : never,
-      logging: new Set<string>(), target: null as { look: THREE.Vector3; eye: THREE.Vector3 } | null, fit: () => {}, fitted: false, raf: 0,
-    };
-    sceneRef.current = state as NonNullable<typeof sceneRef.current>;
-    if (import.meta.env.DEV) (window as unknown as { __systemView?: unknown }).__systemView = state;
+    controls.addEventListener('change', () => { state.dirty = true; });
 
     // Click without drag selects; drag orbits.
     const raycaster = new THREE.Raycaster();
@@ -242,71 +278,63 @@ export default function SystemView() {
     const onUp = (e: PointerEvent) => {
       if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) { down = null; return; }
       down = null;
-      const b = sceneRef.current?.built;
+      const b = state.built;
       if (!b) return;
       const rect = renderer.domElement.getBoundingClientRect();
       const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(ndc, camera);
       const hit = raycaster.intersectObjects([...b.cards.values()].map((c) => c.mesh), false)[0];
-      const s = useStore.getState();
+      const recording = useStore.getState().recording;
       if (hit) {
         const id = String(hit.object.userData.cardId);
-        if (s.recording && s.inspectedScenario) s.recordStep(id);
+        if (recording) recordStep(id);
         else selectNode(id);
-      } else if (!s.recording) {
-        setSelectedNode(null);
-        s.setNodes(s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)));
+      } else if (!recording) {
+        deselectAll();
       }
     };
     renderer.domElement.addEventListener('pointerdown', onDown);
     renderer.domElement.addEventListener('pointerup', onUp);
 
+    // Frames are drawn on demand: when something changed, while the camera
+    // is still settling, and while a pulse, a ticker or a follow is live.
     const clock = new THREE.Clock();
     const tick = () => {
-      const st = sceneRef.current;
-      if (!st) return;
-      st.raf = requestAnimationFrame(tick);
+      state.raf = requestAnimationFrame(tick);
       const dt = Math.min(0.05, clock.getDelta());
       const now = performance.now();
-      // The pulse: where the request is along its hop.
-      if (st.pulse && st.built) {
-        const lo = st.built.links.get(st.pulse.linkId);
-        const elapsed = st.pulse.playing ? now - st.pulse.startedAt : st.pulse.elapsedAtPause;
-        const t = Math.min(1, elapsed / st.pulse.durationMs);
-        const sphere = st.scene.getObjectByName('pulse') as THREE.Mesh | undefined;
-        if (lo && sphere) {
-          const p = lo.curve.getPointAt(st.pulse.reverse ? 1 - t : t);
-          sphere.position.copy(p);
-          sphere.visible = true;
-        }
+      let live = false;
+      const lo = state.pulse && state.built ? state.built.links.get(state.pulse.linkId) : undefined;
+      if (state.pulse && lo) {
+        const elapsed = (state.pulse.pausedAt ?? now) - state.pulse.startedAt;
+        const t = Math.min(1, elapsed / state.pulse.durationMs);
+        lo.curve.getPointAt(state.pulse.reverse ? 1 - t : t, pulseMesh.position);
+        pulseMesh.visible = true;
+        live = t < 1 && state.pulse.pausedAt === null;
       } else {
-        const sphere = st.scene.getObjectByName('pulse') as THREE.Mesh | undefined;
-        if (sphere) sphere.visible = false;
+        pulseMesh.visible = false;
       }
-      // Log groups flicker while written to.
-      if (st.built && st.logging.size) {
-        for (const id of st.logging) {
-          const c = st.built.cards.get(id);
+      if (state.built && state.logging.size) {
+        for (const id of state.logging) {
+          const c = state.built.cards.get(id);
           if (c) c.mesh.material.emissiveIntensity = 0.35 + 0.35 * Math.abs(Math.sin(now / 90));
         }
+        live = true;
       }
-      // Follow: pan towards the request, keeping the viewing direction.
-      if (st.target) {
+      if (state.target) {
         const k = Math.min(1, dt * 4);
-        st.controls.target.lerp(st.target.look, k);
-        st.camera.position.lerp(st.target.eye, k);
-        if (st.controls.target.distanceTo(st.target.look) < 0.01) st.target = null;
+        controls.target.lerp(state.target.look, k);
+        camera.position.lerp(state.target.eye, k);
+        if (controls.target.distanceTo(state.target.look) < 0.01) state.target = null;
+        live = true;
       }
-      st.controls.update();
-      st.renderer.render(st.scene, st.camera);
-      st.labels.render(st.scene, st.camera);
+      const moved = controls.update();
+      if (state.dirty || moved || live) {
+        renderer.render(scene, camera);
+        labels.render(scene, camera);
+        state.dirty = false;
+      }
     };
-    const pulseSphere = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshStandardMaterial({ color: BLUE, emissive: BLUE, emissiveIntensity: 0.8 }));
-    pulseSphere.name = 'pulse';
-    pulseSphere.visible = false;
-    scene.add(pulseSphere);
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: BLUE, transparent: true, opacity: 0.18 }));
-    pulseSphere.add(halo);
     state.raf = requestAnimationFrame(tick);
 
     return () => {
@@ -321,16 +349,15 @@ export default function SystemView() {
       labels.domElement.remove();
       sceneRef.current = null;
     };
-  }, [selectNode, setSelectedNode]);
+  }, [selectNode, deselectAll, recordStep]);
 
-  // Rebuild the geometry when the layout changes. The first build for a
-  // renderer also frames the camera; later ones keep the operator's
-  // viewpoint. (The flag lives on the renderer state, not in a React ref:
-  // StrictMode mounts twice, and the second renderer must be framed too.)
+  // The geometry is rebuilt only when a placement changes, not when a node
+  // is selected (selection rewrites the nodes array too).
+  const layout = useMemo(() => layoutSystem(nodes, edges, reflow ?? {}), [nodes, edges, reflow]);
+  const key = useMemo(() => layoutKey(layout), [layout]);
   useEffect(() => {
     const st = sceneRef.current;
     if (!st) return;
-    const layout = layoutSystem(nodes, edges, reflow ?? {});
     if (st.built) disposeBuilt(st.built);
     st.built = buildScene(layout);
     st.scene.add(st.built.root);
@@ -343,9 +370,15 @@ export default function SystemView() {
       st.camera.position.set(cx + span * 0.35, b.maxY + span * 0.75, cz + span * 1.05);
       st.target = null;
       st.controls.update();
+      st.dirty = true;
     };
+    // The first build for a renderer frames the camera; later ones keep the
+    // operator's viewpoint. The flag lives on the renderer state, not in a
+    // React ref: StrictMode mounts twice, and the second renderer must be
+    // framed too.
     if (!st.fitted) { st.fit(); st.fitted = true; }
-  }, [nodes, edges, reflow]);
+    st.dirty = true;
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Decorate: edge layers, selection, and the scenario at the playhead.
   useEffect(() => {
@@ -378,78 +411,63 @@ export default function SystemView() {
       c.mesh.position.y = y;
       c.outline.position.y = y;
       c.label.position.y = c.card.y + CARD_H + 0.02 + lift;
+      c.badge.hidden = !numbers?.length;
       if (numbers?.length) {
-        c.badge.hidden = false;
-        c.badge.textContent = numbers.map((n) => (n === 0 ? '▶' : String(n))).join(' ');
-        c.badge.className = `sv-badge ${state === 'active' ? 'sv-badge-active' : state === 'pending' || state === 'travelling' ? 'sv-badge-pending' : ''}`;
-      } else {
-        c.badge.hidden = true;
+        c.badge.textContent = numbers.map(badgeLabel).join(' ');
+        c.badge.className = `scn-badge ${badgeTone(state)}`;
       }
     }
-    st.logging = new Set(sv?.marks.logging ?? []);
+    st.logging = sv?.marks.logging ?? EMPTY;
+    const edgeById = new Map(edges.map((e) => [e.id, e]));
+    let pulseView: { edgeId: string; reverse: boolean; durationMs: number } | null = null;
     for (const [id, l] of b.links) {
-      const edge = edges.find((e) => e.id === id);
-      const layer = edge?.data?.meta?.layer as keyof typeof layers | undefined;
-      const onPath = sv?.pathEdges.has(id) ?? false;
-      const isLog = sv?.logEdges.has(id) ?? false;
-      const layerOn = !layer || layers[layer];
-      const touchesSelection = selectedNode !== null && (edge?.source === selectedNode || edge?.target === selectedNode);
-      const visible = layerOn || touchesSelection || onPath || isLog;
-      l.mesh.visible = visible;
-      const base = LINK_OPACITY[l.link.kind];
-      l.mesh.material.opacity = !layerOn && !onPath && !isLog ? base * 0.35 : playing && !onPath && !isLog ? base * 0.15 : base;
-      l.mesh.material.color.set(sv?.marks.logEdges.has(id) ? AMBER : LINK_COLOR[l.link.kind]);
-      l.mesh.scale.setScalar(1);
+      const edge = edgeById.get(id);
+      const view = edge ? edgeView(edge, layers, selectedNode, sv) : null;
+      l.mesh.visible = view?.visible ?? true;
+      l.mesh.material.opacity = LINK_OPACITY[l.link.kind] * EMPHASIS_FACTOR[view?.emphasis ?? 'normal'];
+      l.mesh.material.color.set(view?.logging ? AMBER : LINK_COLOR[l.link.kind]);
+      if (view?.pulse) pulseView = { edgeId: id, ...view.pulse };
     }
-    // The pulse.
-    const pulse = sv?.marks.pulse ?? null;
-    if (pulse && head) {
-      const durationMs = TRAVEL_MS / (head.speed || 1);
+    // The pulse: start its clock when the hop changes, freeze it on pause.
+    if (pulseView && head) {
       const prev = st.pulse;
-      if (!prev || prev.linkId !== pulse.edgeId || prev.reverse !== pulse.reverse) {
-        st.pulse = { linkId: pulse.edgeId, reverse: pulse.reverse, durationMs, startedAt: performance.now(), elapsedAtPause: 0, playing: head.playing };
-      } else if (prev.playing !== head.playing) {
-        // Pause freezes the elapsed time; resume continues from it.
-        const elapsed = prev.playing ? performance.now() - prev.startedAt : prev.elapsedAtPause;
-        st.pulse = { ...prev, durationMs, playing: head.playing, elapsedAtPause: elapsed, startedAt: performance.now() - elapsed };
+      const now = performance.now();
+      if (!prev || prev.linkId !== pulseView.edgeId || prev.reverse !== pulseView.reverse) {
+        st.pulse = { linkId: pulseView.edgeId, reverse: pulseView.reverse, durationMs: pulseView.durationMs, startedAt: now, pausedAt: head.playing ? null : now };
+      } else if (head.playing && prev.pausedAt !== null) {
+        st.pulse = { ...prev, durationMs: pulseView.durationMs, startedAt: now - (prev.pausedAt - prev.startedAt), pausedAt: null };
+      } else if (!head.playing && prev.pausedAt === null) {
+        st.pulse = { ...prev, durationMs: pulseView.durationMs, pausedAt: now };
       }
     } else {
       st.pulse = null;
     }
-    // Follow the request.
-    if (follow && sv && head && head.phase !== 'end') {
-      const at = head.phase === 'travel' ? sv.check.steps[head.index]?.evidence?.from : head.index < 0 ? sv.scenario.trigger.at : sv.scenario.steps[head.index]?.at;
-      const to = head.phase === 'travel' ? sv.scenario.steps[head.index]?.at : undefined;
-      const a = at ? b.cards.get(at) : undefined;
-      const c2 = to ? b.cards.get(to) : undefined;
+    // Follow the request: pan the camera with it.
+    if (follow && sv?.focus) {
+      const a = b.cards.get(sv.focus.at);
+      const f = sv.focus.from ? b.cards.get(sv.focus.from) : undefined;
       if (a) {
         const look = cardTop(a.card);
-        if (c2) look.add(cardTop(c2.card)).multiplyScalar(0.5);
+        if (f && head?.phase === 'travel') look.add(cardTop(f.card)).multiplyScalar(0.5);
         const shift = look.clone().sub(st.controls.target);
         st.target = { look, eye: st.camera.position.clone().add(shift) };
       }
     }
-  }, [scenarioView, selectedNode, layers, edges, follow, nodes]);
+    st.dirty = true;
+  }, [scenarioView, selectedNode, layers, edges, follow, key]);
 
-  const stackEmpty = nodes.filter((n) => !n.hidden).length === 0;
+  const empty = !nodes.some((n) => !n.hidden);
 
   return (
     <div className="absolute inset-0 z-10 bg-gray-100" aria-label="System view">
       <div ref={hostRef} className="absolute inset-0 sv-host" />
-      {stackEmpty && (
+      {empty && (
         <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 pointer-events-none">Nothing on the canvas to show.</div>
       )}
       <div className="absolute right-3 z-20 flex items-center gap-1 text-xs" style={{ top: 12 }}>
         <span className="px-2 py-1 rounded-md bg-white/90 border border-gray-200 text-gray-600 shadow-sm" title="Drag to orbit, scroll to zoom, right-drag to pan. Click a card to inspect it.">
           System view · read only
         </span>
-        <button
-          onClick={() => setFollow((f) => !f)}
-          className={`px-2 py-1 rounded-md bg-white/90 border border-gray-200 shadow-sm inline-flex items-center gap-1 ${follow ? 'text-blue-700' : 'text-gray-600'}`}
-          title={follow ? 'Following the request' : 'Follow the request as it plays'}
-        >
-          <Crosshair size={12} /> Follow
-        </button>
         <button
           onClick={() => sceneRef.current?.fit()}
           className="px-2 py-1 rounded-md bg-white/90 border border-gray-200 shadow-sm inline-flex items-center gap-1 text-gray-600"
@@ -461,6 +479,3 @@ export default function SystemView() {
     </div>
   );
 }
-
-export { LINK_COLOR };
-export type { Slab };

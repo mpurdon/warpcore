@@ -6,7 +6,7 @@ import { Lens, LENS_LAYERS } from '../utils/lenses';
 import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
 import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
 import type { Playhead, Scenario } from '../utils/scenarios';
-import { advance as advancePlayhead, seekTo } from '../utils/scenarios';
+import { advance as advancePlayhead, canBeStep, createScenario, seekTo } from '../utils/scenarios';
 
 // Sections of the application settings view. Order here is display order.
 export const SETTINGS_SECTIONS = [
@@ -288,6 +288,8 @@ interface StoreState {
    * selection is not a change to the project.
    */
   selectNode: (nodeId: string) => void;
+  /** Clear the selection on the canvas and in the store. */
+  deselectAll: () => void;
   showExecutionPanel: boolean;
   setShowExecutionPanel: (show: boolean) => void;
 
@@ -358,13 +360,15 @@ interface StoreState {
   /** Replace every scenario, e.g. after opening a file. Dirty only when asked. */
   setScenarios: (scenarios: Scenario[], dirty?: boolean) => void;
   addScenario: (scenario: Scenario) => void;
+  /** A fresh scenario triggered at the node, or at the most entry-like one, opened in the inspector. */
+  newScenario: (triggerAt?: string) => void;
   updateScenario: (id: string, update: (scenario: Scenario) => Scenario) => void;
   removeScenario: (id: string) => void;
   inspectedScenario: string | null;
   inspectScenario: (id: string | null) => void;
   recording: boolean;
   setRecording: (on: boolean) => void;
-  /** Append a step to the scenario being recorded. */
+  /** Append a step to the scenario being recorded; ignored for nodes that cannot be one. */
   recordStep: (nodeId: string) => void;
   // Playback: one playhead in the store drives the canvas and the system
   // view, so both show the same instant. See Playhead in scenarios.ts.
@@ -376,7 +380,12 @@ interface StoreState {
   advancePlayback: () => void;
   /** Jump to the start of a step; -1 is the trigger. */
   seekPlayback: (index: number) => void;
+  stepBack: () => void;
+  stepForward: () => void;
   setPlaybackSpeed: (speed: number) => void;
+  /** Keep the request in view as it plays, on the canvas and in the system view. */
+  followPlayhead: boolean;
+  setFollowPlayhead: (on: boolean) => void;
 
   // The project lock. On by default whenever a project is opened or the
   // environment changes; off only after the operator types the project's
@@ -441,7 +450,21 @@ export const useCurrentEnvName = (): string => useStore(selectCurrentEnvName);
 // Read once at startup; the mirrors below all derive from it.
 const initialPrefs = getPreferences();
 
-export const useStore = create<StoreState>((set) => ({
+/**
+ * A playback action: given the scenario playing and the playhead, the next
+ * playhead. Nothing happens without a playhead; a playhead whose scenario
+ * is gone is dropped.
+ */
+function withPlayback(next: (scenario: Scenario, head: Playhead) => Playhead) {
+  return (state: StoreState): Partial<StoreState> => {
+    if (!state.playhead) return {};
+    const scenario = state.scenarios.find((s) => s.id === state.playhead!.scenarioId);
+    if (!scenario) return { playhead: null };
+    return { playhead: next(scenario, state.playhead) };
+  };
+}
+
+export const useStore = create<StoreState>((set, get) => ({
   // Canvas state
   nodes: [],
   edges: [],
@@ -529,6 +552,10 @@ export const useStore = create<StoreState>((set) => ({
     inspectedScenario: state.recording ? state.inspectedScenario : null,
     rightPanelVisible: true,
     settingsOpen: false,
+  })),
+  deselectAll: () => set((state) => ({
+    nodes: state.nodes.some((n) => n.selected) ? state.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)) : state.nodes,
+    selectedNode: null,
   })),
   showExecutionPanel: false,
   setShowExecutionPanel: (show) => set({ showExecutionPanel: show }),
@@ -625,18 +652,22 @@ export const useStore = create<StoreState>((set) => ({
     rightPanelVisible: true,
     settingsOpen: false,
   })),
+  newScenario: (triggerAt) => {
+    const state = get();
+    const scenario = createScenario(state.nodes, state.scenarios, triggerAt);
+    if (scenario) state.addScenario(scenario);
+  },
   updateScenario: (id, update) => set((state) => {
-    let changed = false;
+    let next: Scenario | undefined;
     const scenarios = state.scenarios.map((s) => {
       if (s.id !== id) return s;
-      const next = update(s);
-      if (next !== s) changed = true;
+      next = update(s);
       return next;
     });
-    if (!changed) return {};
+    if (!next || next === state.scenarios.find((s) => s.id === id)) return {};
     // A playhead past the end of a shortened scenario is clamped.
     const playhead = state.playhead && state.playhead.scenarioId === id
-      ? seekTo(scenarios.find((s) => s.id === id)!, state.playhead, Math.min(state.playhead.index, scenarios.find((s) => s.id === id)!.steps.length - 1))
+      ? seekTo(next, state.playhead, Math.min(state.playhead.index, next.steps.length - 1))
       : state.playhead;
     return { scenarios, hasUnsavedChanges: true, playhead };
   }),
@@ -661,7 +692,8 @@ export const useStore = create<StoreState>((set) => ({
     const id = state.inspectedScenario;
     if (!state.recording || !id) return {};
     const scenario = state.scenarios.find((s) => s.id === id);
-    if (!scenario) return {};
+    const node = state.nodes.find((n) => n.id === nodeId);
+    if (!scenario || !node || !canBeStep(node)) return {};
     const last = scenario.steps[scenario.steps.length - 1]?.at ?? scenario.trigger.at;
     if (last === nodeId) return {};
     const next = { ...scenario, steps: [...scenario.steps, { at: nodeId }] };
@@ -678,29 +710,20 @@ export const useStore = create<StoreState>((set) => ({
     return { playhead, recording: false, inspectedScenario: state.inspectedScenario ?? id };
   }),
   stopPlayback: () => set({ playhead: null }),
-  setPlaying: (playing) => set((state) => {
-    if (!state.playhead) return {};
-    const scenario = state.scenarios.find((s) => s.id === state.playhead!.scenarioId);
-    if (!scenario) return { playhead: null };
+  setPlaying: (playing) => set(withPlayback((scenario, head) => {
     // Play at the end starts over.
-    if (playing && state.playhead.phase === 'end') {
-      return { playhead: { ...state.playhead, index: 0, phase: scenario.steps.length ? 'travel' : 'dwell', playing: scenario.steps.length > 0 } };
+    if (playing && head.phase === 'end') {
+      return { ...head, index: 0, phase: scenario.steps.length ? 'travel' : 'dwell', playing: scenario.steps.length > 0 };
     }
-    return { playhead: { ...state.playhead, playing } };
-  }),
-  advancePlayback: () => set((state) => {
-    if (!state.playhead) return {};
-    const scenario = state.scenarios.find((s) => s.id === state.playhead!.scenarioId);
-    if (!scenario) return { playhead: null };
-    return { playhead: advancePlayhead(scenario, state.playhead) };
-  }),
-  seekPlayback: (index) => set((state) => {
-    if (!state.playhead) return {};
-    const scenario = state.scenarios.find((s) => s.id === state.playhead!.scenarioId);
-    if (!scenario) return { playhead: null };
-    return { playhead: seekTo(scenario, state.playhead, index) };
-  }),
-  setPlaybackSpeed: (speed) => set((state) => (state.playhead ? { playhead: { ...state.playhead, speed } } : {})),
+    return { ...head, playing };
+  })),
+  advancePlayback: () => set(withPlayback((scenario, head) => advancePlayhead(scenario, head))),
+  seekPlayback: (index) => set(withPlayback((scenario, head) => seekTo(scenario, head, index))),
+  stepBack: () => set(withPlayback((scenario, head) => seekTo(scenario, head, head.phase === 'end' ? scenario.steps.length - 1 : head.index - 1))),
+  stepForward: () => set(withPlayback((scenario, head) => (head.phase === 'end' ? head : seekTo(scenario, head, head.index + 1)))),
+  setPlaybackSpeed: (speed) => set(withPlayback((_scenario, head) => ({ ...head, speed }))),
+  followPlayhead: false,
+  setFollowPlayhead: (on) => set({ followPlayhead: on }),
 
   // Project lock
   locked: true,
@@ -719,7 +742,7 @@ export const useStore = create<StoreState>((set) => ({
 
   // System view
   systemView: false,
-  setSystemView: (on) => set({ systemView: on, paletteOpen: false, settingsOpen: on ? false : undefined } as Partial<StoreState>),
+  setSystemView: (on) => set((state) => ({ systemView: on, paletteOpen: false, settingsOpen: on ? false : state.settingsOpen })),
 
   // Dialogs and the palette
   dialog: null,

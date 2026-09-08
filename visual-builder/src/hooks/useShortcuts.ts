@@ -94,11 +94,7 @@ export function useShortcuts({ deleteSelected }: { deleteSelected: () => void })
         if (editable) { (e.target as HTMLElement).blur(); return; }
         if (s.settingsOpen) { s.closeSettings(); return; }
         if (s.editingNode) { s.setEditingNode(null); return; }
-        if (s.selectedNode) {
-          s.setSelectedNode(null);
-          s.setNodes(s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)));
-          return;
-        }
+        if (s.selectedNode) { s.deselectAll(); return; }
         if (s.recording) { s.setRecording(false); return; }
         if (s.playhead) { s.stopPlayback(); return; }
         return;
@@ -109,8 +105,8 @@ export function useShortcuts({ deleteSelected }: { deleteSelected: () => void })
       // Playback: space, [ and ] while a scenario is on the transport bar.
       if (s.playhead && !s.settingsOpen && !s.paletteOpen && !s.dialog) {
         if (e.key === ' ') { e.preventDefault(); s.setPlaying(!s.playhead.playing); return; }
-        if (e.key === '[') { e.preventDefault(); s.seekPlayback(s.playhead.phase === 'end' ? s.playhead.index : s.playhead.index - 1); return; }
-        if (e.key === ']') { e.preventDefault(); if (s.playhead.phase !== 'end') s.seekPlayback(s.playhead.index + 1); return; }
+        if (e.key === '[') { e.preventDefault(); s.stepBack(); return; }
+        if (e.key === ']') { e.preventDefault(); s.stepForward(); return; }
       }
 
       if (e.key === '?') {

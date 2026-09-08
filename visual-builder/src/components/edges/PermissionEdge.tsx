@@ -1,10 +1,10 @@
 import { BaseEdge, EdgeLabelRenderer, EdgeProps, getBezierPath, useReactFlow } from 'reactflow';
 import { Eye, Pencil, Zap, Route, AlertTriangle } from 'lucide-react';
+import { TRAFFIC_KINDS } from '../../utils/layers';
+import { EdgeView, PLAIN_EDGE } from '../../hooks/useCanvasView';
 
-// Permission type colors
-// Relationships that carry traffic are drawn as solid lines like permissions;
-// structure (membership, routes, certificates) is grey and dashed.
-const FLOW_KINDS = new Set(['event-source', 'event-target', 'invokes', 'dns', 'origin']);
+// How far an edge fades for each emphasis; see EdgeView.
+const EDGE_OPACITY: Record<EdgeView['emphasis'], number> = { normal: 1, dimmed: 0.3, background: 0.15 };
 
 export const PERMISSION_COLORS = {
   read: '#3b82f6',    // Blue
@@ -185,9 +185,9 @@ export default function PermissionEdge({
   // Discovered edges: what the relationship is and, for access, who grants it.
   const discovered = data?.meta?.discovered as { kind: string; detail: string } | undefined;
   const access = data?.meta?.access as { level: string; via: string; actions: string[] } | undefined;
-  const dimmed = Boolean(data?.dimmed);
-  // Scenario playback: the hop being travelled, the path so far, log writes.
-  const scn = data?.scenario as { onPath?: boolean; logging?: boolean; pulse?: { reverse: boolean; durationMs: number }; dim?: boolean } | undefined;
+  // How the canvas wants this edge drawn: layer and selection, and the
+  // scenario's story (the path so far, the hop being travelled, log writes).
+  const view = (data?.view as EdgeView | undefined) ?? PLAIN_EDGE;
 
   // Get source and target node types
   const sourceNode = nodes.find(n => n.id === source);
@@ -220,7 +220,7 @@ export default function PermissionEdge({
     } else {
       edgeStyle = { stroke: gradientInfo.color, strokeWidth: 3 };
     }
-  } else if (discovered && !FLOW_KINDS.has(discovered.kind)) {
+  } else if (discovered && !TRAFFIC_KINDS.has(discovered.kind)) {
     edgeStyle = { stroke: PERMISSION_COLORS.relationship, strokeWidth: 1.5, strokeDasharray: '4 4' };
   } else if (isDLQ) {
     // DLQ edge - amber dashed line
@@ -240,13 +240,12 @@ export default function PermissionEdge({
     edgeStyle = { stroke: gradientInfo.color, strokeWidth: 3 };
   }
 
-  if (scn?.logging) {
+  if (view.logging) {
     edgeStyle = { stroke: '#f59e0b', strokeWidth: 2.5, strokeDasharray: '4 6' };
-  } else if (scn?.onPath) {
+  } else if (view.onPath) {
     edgeStyle = { ...edgeStyle, strokeWidth: Number(edgeStyle.strokeWidth ?? 2) + 1.5, strokeDasharray: undefined };
   }
-  const faded = dimmed || Boolean(scn?.dim);
-  const edgeOpacity = scn?.dim ? 0.15 : dimmed ? 0.3 : 1;
+  const edgeOpacity = EDGE_OPACITY[view.emphasis];
 
   // Get config summary for display
   const getConfigSummary = () => {
@@ -298,18 +297,18 @@ export default function PermissionEdge({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        style={faded ? { ...edgeStyle, opacity: edgeOpacity } : edgeStyle}
-        {...(scn?.logging ? { className: 'scn-log-flow' } : {})}
+        style={edgeOpacity < 1 ? { ...edgeStyle, opacity: edgeOpacity } : edgeStyle}
+        {...(view.logging ? { className: 'scn-log-flow' } : {})}
       />
 
       {/* The request travelling this hop: a dot that runs the path once and stays at the far end. */}
-      {scn?.pulse && (
-        <g key={`pulse-${id}-${scn.pulse.durationMs}-${scn.pulse.reverse}`} className="scn-pulse" style={{ pointerEvents: 'none' }}>
+      {view.pulse && (
+        <g key={`pulse-${id}-${view.pulse.durationMs}-${view.pulse.reverse}`} className="scn-pulse" style={{ pointerEvents: 'none' }}>
           <circle r={10} fill="rgba(37, 99, 235, 0.22)">
-            <animateMotion dur={`${scn.pulse.durationMs}ms`} fill="freeze" path={edgePath} keyPoints={scn.pulse.reverse ? '1;0' : '0;1'} keyTimes="0;1" calcMode="linear" />
+            <animateMotion dur={`${view.pulse.durationMs}ms`} fill="freeze" path={edgePath} keyPoints={view.pulse.reverse ? '1;0' : '0;1'} keyTimes="0;1" calcMode="linear" />
           </circle>
           <circle r={5} fill="#2563eb" stroke="#ffffff" strokeWidth={1.5}>
-            <animateMotion dur={`${scn.pulse.durationMs}ms`} fill="freeze" path={edgePath} keyPoints={scn.pulse.reverse ? '1;0' : '0;1'} keyTimes="0;1" calcMode="linear" />
+            <animateMotion dur={`${view.pulse.durationMs}ms`} fill="freeze" path={edgePath} keyPoints={view.pulse.reverse ? '1;0' : '0;1'} keyTimes="0;1" calcMode="linear" />
           </circle>
         </g>
       )}
@@ -319,15 +318,15 @@ export default function PermissionEdge({
           style={{
             position: 'absolute',
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            pointerEvents: scn?.dim ? 'none' : 'all',
-            opacity: scn?.dim ? 0.15 : 1,
+            pointerEvents: view.emphasis === 'background' ? 'none' : 'all',
+            opacity: edgeOpacity,
           }}
           className="nodrag nopan"
         >
           {/* Discovered relationship: access verb, or what the arrow means */}
           {access ? (
             <div
-              className={`flex items-center gap-1 bg-white/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-gray-200 ${dimmed ? 'opacity-40' : ''}`}
+              className={`flex items-center gap-1 bg-white/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-gray-200 `}
               title={`${access.level} via ${access.via}\n${access.actions.join('\n')}`}
             >
               {access.level === 'admin' ? (
@@ -342,7 +341,7 @@ export default function PermissionEdge({
               <span className="text-[10px] text-gray-400">via {access.via}</span>
             </div>
           ) : discovered ? (
-            <div className={`bg-white/90 rounded-full px-2 py-0.5 shadow-sm border border-gray-200 text-[10px] text-gray-500 ${dimmed ? 'opacity-40' : ''}`}>
+            <div className={`bg-white/90 rounded-full px-2 py-0.5 shadow-sm border border-gray-200 text-[10px] text-gray-500 `}>
               {discovered.detail || discovered.kind}
             </div>
           ) : isDLQ ? (

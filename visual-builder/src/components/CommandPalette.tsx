@@ -14,7 +14,6 @@ import { LAYERS } from '../utils/layers';
 import { canvas } from '../utils/canvasActions';
 import { openProjectDialog, saveProject } from '../utils/projectIO';
 import { blockedReason, runDeployment } from '../utils/deployRunner';
-import { createScenario } from '../utils/scenarios';
 import { StatusDot, Tone } from './inspector/InspectorHeader';
 
 const TONE: Record<NodeStatus, Tone> = {
@@ -93,7 +92,7 @@ export default function CommandPalette() {
       list.push({ id: `scn-open-${sc.id}`, kind: 'command', group: 'Scenarios', title: `Inspect scenario: ${sc.name}`, keywords: ['scenario', 'edit'], run: after(() => s.inspectScenario(sc.id)) });
     }
     if (s.nodes.length && !(s.locked && s.configPath)) {
-      list.push({ id: 'scn-new', kind: 'command', group: 'Scenarios', title: 'New scenario', subtitle: 'Play a request through the system, step by step', keywords: ['scenario', 'simulate', 'record'], run: after(() => { const sc = createScenario(s.nodes, s.scenarios, s.selectedNode ?? undefined); if (sc) s.addScenario(sc); }) });
+      list.push({ id: 'scn-new', kind: 'command', group: 'Scenarios', title: 'New scenario', subtitle: 'Play a request through the system, step by step', keywords: ['scenario', 'simulate', 'record'], run: after(() => s.newScenario(s.selectedNode ?? undefined)) });
     }
 
     // Resources

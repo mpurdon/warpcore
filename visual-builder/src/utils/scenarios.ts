@@ -15,7 +15,10 @@
 // lines show data moving and claim nothing about what the code logs.
 
 import { Node, Edge } from 'reactflow';
-import { displayNameFor } from './nodeName';
+import { displayNameById, displayNameFor } from './nodeName';
+import { layerFor, TRAFFIC_KINDS } from './layers';
+import { slugId } from './applications';
+import { BANDS } from './stackLayout';
 
 // ------------------------------------------------------------------ model
 
@@ -45,13 +48,9 @@ export interface ScenarioYaml {
   steps?: Array<{ at: string; note?: string; takes?: string | number; detached?: boolean }>;
 }
 
-export function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'scenario';
-}
-
 /** A scenario id no other scenario in the list has. */
 export function uniqueScenarioId(name: string, existing: Scenario[]): string {
-  const base = slugify(name);
+  const base = slugId(name) || 'scenario';
   const taken = new Set(existing.map((s) => s.id));
   if (!taken.has(base)) return base;
   let n = 2;
@@ -122,7 +121,7 @@ export function scenariosToYaml(scenarios: Scenario[]): ScenarioYaml[] {
 }
 
 /** Types a request usually arrives at, best first, for a new scenario's default trigger. */
-const ENTRY_TYPES = ['api-gateway', 'cloudfront', 'route53-zone', 'load-balancer', 'eventbridge-rule', 'sqs', 'sns', 'kinesis-stream', 's3', 'agent', 'lambda'];
+const ENTRY_TYPES = [...BANDS.entry.types, ...BANDS.bus.types, 's3', 'agent', 'lambda'];
 
 /** A fresh scenario: named, triggered at the given node or the most entry-like one, no steps. */
 export function createScenario(nodes: Node[], existing: Scenario[], triggerAt?: string): Scenario | null {
@@ -178,8 +177,6 @@ export interface Hop {
   rank: number;
 }
 
-const TRIGGER_KINDS = new Set(['invokes', 'event-source', 'event-target', 'origin', 'dns', 'dlq']);
-
 function hopFor(edge: Edge, from: string): Hop | null {
   const meta = (edge.data?.meta || {}) as { discovered?: { kind: string; detail: string }; access?: { level: string; via: string; actions: string[] }; layer?: string };
   const outgoing = edge.source === from;
@@ -194,18 +191,19 @@ function hopFor(edge: Edge, from: string): Hop | null {
   }
   const d = meta.discovered;
   if (d) {
-    if (TRIGGER_KINDS.has(d.kind)) {
-      if (!outgoing) return null;
+    if (!outgoing) return null;
+    if (TRAFFIC_KINDS.has(d.kind)) {
       const authorizer = /authori[sz]er/i.test(d.detail) || /authori[sz]er/i.test(to);
       return { edge, to, kind: 'trigger', label: d.detail || d.kind, rank: authorizer ? 5 : 10 };
     }
+    // A reference is a hop when the layer table puts it on access (an env
+    // var naming a resource) or encryption (a key); roles, logs and VPC
+    // membership are structure and plumbing, never a hop.
     if (d.kind === 'reference') {
-      if (!outgoing) return null;
-      if (d.detail === 'encrypted with') return { edge, to, kind: 'reference', label: 'encrypted with', rank: 40 };
-      if (d.detail.startsWith('env ')) return { edge, to, kind: 'reference', label: d.detail, rank: 35 };
-      return null;
+      const layer = layerFor(d.kind, d.detail);
+      if (layer === 'encryption') return { edge, to, kind: 'reference', label: d.detail, rank: 40 };
+      if (layer === 'access') return { edge, to, kind: 'reference', label: d.detail, rank: 35 };
     }
-    // role, logs, vpc: structure and plumbing, never a hop.
     return null;
   }
   // Drawn by hand: a permission edge from source to target.
@@ -215,19 +213,49 @@ function hopFor(edge: Edge, from: string): Hop | null {
   return { edge, to, kind: 'drawn', label, rank: 25 };
 }
 
-/** The hops the graph allows from a node, best first. Never a log group or a role. */
-export function hopsFrom(nodeId: string, nodes: Node[], edges: Edge[]): Hop[] {
+/**
+ * The graph as the request sees it: for every node, the hops it can take,
+ * best first, and the log groups it writes to. Built once per (nodes,
+ * edges) and handed to everything below, so a check over a ten-step
+ * scenario is one pass over the edges, not ten.
+ */
+export interface HopIndex {
+  hops: Map<string, Hop[]>;
+  /** Per node: the log groups wired to it, and the edges that wire them. */
+  logs: Map<string, { groups: string[]; edgeIds: string[] }>;
+  name: (id: string) => string;
+}
+
+export function hopIndex(nodes: Node[], edges: Edge[]): HopIndex {
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const hops: Hop[] = [];
+  const name = displayNameById(nodes);
+  const hops = new Map<string, Hop[]>();
+  const logs = new Map<string, { groups: string[]; edgeIds: string[] }>();
+  const push = (from: string, hop: Hop) => hops.set(from, [...(hops.get(from) || []), hop]);
+  const log = (nodeId: string, group: string, edgeId: string) => {
+    const entry = logs.get(nodeId) || { groups: [], edgeIds: [] };
+    if (!entry.groups.includes(group)) entry.groups.push(group);
+    entry.edgeIds.push(edgeId);
+    logs.set(nodeId, entry);
+  };
   for (const e of edges) {
-    if (e.source !== nodeId && e.target !== nodeId) continue;
-    const hop = hopFor(e, nodeId);
-    if (!hop) continue;
-    const target = byId.get(hop.to);
-    if (!target || !canBeStep(target)) continue;
-    hops.push(hop);
+    const source = byId.get(e.source);
+    const target = byId.get(e.target);
+    if (!source || !target) continue;
+    if (target.type === 'log-group') log(e.source, e.target, e.id);
+    if (source.type === 'log-group') log(e.target, e.source, e.id);
+    for (const from of [e.source, e.target]) {
+      const hop = hopFor(e, from);
+      if (hop && canBeStep(byId.get(hop.to)!)) push(from, hop);
+    }
   }
-  return hops.sort((a, b) => a.rank - b.rank || displayNameFor(byId.get(a.to)!).localeCompare(displayNameFor(byId.get(b.to)!)));
+  for (const list of hops.values()) list.sort((a, b) => a.rank - b.rank || name(a.to).localeCompare(name(b.to)));
+  return { hops, logs, name };
+}
+
+/** The hops the graph allows from a node, best first. Never a log group or a role. */
+export function hopsFrom(nodeId: string, nodes: Node[], edges: Edge[], index = hopIndex(nodes, edges)): Hop[] {
+  return index.hops.get(nodeId) || [];
 }
 
 /**
@@ -236,11 +264,11 @@ export function hopsFrom(nodeId: string, nodes: Node[], edges: Edge[]): Hop[] {
  * function → its table → its topic" comes out in request order. Capped so a
  * hairball does not become a forty-step scenario.
  */
-export function suggestPath(startId: string, nodes: Node[], edges: Edge[], limit = 12): ScenarioStep[] {
+export function suggestPath(startId: string, nodes: Node[], edges: Edge[], limit = 12, index = hopIndex(nodes, edges)): ScenarioStep[] {
   const steps: ScenarioStep[] = [];
   const seen = new Set<string>([startId]);
   const walk = (id: string) => {
-    for (const hop of hopsFrom(id, nodes, edges)) {
+    for (const hop of index.hops.get(id) || []) {
       if (steps.length >= limit) return;
       if (seen.has(hop.to)) continue;
       seen.add(hop.to);
@@ -261,18 +289,17 @@ export interface StepEvidence {
   label: string;
   /** Actions the policy names, for access edges. */
   actions?: string[];
-  kind: HopKind;
   edgeId: string;
+  /** The edge is drawn the other way round (the hop runs target to source). */
+  reverse: boolean;
 }
 
 export interface StepCheck {
-  index: number;
   at: string;
-  /** The resource is on the canvas. */
-  exists: boolean;
   evidence: StepEvidence | null;
-  /** Log groups this compute step writes to. */
+  /** Log groups this compute step writes to, and the edges that carry the writes. */
   logGroups: string[];
+  logEdges: string[];
   problems: string[];
 }
 
@@ -284,56 +311,47 @@ export interface ScenarioCheck {
 }
 
 /** The node a hop into `stepId` most plausibly came from: the nearest earlier step wired to it. */
-function evidenceFor(stepId: string, earlier: string[], nodes: Node[], edges: Edge[]): StepEvidence | null {
+function evidenceFor(stepId: string, earlier: string[], index: HopIndex): StepEvidence | null {
   for (let i = earlier.length - 1; i >= 0; i--) {
     const from = earlier[i];
-    const hop = hopsFrom(from, nodes, edges).find((h) => h.to === stepId);
+    const hop = (index.hops.get(from) || []).find((h) => h.to === stepId);
     if (hop) {
       const access = (hop.edge.data?.meta as { access?: { actions: string[] } } | undefined)?.access;
-      return { from, label: hop.label, kind: hop.kind, edgeId: hop.edge.id, ...(access?.actions?.length ? { actions: access.actions } : {}) };
+      return { from, label: hop.label, edgeId: hop.edge.id, reverse: hop.edge.target === from, ...(access?.actions?.length ? { actions: access.actions } : {}) };
     }
   }
   return null;
 }
 
 /** The log groups a node writes to: log edges, and any log group it is wired to. */
-export function logGroupsFor(nodeId: string, nodes: Node[], edges: Edge[]): string[] {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const out: string[] = [];
-  for (const e of edges) {
-    if (e.source !== nodeId && e.target !== nodeId) continue;
-    const other = e.source === nodeId ? e.target : e.source;
-    const node = byId.get(other);
-    if (node?.type === 'log-group' && !out.includes(other)) out.push(other);
-  }
-  return out;
+export function logGroupsFor(nodeId: string, nodes: Node[], edges: Edge[], index = hopIndex(nodes, edges)): string[] {
+  return index.logs.get(nodeId)?.groups ?? [];
 }
 
-export function checkScenario(scenario: Scenario, nodes: Node[], edges: Edge[]): ScenarioCheck {
+export function checkScenario(scenario: Scenario, nodes: Node[], edges: Edge[], index = hopIndex(nodes, edges)): ScenarioCheck {
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const name = (id: string) => (byId.has(id) ? displayNameFor(byId.get(id)!) : id);
+  const { name } = index;
   const problems: string[] = [];
   const triggerExists = byId.has(scenario.trigger.at);
   if (!triggerExists) problems.push(`Trigger ${scenario.trigger.at} is not on the canvas`);
   const earlier: string[] = [scenario.trigger.at];
-  const steps: StepCheck[] = scenario.steps.map((step, index) => {
+  const steps: StepCheck[] = scenario.steps.map((step) => {
     const node = byId.get(step.at);
-    const exists = Boolean(node);
     const stepProblems: string[] = [];
     let evidence: StepEvidence | null = null;
-    let logGroups: string[] = [];
-    if (!exists) {
+    let logs = { groups: [] as string[], edgeIds: [] as string[] };
+    if (!node) {
       stepProblems.push(`${step.at} is not on the canvas`);
     } else {
-      evidence = evidenceFor(step.at, earlier, nodes, edges);
+      evidence = evidenceFor(step.at, earlier, index);
       if (!evidence) stepProblems.push(`No permission or trigger found from ${name(earlier[earlier.length - 1])} to ${name(step.at)}`);
-      if (COMPUTE_TYPES.has(node!.type || '')) {
-        logGroups = logGroupsFor(step.at, nodes, edges);
-        if (logGroups.length === 0) stepProblems.push(`${name(step.at)} has no log group wired`);
+      if (COMPUTE_TYPES.has(node.type || '')) {
+        logs = index.logs.get(step.at) ?? logs;
+        if (logs.groups.length === 0) stepProblems.push(`${name(step.at)} has no log group wired`);
       }
     }
     earlier.push(step.at);
-    return { index, at: step.at, exists, evidence, logGroups, problems: stepProblems };
+    return { at: step.at, evidence, logGroups: logs.groups, logEdges: logs.edgeIds, problems: stepProblems };
   });
   if (scenario.steps.length === 0) problems.push('No steps yet');
   for (const s of steps) problems.push(...s.problems);
@@ -395,11 +413,17 @@ export function seekTo(scenario: Scenario, head: Playhead, index: number): Playh
   return { ...head, index: clamped, phase: 'dwell' };
 }
 
+/** How many steps the request has reached at the playhead: a dwelling step counts, one being travelled to does not. */
+export function stepsDone(scenario: Scenario, head: Pick<Playhead, 'index' | 'phase'>): number {
+  if (head.phase === 'end') return scenario.steps.length;
+  return Math.max(0, Math.min(scenario.steps.length, head.phase === 'dwell' ? head.index + 1 : head.index));
+}
+
 /** Modelled time into the request at the playhead: the `takes` of every step done so far. */
 export function modelledTimeMs(scenario: Scenario, head: Pick<Playhead, 'index' | 'phase'>): number {
   let t = 0;
-  const upTo = head.phase === 'end' ? scenario.steps.length : head.phase === 'dwell' ? head.index + 1 : head.index;
-  for (let i = 0; i < Math.min(upTo, scenario.steps.length); i++) {
+  const upTo = stepsDone(scenario, head);
+  for (let i = 0; i < upTo; i++) {
     if (scenario.steps[i].detached) continue;
     t += scenario.steps[i].takes ?? DEFAULT_TAKES_MS;
   }
@@ -419,11 +443,9 @@ export interface PlaybackMarks {
   logEdges: Set<string>;
   /** Log groups receiving lines right now. */
   logging: Set<string>;
-  /** The node the request is at. */
-  activeId: string | null;
 }
 
-export function playbackMarks(scenario: Scenario, head: Playhead | null, check: ScenarioCheck, nodes: Node[], edges: Edge[]): PlaybackMarks {
+export function playbackMarks(scenario: Scenario, head: Playhead | null, check: ScenarioCheck): PlaybackMarks {
   const numbers = new Map<string, number[]>();
   const push = (id: string, n: number) => numbers.set(id, [...(numbers.get(id) || []), n]);
   push(scenario.trigger.at, 0);
@@ -432,10 +454,9 @@ export function playbackMarks(scenario: Scenario, head: Playhead | null, check: 
   const logEdges = new Set<string>();
   const logging = new Set<string>();
   let pulse: PlaybackMarks['pulse'] = null;
-  let activeId: string | null = null;
-  if (!head) return { numbers, state, pulse, logEdges, logging, activeId };
+  if (!head) return { numbers, state, pulse, logEdges, logging };
 
-  const doneThrough = head.phase === 'end' ? scenario.steps.length - 1 : head.phase === 'dwell' ? head.index : head.index - 1;
+  const doneThrough = stepsDone(scenario, head) - 1;
   state.set(scenario.trigger.at, head.index < 0 && head.phase !== 'end' ? 'active' : 'visited');
   scenario.steps.forEach((s, i) => {
     const current = state.get(s.at);
@@ -449,29 +470,16 @@ export function playbackMarks(scenario: Scenario, head: Playhead | null, check: 
     if (!current || order.indexOf(next) > order.indexOf(current)) state.set(s.at, next);
   });
 
-  if (head.phase !== 'end' && head.index >= 0) {
-    const step = scenario.steps[head.index];
-    const ev = check.steps[head.index]?.evidence;
-    if (head.phase === 'travel' && ev) {
-      const edge = edges.find((e) => e.id === ev.edgeId);
-      if (edge) pulse = { edgeId: edge.id, reverse: edge.target === ev.from };
-    }
+  const current = head.phase !== 'end' ? check.steps[head.index] : undefined;
+  if (current) {
+    const ev = current.evidence;
+    if (head.phase === 'travel' && ev) pulse = { edgeId: ev.edgeId, reverse: ev.reverse };
     if (head.phase === 'dwell') {
-      activeId = step.at;
-      const node = nodes.find((n) => n.id === step.at);
-      if (node && COMPUTE_TYPES.has(node.type || '')) {
-        for (const g of logGroupsFor(step.at, nodes, edges)) {
-          logging.add(g);
-          for (const e of edges) {
-            if ((e.source === step.at && e.target === g) || (e.target === step.at && e.source === g)) logEdges.add(e.id);
-          }
-        }
-      }
+      for (const g of current.logGroups) logging.add(g);
+      for (const e of current.logEdges) logEdges.add(e);
     }
-  } else if (head.index < 0) {
-    activeId = scenario.trigger.at;
   }
-  return { numbers, state, pulse, logEdges, logging, activeId };
+  return { numbers, state, pulse, logEdges, logging };
 }
 
 // ------------------------------------------------------------ synthetic logs
@@ -526,12 +534,12 @@ const VERB_BY_TYPE: Record<string, string[]> = {
  * one line per resource the request goes on to touch, an END and a REPORT.
  * Decoration that shows data moving; it never claims to be what the code logs.
  */
-export function syntheticLogLines(scenario: Scenario, stepIndex: number, nodes: Node[], edges: Edge[]): LogLine[] {
+export function syntheticLogLines(scenario: Scenario, stepIndex: number, nodes: Node[], edges: Edge[], index = hopIndex(nodes, edges)): LogLine[] {
   const step = scenario.steps[stepIndex];
   if (!step) return [];
   const byId = new Map(nodes.map((n) => [n.id, n]));
   // What this step is wired to directly; a queue fed by its topic is not its call.
-  const direct = new Set(hopsFrom(step.at, nodes, edges).map((h) => h.to));
+  const direct = new Set((index.hops.get(step.at) || []).map((h) => h.to));
   const rnd = mulberry32(hash(`${scenario.id}/${stepIndex}/${step.at}`));
   const requestId = `${Math.floor(rnd() * 0xffff).toString(16).padStart(4, '0')}${Math.floor(rnd() * 0xffff).toString(16).padStart(4, '0')}…`;
   const start = modelledTimeMs(scenario, { index: stepIndex, phase: 'travel' });
@@ -567,13 +575,13 @@ export function syntheticLogLines(scenario: Scenario, stepIndex: number, nodes: 
 /** Lines for every compute step up to and including the playhead's. */
 export function logLinesUpTo(scenario: Scenario, head: Playhead | null, nodes: Node[], edges: Edge[]): { at: string; lines: LogLine[] }[] {
   if (!head) return [];
-  const upTo = head.phase === 'end' ? scenario.steps.length - 1 : head.phase === 'dwell' ? head.index : head.index - 1;
   const out: { at: string; lines: LogLine[] }[] = [];
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  for (let i = 0; i <= Math.min(upTo, scenario.steps.length - 1); i++) {
+  const index = hopIndex(nodes, edges);
+  for (let i = 0; i < stepsDone(scenario, head); i++) {
     const node = byId.get(scenario.steps[i].at);
     if (!node || !COMPUTE_TYPES.has(node.type || '')) continue;
-    out.push({ at: scenario.steps[i].at, lines: syntheticLogLines(scenario, i, nodes, edges) });
+    out.push({ at: scenario.steps[i].at, lines: syntheticLogLines(scenario, i, nodes, edges, index) });
   }
   return out;
 }
@@ -586,4 +594,18 @@ export function clockFor(offsetMs: number, base = 43471000): string {
   const s = Math.floor(total / 1000) % 60;
   const ms = Math.floor(total % 1000);
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+}
+
+// ------------------------------------------------------------------ badges
+
+/** What a step badge shows: the trigger is a play mark, steps their number. */
+export function badgeLabel(n: number): string {
+  return n === 0 ? '▶' : String(n);
+}
+
+/** The badge's tone class for a node's state at the playhead. */
+export function badgeTone(state: StepState | undefined): '' | 'active' | 'pending' {
+  if (state === 'active') return 'active';
+  if (state === 'pending' || state === 'travelling') return 'pending';
+  return '';
 }

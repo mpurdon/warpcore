@@ -399,15 +399,14 @@ code {
 
 /* ------------------------------------------------------------- scenarios */
 
-/* While a scenario plays, what it does not touch steps back. */
+/* While a scenario plays, what it does not touch steps back. Opacity only:
+   a filter on every node is a paint layer each. */
 .react-flow__node.scn-dim {
   opacity: 0.2;
-  filter: saturate(0.3);
-  transition: opacity 0.3s ease, filter 0.3s ease;
+  transition: opacity 0.3s ease;
 }
 .react-flow__node.scn-dim:hover {
   opacity: 0.9;
-  filter: none;
 }
 /* The request is here. */
 .react-flow__node.scn-active .node-inner {
@@ -459,6 +458,8 @@ code {
 .scn-badge.trigger { background: #2563eb; font-size: 8px; }
 .scn-badge.active { background: #2563eb; }
 .scn-badge.pending { background: #9ca3af; }
+/* The same badge inside a system-view label, a size down. */
+.sv-card-label .scn-badge { min-width: 16px; height: 16px; font-size: 9px; box-shadow: none; }
 /* Three ticking bars on a log group that is being written to. */
 .scn-writing {
   position: absolute;
@@ -508,9 +509,10 @@ code {
   .scn-log-flow { animation: none; }
 }
 
-/* Edge labels sit with the edges: above the containers, under the cards. */
+/* Edge labels sit with the edges: above the containers, under the cards.
+   The canvas sets --edge-z from the same constant it gives the edges. */
 .react-flow__edgelabel-renderer {
-  z-index: 1;
+  z-index: var(--edge-z, 1);
 }
 
 /* ----------------------------------------------------------- system view */
@@ -539,22 +541,6 @@ code {
 .sv-card-label .sv-type { color: #6b7280; font-size: 10px; }
 .sv-card-label.sv-dim { opacity: 0.25; }
 .sv-card-label.sv-selected { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35); }
-.sv-badge {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 9999px;
-  background: #111827;
-  color: #fff;
-  font-size: 9px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-variant-numeric: tabular-nums;
-}
-.sv-badge-active { background: #2563eb; }
-.sv-badge-pending { background: #9ca3af; }
 .sv-slab-label {
   font-size: 10px;
   font-weight: 600;

@@ -40,6 +40,12 @@ export function displayNameFor(node: Pick<Node, 'id' | 'type' | 'data'>): string
   return (typeof named === 'string' && named) || node.data?.label || node.id;
 }
 
+/** A display name for any node id, falling back to the id itself for one not on the canvas. */
+export function displayNameById(nodes: Pick<Node, 'id' | 'type' | 'data'>[]): (id: string) => string {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return (id) => { const n = byId.get(id); return n ? displayNameFor(n) : id; };
+}
+
 const OPEN_TO_WORLD = /0\.0\.0\.0\/0|::\/0/;
 
 /** True for an inbound rule that admits the whole internet. */

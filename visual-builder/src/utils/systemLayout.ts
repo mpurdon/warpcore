@@ -10,7 +10,9 @@
 // canvas is one sheet with every card on it.
 
 import { Node, Edge } from 'reactflow';
-import { BandKind, BAND_ORDER, CHIP_W, CHIP_H } from './stackLayout';
+import { absolutePosition, BandKind, BAND_ORDER, CELL_H, CELL_W, CHIP_W, CHIP_H } from './stackLayout';
+import { displayNameFor } from './nodeName';
+import { Layer, TRAFFIC_KINDS } from './layers';
 
 /** Canvas pixels per world unit. */
 export const UNIT = 100;
@@ -49,7 +51,6 @@ export interface Card {
   x: number; y: number; z: number;
   w: number; d: number;
   compact: boolean;
-  band?: BandKind;
 }
 
 export interface Caption {
@@ -65,6 +66,7 @@ export interface Link {
   from: string;
   to: string;
   kind: LinkKind;
+  layer?: Layer;
 }
 
 export interface SystemLayout {
@@ -80,9 +82,6 @@ export interface ViewOverrides {
   hidden?: Set<string>;
 }
 
-const FLOW_KINDS = new Set(['event-source', 'event-target', 'invokes', 'dns', 'origin', 'dlq']);
-const DEFAULT_W = 200;
-const DEFAULT_H = 72;
 
 function levelY(band: BandKind | undefined): number {
   if (!band) return 0;
@@ -96,55 +95,47 @@ export function linkKind(edge: Edge): LinkKind {
   const kind = meta.discovered?.kind;
   if (!kind) return 'drawn';
   if (kind === 'logs') return 'logs';
-  if (FLOW_KINDS.has(kind)) return 'flow';
+  if (TRAFFIC_KINDS.has(kind)) return 'flow';
   return 'structure';
 }
 
 export function layoutSystem(nodes: Node[], edges: Edge[], view: ViewOverrides = {}): SystemLayout {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
+  // The nodes as the lens placed them, so the same position and size
+  // helpers as the canvas apply.
+  const placedNodes = nodes.map((n) => {
+    const p = view.placed?.get(n.id);
+    return p ? { ...n, position: p.position, style: { ...(n.style || {}), ...p.style } } : n;
+  });
+  const byId = new Map(placedNodes.map((n) => [n.id, n]));
   const visible = (n: Node): boolean => !n.hidden && !view.hidden?.has(n.id) && (!n.parentNode || (byId.has(n.parentNode) && visible(byId.get(n.parentNode)!)));
-  const position = (n: Node) => view.placed?.get(n.id)?.position ?? n.position;
   const size = (n: Node): { w: number; h: number } => {
-    const style = { ...(n.style || {}), ...(view.placed?.get(n.id)?.style || {}) } as { width?: unknown; height?: unknown };
-    const w = typeof style.width === 'number' ? style.width : n.width ?? (n.data?.meta?.compact ? CHIP_W : DEFAULT_W);
-    const h = typeof style.height === 'number' ? style.height : n.height ?? (n.data?.meta?.compact ? CHIP_H : DEFAULT_H);
+    const style = (n.style || {}) as { width?: unknown; height?: unknown };
+    const compact = Boolean(n.data?.meta?.compact);
+    const w = typeof style.width === 'number' ? style.width : n.width ?? (compact ? CHIP_W : CELL_W);
+    const h = typeof style.height === 'number' ? style.height : n.height ?? (compact ? CHIP_H : CELL_H);
     return { w, h };
   };
-  const absolute = (n: Node): { x: number; y: number } => {
-    const p = position(n);
-    const parent = n.parentNode ? byId.get(n.parentNode) : undefined;
-    if (!parent) return { x: p.x, y: p.y };
-    const pp = absolute(parent);
-    return { x: pp.x + p.x, y: pp.y + p.y };
-  };
+  function* ancestors(n: Node): Generator<Node> {
+    let cur = n.parentNode ? byId.get(n.parentNode) : undefined;
+    while (cur) { yield cur; cur = cur.parentNode ? byId.get(cur.parentNode) : undefined; }
+  }
   const bandOf = (n: Node): BandKind | undefined => {
-    let cur: Node | undefined = n;
-    while (cur) {
-      if (cur.type === 'band' && cur.data?.meta?.band) return cur.data.meta.band as BandKind;
-      cur = cur.parentNode ? byId.get(cur.parentNode) : undefined;
-    }
+    for (const a of [n, ...ancestors(n)]) if (a.type === 'band' && a.data?.meta?.band) return a.data.meta.band as BandKind;
     return undefined;
   };
+  const bandNodeOf = (n: Node): Node | undefined => [...ancestors(n)].find((a) => a.type === 'band');
   /** How many VPC/subnet slabs a node sits on within its band. */
-  const depth = (n: Node): number => {
-    let d = 0;
-    let cur = n.parentNode ? byId.get(n.parentNode) : undefined;
-    while (cur) {
-      if (cur.type === 'vpc' || cur.type === 'subnet') d += 1;
-      cur = cur.parentNode ? byId.get(cur.parentNode) : undefined;
-    }
-    return d;
-  };
+  const depth = (n: Node): number => [...ancestors(n)].filter((a) => a.type === 'vpc' || a.type === 'subnet').length;
 
   const slabs: Slab[] = [];
   const cards: Card[] = [];
   const captions: Caption[] = [];
   const cardIds = new Set<string>();
-  const shown = nodes.filter(visible);
+  const shown = placedNodes.filter(visible);
   const stack = shown.some((n) => n.type === 'band');
 
   for (const n of shown) {
-    const { x, y } = absolute(n);
+    const { x, y } = absolutePosition(n, byId);
     const { w, h } = size(n);
     const band = bandOf(n);
     const base = levelY(band);
@@ -152,7 +143,7 @@ export function layoutSystem(nodes: Node[], edges: Edge[], view: ViewOverrides =
     const cx = (x + w / 2) / UNIT;
     const cz = (y + h / 2) / UNIT;
     if (n.type === 'application') {
-      captions.push({ id: n.id, text: String(n.data?.config?.name || n.data?.label || n.id), x: x / UNIT, y: levelY('entry') + 0.6, z: y / UNIT });
+      captions.push({ id: n.id, text: displayNameFor(n), x: x / UNIT, y: levelY('entry') + 0.6, z: y / UNIT });
       continue;
     }
     if (n.type === 'band' && band) {
@@ -162,7 +153,7 @@ export function layoutSystem(nodes: Node[], edges: Edge[], view: ViewOverrides =
     if (isGroup && (n.type === 'vpc' || n.type === 'subnet')) {
       const lift = PLATE_T / 2 + depth(n) * SLAB_T + SLAB_T / 2;
       slabs.push({
-        id: n.id, kind: n.type, label: String(n.data?.config?.name || n.data?.label || n.id), band,
+        id: n.id, kind: n.type, label: displayNameFor(n), band,
         x: cx, y: base + lift, z: cz, w: w / UNIT, d: h / UNIT, t: SLAB_T, color: n.type === 'vpc' ? 0xc7d2fe : 0xe0e7ff,
       });
       continue;
@@ -170,8 +161,8 @@ export function layoutSystem(nodes: Node[], edges: Edge[], view: ViewOverrides =
     if (isGroup) continue; // enclosures and anything else that only contains
     const lift = (stack ? PLATE_T / 2 : 0) + depth(n) * SLAB_T;
     cards.push({
-      id: n.id, label: String(n.data?.config?.name || n.data?.label || n.id), type: n.type || 'resource',
-      x: cx, y: base + lift, z: cz, w: w / UNIT, d: h / UNIT, compact: Boolean(n.data?.meta?.compact), band,
+      id: n.id, label: displayNameFor(n), type: n.type || 'resource',
+      x: cx, y: base + lift, z: cz, w: w / UNIT, d: h / UNIT, compact: Boolean(n.data?.meta?.compact),
     });
     cardIds.add(n.id);
   }
@@ -182,11 +173,8 @@ export function layoutSystem(nodes: Node[], edges: Edge[], view: ViewOverrides =
   if (stack) {
     const rightOf = new Map<string, number>();
     const note = (n: Node, right: number) => {
-      const band = bandOf(n);
-      if (!band) return;
-      let cur: Node | undefined = n;
-      while (cur && cur.type !== 'band') cur = cur.parentNode ? byId.get(cur.parentNode) : undefined;
-      if (cur) rightOf.set(cur.id, Math.max(rightOf.get(cur.id) ?? 0, right));
+      const band = bandNodeOf(n);
+      if (band) rightOf.set(band.id, Math.max(rightOf.get(band.id) ?? 0, right));
     };
     for (const c of cards) { const n = byId.get(c.id); if (n) note(n, c.x + c.w / 2); }
     for (const sl of slabs) { if (sl.kind === 'vpc' || sl.kind === 'subnet') { const n = byId.get(sl.id); if (n) note(n, sl.x + sl.w / 2); } }
@@ -212,7 +200,7 @@ export function layoutSystem(nodes: Node[], edges: Edge[], view: ViewOverrides =
   const links: Link[] = [];
   for (const e of edges) {
     if (!cardIds.has(e.source) || !cardIds.has(e.target)) continue;
-    links.push({ id: e.id, from: e.source, to: e.target, kind: linkKind(e) });
+    links.push({ id: e.id, from: e.source, to: e.target, kind: linkKind(e), layer: e.data?.meta?.layer as Layer | undefined });
   }
 
   const xs = [...slabs.map((s) => s.x - s.w / 2), ...slabs.map((s) => s.x + s.w / 2), ...cards.map((c) => c.x)];

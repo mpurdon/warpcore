@@ -112,11 +112,12 @@ describe('checkScenario', () => {
     const { nodes, edges } = webhook();
     const check = checkScenario(scenario(), nodes, edges);
     expect(check.ok).toBe(true);
-    expect(check.steps[0].evidence).toMatchObject({ from: 'api', label: 'authorizer', kind: 'trigger' });
+    expect(check.steps[0].evidence).toMatchObject({ from: 'api', label: 'authorizer', reverse: false });
     expect(check.steps[1].evidence).toMatchObject({ from: 'authorizer', actions: ['kms:Decrypt'] });
     // The function is reached from the API, two steps back, not from the key.
     expect(check.steps[2].evidence).toMatchObject({ from: 'api', label: 'POST /webhook' });
     expect(check.steps[2].logGroups).toEqual(['logs-fn']);
+    expect(check.steps[2].logEdges).toEqual(['e5']);
     expect(check.steps[4].evidence).toMatchObject({ from: 'fn', label: 'write via exec-role' });
   });
 
@@ -169,7 +170,7 @@ describe('playhead', () => {
     const { nodes, edges } = webhook();
     const s = scenario();
     const check = checkScenario(s, nodes, edges);
-    const travelling = playbackMarks(s, { ...start(), index: 2, phase: 'travel' }, check, nodes, edges);
+    const travelling = playbackMarks(s, { ...start(), index: 2, phase: 'travel' }, check);
     expect(travelling.pulse).toEqual({ edgeId: 'e1', reverse: false });
     expect(travelling.state.get('api')).toBe('visited');
     expect(travelling.state.get('fn')).toBe('travelling');
@@ -177,14 +178,13 @@ describe('playhead', () => {
     expect(travelling.numbers.get('fn')).toEqual([3]);
     expect(travelling.numbers.get('api')).toEqual([0]);
 
-    const dwelling = playbackMarks(s, { ...start(), index: 2, phase: 'dwell' }, check, nodes, edges);
-    expect(dwelling.activeId).toBe('fn');
+    const dwelling = playbackMarks(s, { ...start(), index: 2, phase: 'dwell' }, check);
     expect(dwelling.state.get('fn')).toBe('active');
     expect(dwelling.logging.has('logs-fn')).toBe(true);
     expect(dwelling.logEdges.has('e5')).toBe(true);
     expect(dwelling.pulse).toBeNull();
 
-    const idle = playbackMarks(s, null, check, nodes, edges);
+    const idle = playbackMarks(s, null, check);
     expect(idle.state.size).toBe(0);
     expect(idle.numbers.get('events')).toEqual([5]);
   });
