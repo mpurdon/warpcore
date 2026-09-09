@@ -12,6 +12,7 @@ import ReactFlow, {
   NodeChange,
   EdgeChange,
   useReactFlow,
+  useNodesInitialized,
   ReactFlowProvider,
   SelectionMode,
   Node,
@@ -198,6 +199,24 @@ function Flow() {
   const scenarioView = useScenarioView();
   const { emphasis, reflow } = useLensView();
   usePlaybackClock();
+
+  // A freshly loaded project fits the view once React Flow has measured
+  // its nodes; fitting earlier does nothing, and the new canvas would sit
+  // wherever the old one left the viewport.
+  const fitPending = useStore((s) => s.fitPending);
+  const clearFitPending = useStore((s) => s.clearFitPending);
+  const nodesInitialized = useNodesInitialized();
+  useEffect(() => {
+    if (!fitPending || !nodesInitialized) return;
+    // On the first render after a swap React Flow still holds the previous
+    // canvas, measured; wait until the measured nodes are these ones.
+    const ids = new Set(nodes.map((n) => n.id));
+    const internal = getNodes();
+    const measured = internal.length === nodes.length && internal.every((n) => ids.has(n.id) && (n.hidden || (n.width && n.height)));
+    if (!measured) return;
+    fitView({ duration: 300, padding: 0.15 });
+    clearFitPending();
+  }, [fitPending, nodesInitialized, nodes, getNodes, fitView, clearFitPending]);
 
   // Every edge at the edge level, so a line is never behind a tile.
   const baseEdges = useMemo(() => [...edges, ...dlqEdges].map((e) => ({ ...e, zIndex: EDGE_Z })), [edges, dlqEdges]);

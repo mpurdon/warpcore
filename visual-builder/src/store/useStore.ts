@@ -445,6 +445,9 @@ interface StoreState {
   // nothing dirty, no selection, no playhead, no preview.
   loadProject: (project: ProjectState) => void;
   snapshotProject: () => ProjectState;
+  /** Set by loadProject; the canvas fits the view once the new nodes are measured, then clears it. */
+  fitPending: boolean;
+  clearFitPending: () => void;
 
   // Application settings view. Replaces the workspace while open; the canvas
   // is hidden, not unmounted.
@@ -520,7 +523,7 @@ function projectPatch(p: ProjectState): Partial<StoreState> {
     // A project's current environment must be one it has.
     currentEnvironment: p.environmentConfigs[p.currentEnvironment] ? p.currentEnvironment : Object.keys(p.environmentConfigs)[0] ?? p.currentEnvironment,
     playhead: null, recording: false, inspectedScenario: null, inspectedEnvironment: null, selectedNode: null, editingNode: null,
-    past: [], future: [], hasUnsavedChanges: false,
+    past: [], future: [], hasUnsavedChanges: false, fitPending: p.nodes.length > 0,
   };
 }
 
@@ -822,6 +825,8 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   loadProject: (project) => set({ ...projectPatch(project), holodeckPreview: false, previewStash: null }),
   snapshotProject: () => snapshotOf(get()),
+  fitPending: false,
+  clearFitPending: () => set({ fitPending: false }),
 
   // Settings view
   settingsOpen: false,

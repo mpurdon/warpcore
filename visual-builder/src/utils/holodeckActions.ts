@@ -1,7 +1,8 @@
 // What the Holodeck does to the store: preview an entry in memory, close
 // the preview and put back what was open, save a copy as a project, and
 // load a custom template. All of them go through the store's one project
-// loader; this module only decides what to load and when to refuse.
+// loader, which also fits the view once the nodes are measured; this
+// module only decides what to load and when to refuse.
 
 import { invoke } from '@tauri-apps/api/core';
 import { DEFAULT_ENVIRONMENT_CONFIGS, DEFAULT_EXECUTIONS_PER_MONTH, EMPTY_PROJECT, useStore } from '../store/useStore';
@@ -10,7 +11,6 @@ import { generateYAMLFromCanvas } from './configSync';
 import { isActive } from './deployEvents';
 import { joinPath } from './host';
 import { openProjectFile } from './projectIO';
-import { canvas } from './canvasActions';
 import { applyTemplate, Template } from './templates';
 
 /** Why the canvas cannot be replaced right now, or null when it can. Nothing is ever lost to a preview. */
@@ -29,11 +29,6 @@ export function replaceBlockedReason(): string | null {
 // library's copies stay pristine for the next preview and for Save a copy.
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-function fitSoon(): void {
-  // The nodes have to be measured before the view can fit them.
-  requestAnimationFrame(() => requestAnimationFrame(() => canvas.fitView()));
-}
-
 /**
  * Preview an entry: on the canvas, read-only, no file. Whatever was open is
  * stashed the first time and restored by closePreview. Returns the reason
@@ -51,7 +46,6 @@ export function previewEntry(entry: HolodeckEntry): string | null {
   s.closeDialog();
   s.closeSettings();
   s.setRightPanelVisible(true);
-  fitSoon();
   return null;
 }
 
@@ -61,7 +55,6 @@ export function closePreview(): void {
   if (!s.holodeckPreview) return;
   const stash = s.endHolodeckPreview();
   s.loadProject(stash ?? EMPTY_PROJECT);
-  if (stash?.nodes.length) fitSoon();
 }
 
 /**
@@ -77,7 +70,6 @@ export async function saveCopy(entry: HolodeckEntry, parentDir: string, name: st
   const s = useStore.getState();
   s.unlock();
   s.closeDialog();
-  fitSoon();
   return path;
 }
 
@@ -88,6 +80,5 @@ export function loadTemplate(template: Template): string | null {
   const s = useStore.getState();
   s.loadProject({ ...EMPTY_PROJECT, ...applyTemplate(template) });
   s.closeDialog();
-  fitSoon();
   return null;
 }
