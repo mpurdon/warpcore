@@ -1,0 +1,68 @@
+holodeck:
+  id: discord-style-message-store
+  name: Message store, in the style of Discord
+  family: inspired
+  summary: Messages partitioned by channel and time bucket so a busy channel is many partitions, with a search index fed off a stream.
+  look_at:
+    - The partition key is the channel plus a ten-day bucket. A giant channel spreads across buckets instead of becoming one hot partition.
+    - History reads walk buckets newest-first until they have enough; on a quiet channel that is several empty queries.
+    - Search is a separate index kept up to date from the write stream, never queried on the write path.
+  source:
+    title: How Discord Stores Billions of Messages
+    by: Discord engineering blog
+    year: 2017
+  difficulty: 2
+project: { name: msgstore }
+resources:
+  - { name: chat-api, type: api-gateway }
+  - { name: send, type: lambda, config: { memory: 256, timeout: 5 } }
+  - name: messages
+    type: dynamodb
+    config: { partitionKey: "channel_id#bucket", sortKey: message_id }
+    note: The bucket is a ten-day window. Recent messages of one channel share a partition; a year of them spans thirty-six.
+  - { name: history, type: lambda, config: { memory: 256, timeout: 5 } }
+  - name: recent-cache
+    type: elasticache-cluster
+    note: The last fifty messages of every active channel. Most history reads end here.
+  - { name: message-events, type: kinesis-stream }
+  - { name: search-indexer, type: lambda, config: { memory: 512, timeout: 60 } }
+  - { name: search, type: opensearch }
+  - { name: search-messages, type: lambda, config: { memory: 256, timeout: 10 } }
+connections:
+  - { from: chat-api, to: send, kind: invokes, detail: "POST /channels/{id}/messages" }
+  - { from: send, to: messages, kind: writes }
+  - { from: send, to: message-events, kind: writes }
+  - { from: send, to: recent-cache, kind: writes }
+  - { from: chat-api, to: history, kind: invokes, detail: "GET /channels/{id}/messages" }
+  - { from: history, to: recent-cache, kind: reads }
+  - { from: history, to: messages, kind: reads }
+  - { from: message-events, to: search-indexer, kind: event-source }
+  - { from: search-indexer, to: search, kind: writes }
+  - { from: chat-api, to: search-messages, kind: invokes, detail: GET /search }
+  - { from: search-messages, to: search, kind: reads }
+scenarios:
+  - name: Send a message
+    trigger: { at: chat-api, event: POST /channels/42/messages }
+    steps:
+      - { at: send, takes: 12ms }
+      - { at: messages, note: "PutItem under channel 42, bucket 2026-09" }
+      - { at: recent-cache, takes: 1ms, note: LPUSH and LTRIM to fifty }
+      - { at: message-events, detached: true }
+      - { at: search-indexer, takes: 40ms, note: one invocation per batch of records }
+      - { at: search, note: bulk index }
+  - name: Recent history, cache hit
+    trigger: { at: chat-api, event: GET /channels/42/messages }
+    steps:
+      - { at: history, takes: 4ms }
+      - { at: recent-cache, takes: 1ms, note: LRANGE 0 49 }
+  - name: History on a quiet channel
+    trigger: { at: chat-api, event: GET /channels/9001/messages?before=… }
+    steps:
+      - { at: history, takes: 60ms }
+      - { at: recent-cache, takes: 1ms, note: nothing cached for an old page }
+      - { at: messages, takes: 8ms, retry: 2, note: the newest bucket is empty and so is the next; the third query finds messages }
+  - name: Search
+    trigger: { at: chat-api, event: GET /search?q=deploy }
+    steps:
+      - { at: search-messages, takes: 25ms }
+      - { at: search, takes: 18ms, note: filtered to channels the user can read }

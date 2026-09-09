@@ -1,0 +1,61 @@
+holodeck:
+  id: web-crawler
+  name: Web crawler
+  family: classic
+  summary: A frontier queue feeds fetchers; fetched pages land in S3 and are parsed for new links, which go back on the queue.
+  look_at:
+    - The frontier is a queue, so the crawl's parallelism is the fetcher's concurrency and nothing else.
+    - The seen table makes the loop terminate; without it every link would be fetched forever.
+    - A host that times out is retried twice and then parked; the rest of the crawl never notices.
+  difficulty: 2
+project: { name: crawler }
+resources:
+  - { name: seeds, type: s3 }
+  - { name: seed-urls, type: lambda, config: { memory: 128, timeout: 30 } }
+  - { name: frontier, type: sqs }
+  - name: fetch
+    type: lambda
+    config: { memory: 512, timeout: 30, reservedConcurrency: 50 }
+    note: Reserved concurrency is the politeness knob for the whole crawl.
+  - { name: robots-cache, type: elasticache-cluster }
+  - name: seen
+    type: dynamodb
+    config: { partitionKey: urlHash }
+    note: A conditional put per URL. A duplicate link is dropped here, which is what stops the crawl looping.
+  - { name: pages, type: s3 }
+  - { name: parse, type: lambda, config: { memory: 512, timeout: 60 } }
+  - { name: frontier-dlq, type: sqs }
+connections:
+  - { from: seeds, to: seed-urls, kind: invokes, detail: object created }
+  - { from: seed-urls, to: seeds, kind: reads }
+  - { from: seed-urls, to: frontier, kind: writes }
+  - { from: frontier, to: fetch, kind: event-source }
+  - { from: fetch, to: robots-cache, kind: uses }
+  - { from: fetch, to: seen, kind: uses }
+  - { from: fetch, to: pages, kind: writes }
+  - { from: pages, to: parse, kind: invokes, detail: object created }
+  - { from: parse, to: pages, kind: reads }
+  - { from: parse, to: frontier, kind: writes }
+  - { from: frontier, to: frontier-dlq, kind: dlq }
+scenarios:
+  - name: Crawl one page
+    trigger: { at: seeds, event: seeds.txt uploaded }
+    steps:
+      - { at: seed-urls, takes: 50ms }
+      - { at: frontier, note: "SendMessageBatch, one per seed" }
+      - { at: fetch, takes: 400ms }
+      - { at: robots-cache, takes: 1ms, note: "robots.txt for the host, cached a day" }
+      - { at: seen, note: "conditional put on the URL hash; new, so continue" }
+      - { at: pages, note: PutObject with the HTML }
+      - { at: parse, takes: 80ms }
+      - { at: frontier, note: 34 new links back on the queue }
+  - name: Host times out
+    trigger: { at: frontier, event: https://slow.example/ }
+    steps:
+      - { at: fetch, takes: 30s, outcome: timeout, retry: 2, note: no response in 30 s; the message becomes visible again and is retried twice }
+      - { at: frontier-dlq, note: parked; the crawl carries on with the next host }
+  - name: Already seen
+    trigger: { at: frontier, event: https://example.com/about }
+    steps:
+      - { at: fetch, takes: 5ms }
+      - { at: seen, outcome: fail, note: "ConditionalCheckFailed; fetched an hour ago, so the message is dropped" }

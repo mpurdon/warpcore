@@ -1,0 +1,20 @@
+holodeck:
+  id: simple-agent
+  name: Simple agent
+  family: starter
+  summary: One Strands agent behind an API Gateway, with its execution role and log group.
+  look_at:
+    - The smallest thing warpcore deploys. The role and the log group are made for you.
+    - Unlock a saved copy and point the agent's path at your code.
+  difficulty: 1
+project: { name: simple-agent }
+resources:
+  - { name: my-agent, type: agent, config: { runtime: python3.12, memory: 512, timeout: 30 } }
+  - { name: agent-api, type: api-gateway }
+connections:
+  - { from: agent-api, to: my-agent, kind: invokes, detail: POST /invoke }
+scenarios:
+  - name: Request handled
+    trigger: { at: agent-api, event: POST /invoke }
+    steps:
+      - { at: my-agent, takes: 1.2s, note: the agent runs its loop and answers }

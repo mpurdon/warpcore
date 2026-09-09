@@ -3,7 +3,7 @@
 // moment something is on the canvas, and while a palette item is being
 // dragged so the drop still lands.
 
-import { FolderOpen, Clock, FileText, Radar, MousePointer2, Command } from 'lucide-react';
+import { FolderOpen, Clock, LibraryBig, Radar, MousePointer2, Command } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { getRecentProjects, RecentProject } from '../utils/recentProjects';
@@ -46,7 +46,7 @@ export default function WelcomeScreen() {
 
         <div className="grid grid-cols-2 gap-3">
           <Card icon={FolderOpen} title="Open a project" hint="A directory with a warpcore.yaml" shortcut="⌘O" onClick={() => { void openProjectDialog(); }} />
-          <Card icon={FileText} title="Start from a template" hint="A single agent, a RAG pipeline, an event-driven workflow" onClick={() => openDialog('templates')} />
+          <Card icon={LibraryBig} title="Walk through a system" hint="The Holodeck: reference architectures and classics, with scenarios to play and copy" onClick={() => openDialog('holodeck')} />
           <Card icon={Radar} title="Explore an AWS account" hint="Scan what is deployed and turn it into a project" onClick={() => openDialog('explorer')} />
           <Card icon={MousePointer2} title="Start blank" hint="Drag a resource from the palette on the left onto this canvas" onClick={() => setPaletteOpen(true)} shortcut="⌘K" />
         </div>

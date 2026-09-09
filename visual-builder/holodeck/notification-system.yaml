@@ -1,0 +1,73 @@
+holodeck:
+  id: notification-system
+  name: Notification system
+  family: classic
+  summary: One event, three channels. A topic fans out to a queue per channel, each with its own worker and dead-letter queue.
+  look_at:
+    - The API only records the notification and publishes; every channel is a subscription, added without touching the API.
+    - Each channel has its own queue, so a slow email provider never delays a push.
+    - Preferences are checked by the worker, not the API, so an opt-out applies even to notifications already queued.
+  difficulty: 2
+project: { name: notify }
+resources:
+  - { name: notify-api, type: api-gateway }
+  - { name: accept, type: lambda, config: { memory: 256, timeout: 5 } }
+  - { name: notifications, type: dynamodb, config: { partitionKey: userId, sortKey: notificationId } }
+  - { name: events, type: sns }
+  - { name: email-queue, type: sqs }
+  - { name: push-queue, type: sqs }
+  - { name: sms-queue, type: sqs }
+  - { name: send-email, type: lambda, config: { memory: 256, timeout: 20 } }
+  - { name: send-push, type: lambda, config: { memory: 128, timeout: 10 } }
+  - { name: send-sms, type: lambda, config: { memory: 128, timeout: 10 } }
+  - name: preferences
+    type: dynamodb
+    config: { partitionKey: userId }
+    note: Read by every worker right before sending. The latest answer wins, even for queued notifications.
+  - { name: email-provider-key, type: secrets-manager }
+  - { name: email-dlq, type: sqs }
+connections:
+  - { from: notify-api, to: accept, kind: invokes, detail: POST /notifications }
+  - { from: accept, to: notifications, kind: writes }
+  - { from: accept, to: events, kind: writes }
+  - { from: events, to: email-queue, kind: event-target, detail: subscription }
+  - { from: events, to: push-queue, kind: event-target, detail: subscription }
+  - { from: events, to: sms-queue, kind: event-target, detail: subscription }
+  - { from: email-queue, to: send-email, kind: event-source }
+  - { from: push-queue, to: send-push, kind: event-source }
+  - { from: sms-queue, to: send-sms, kind: event-source }
+  - { from: send-email, to: preferences, kind: reads }
+  - { from: send-push, to: preferences, kind: reads }
+  - { from: send-sms, to: preferences, kind: reads }
+  - { from: send-email, to: email-provider-key, kind: reads }
+  - { from: send-email, to: notifications, kind: writes }
+  - { from: send-push, to: notifications, kind: writes }
+  - { from: send-sms, to: notifications, kind: writes }
+  - { from: email-queue, to: email-dlq, kind: dlq }
+scenarios:
+  - name: Order shipped, email and push
+    trigger: { at: notify-api, event: POST /notifications }
+    steps:
+      - { at: accept, takes: 10ms }
+      - { at: notifications, note: PutItem status QUEUED }
+      - { at: events, detached: true, note: Publish; the API answers 202 }
+      - { at: email-queue }
+      - { at: send-email, takes: 400ms }
+      - { at: preferences, note: email allowed }
+      - { at: email-provider-key }
+      - { at: notifications, note: UpdateItem email SENT }
+      - { at: push-queue }
+      - { at: send-push, takes: 60ms }
+      - { at: preferences }
+      - { at: notifications, note: UpdateItem push SENT }
+  - name: Email provider down
+    trigger: { at: email-queue, event: notification 8c1d }
+    steps:
+      - { at: send-email, takes: 20s, outcome: timeout, retry: 2, note: "the provider's API hangs; three receives, then the queue redrives" }
+      - { at: email-dlq, note: replayed later with a redrive; push and SMS went out on time }
+  - name: User opted out
+    trigger: { at: sms-queue, event: notification 8c1d }
+    steps:
+      - { at: send-sms, takes: 8ms }
+      - { at: preferences, note: sms false; nothing is sent }
+      - { at: notifications, note: UpdateItem sms SKIPPED }

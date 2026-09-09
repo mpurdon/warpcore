@@ -1,0 +1,71 @@
+holodeck:
+  id: event-driven-orders
+  name: Event-driven order processing
+  family: reference
+  summary: An order lands on an event bus; a state machine reserves stock, charges the card and notifies, with a dead-letter queue when a step gives up.
+  look_at:
+    - The API answers as soon as the order is written and the event is on the bus; everything after that is asynchronous.
+    - Step Functions owns the retries. A payment timeout is retried twice before the run is parked on the failed-orders queue.
+    - Notification is a fan-out over SNS, so adding a channel is a subscription, not a code change.
+  difficulty: 2
+project: { name: orders }
+resources:
+  - { name: orders-api, type: api-gateway }
+  - { name: place-order, type: lambda, config: { memory: 256, timeout: 10 } }
+  - { name: orders, type: dynamodb, config: { partitionKey: orderId } }
+  - name: orders-bus
+    type: eventbridge
+    note: The contract between the API and everything downstream is the event shape on this bus.
+  - { name: order-placed, type: eventbridge-rule, config: { pattern: "detail-type: OrderPlaced" } }
+  - name: order-workflow
+    type: step-functions
+    note: Retry and catch live here, not in the functions. Each task is idempotent so a retry is safe.
+  - { name: reserve-stock, type: lambda, config: { memory: 256, timeout: 10 } }
+  - { name: inventory, type: dynamodb, config: { partitionKey: sku } }
+  - { name: charge-card, type: lambda, config: { memory: 256, timeout: 15 } }
+  - { name: payment-api-key, type: secrets-manager }
+  - { name: order-events, type: sns }
+  - { name: customer-emails, type: sqs }
+  - { name: send-email, type: lambda, config: { memory: 128, timeout: 10 } }
+  - name: failed-orders
+    type: sqs
+    note: Runs that exhausted their retries land here for a human, with the full input.
+connections:
+  - { from: orders-api, to: place-order, kind: invokes, detail: POST /orders }
+  - { from: place-order, to: orders, kind: writes }
+  - { from: place-order, to: orders-bus, kind: writes }
+  - { from: orders-bus, to: order-placed, kind: event-target, detail: rule }
+  - { from: order-placed, to: order-workflow, kind: event-target, detail: start execution }
+  - { from: order-workflow, to: reserve-stock, kind: invokes, detail: task }
+  - { from: reserve-stock, to: inventory, kind: uses }
+  - { from: order-workflow, to: charge-card, kind: invokes, detail: task }
+  - { from: charge-card, to: payment-api-key, kind: reads }
+  - { from: order-workflow, to: order-events, kind: writes }
+  - { from: order-events, to: customer-emails, kind: event-target, detail: subscription }
+  - { from: customer-emails, to: send-email, kind: event-source }
+  - { from: order-workflow, to: failed-orders, kind: dlq }
+scenarios:
+  - name: Order placed
+    trigger: { at: orders-api, event: POST /orders }
+    steps:
+      - { at: place-order, takes: 30ms }
+      - { at: orders, note: PutItem with status PLACED }
+      - { at: orders-bus, detached: true, note: PutEvents OrderPlaced; the API returns 202 here }
+      - { at: order-placed }
+      - { at: order-workflow, takes: 5ms }
+      - { at: reserve-stock, takes: 40ms }
+      - { at: inventory, note: conditional decrement; fails if stock is 0 }
+      - { at: charge-card, takes: 300ms }
+      - { at: payment-api-key }
+      - { at: order-events, note: Publish OrderConfirmed }
+      - { at: customer-emails }
+      - { at: send-email, takes: 120ms }
+  - name: Payment provider times out
+    trigger: { at: orders-bus, event: OrderPlaced }
+    steps:
+      - { at: order-placed }
+      - { at: order-workflow, takes: 5ms }
+      - { at: reserve-stock, takes: 40ms }
+      - { at: inventory }
+      - { at: charge-card, takes: 15s, outcome: timeout, retry: 2, note: "the provider never answers; two retries with backoff, then the run fails" }
+      - { at: failed-orders, note: the run's input is parked for a human; stock stays reserved until they decide }

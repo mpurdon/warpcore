@@ -1,0 +1,37 @@
+holodeck:
+  id: production-setup
+  name: Production setup
+  family: starter
+  summary: An API agent and a worker agent inside a VPC, sharing a table, with a queue between them and an alarm on errors.
+  look_at:
+    - The API agent does the fast part and hands the slow part to the worker through a queue.
+    - Both agents run in the VPC's private subnet behind one security group.
+    - The alarm on the worker's errors is the first thing to wire when this goes live.
+  difficulty: 2
+project: { name: production }
+resources:
+  - { name: app-vpc, type: vpc, config: { cidr: 10.0.0.0/16 } }
+  - { name: private-a, type: subnet, in: app-vpc, config: { cidr: 10.0.1.0/24, availabilityZone: us-east-1a } }
+  - { name: app-sg, type: security-group, in: app-vpc, config: { inboundRules: ["443 from 10.0.0.0/16"] } }
+  - { name: public-api, type: api-gateway }
+  - { name: api-agent, type: agent, in: private-a, groups: [app-sg], config: { runtime: python3.12, memory: 1024, timeout: 30 } }
+  - { name: work-queue, type: sqs }
+  - { name: worker-agent, type: agent, in: private-a, groups: [app-sg], config: { runtime: python3.12, memory: 2048, timeout: 300 } }
+  - { name: database, type: dynamodb, config: { partitionKey: pk, sortKey: sk } }
+  - { name: worker-errors, type: cloudwatch-alarm, config: { metric: Errors, threshold: 1 } }
+connections:
+  - { from: public-api, to: api-agent, kind: invokes, detail: ANY / }
+  - { from: api-agent, to: database, kind: uses }
+  - { from: api-agent, to: work-queue, kind: writes }
+  - { from: work-queue, to: worker-agent, kind: event-source }
+  - { from: worker-agent, to: database, kind: uses }
+  - { from: worker-errors, to: worker-agent, kind: reference, detail: watches }
+scenarios:
+  - name: API request
+    trigger: { at: public-api, event: POST /jobs }
+    steps:
+      - { at: api-agent, takes: 40ms }
+      - { at: database, note: PutItem job PENDING }
+      - { at: work-queue, detached: true, note: the API answers 202 with the job id }
+      - { at: worker-agent, takes: 45s }
+      - { at: database, note: UpdateItem job DONE }

@@ -1,0 +1,29 @@
+holodeck:
+  id: rag-agent
+  name: RAG agent
+  family: starter
+  summary: A query API, an agent that embeds the question, reads matching documents from S3 and asks a model.
+  look_at:
+    - Two Bedrock models with two jobs; embeddings for retrieval, a language model for the answer.
+    - The document store is a bucket; swap it for the OpenSearch entry under reference architectures when the corpus outgrows it.
+  difficulty: 1
+project: { name: rag-agent }
+resources:
+  - { name: query-api, type: api-gateway }
+  - { name: rag-agent, type: agent, config: { runtime: python3.12, memory: 1024, timeout: 60 } }
+  - { name: document-store, type: s3 }
+  - { name: embeddings, type: bedrock, config: { modelId: amazon.titan-embed-text-v2:0 } }
+  - { name: llm, type: bedrock, config: { modelId: anthropic.claude-sonnet-4-5 } }
+connections:
+  - { from: query-api, to: rag-agent, kind: invokes, detail: POST /query }
+  - { from: rag-agent, to: document-store, kind: reads }
+  - { from: rag-agent, to: embeddings, kind: reads }
+  - { from: rag-agent, to: llm, kind: reads }
+scenarios:
+  - name: Question answered
+    trigger: { at: query-api, event: POST /query }
+    steps:
+      - { at: rag-agent, takes: 2.6s }
+      - { at: embeddings, takes: 80ms, note: embed the question }
+      - { at: document-store, takes: 60ms, note: fetch the nearest chunks by their keys }
+      - { at: llm, takes: 2s, note: the question plus the chunks }

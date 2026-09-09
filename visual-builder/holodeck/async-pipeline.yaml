@@ -1,0 +1,45 @@
+holodeck:
+  id: async-pipeline
+  name: Async processing pipeline
+  family: starter
+  summary: An ingestion agent publishes to a topic; two queues fan out to a processor and an analytics agent.
+  look_at:
+    - The ingestion agent never waits for the consumers; the topic decouples them.
+    - Each consumer has its own queue, so a slow analytics job never delays processing.
+  difficulty: 1
+project: { name: pipeline }
+resources:
+  - { name: ingest-api, type: api-gateway }
+  - { name: ingestion, type: agent, config: { runtime: python3.12, memory: 512, timeout: 30 } }
+  - { name: event-topic, type: sns }
+  - { name: process-queue, type: sqs }
+  - { name: analytics-queue, type: sqs }
+  - { name: processor, type: agent, config: { runtime: python3.12, memory: 1024, timeout: 120 } }
+  - { name: analytics, type: agent, config: { runtime: python3.12, memory: 1024, timeout: 300 } }
+  - { name: results, type: dynamodb, config: { partitionKey: eventId } }
+  - { name: process-dlq, type: sqs }
+connections:
+  - { from: ingest-api, to: ingestion, kind: invokes, detail: POST /events }
+  - { from: ingestion, to: event-topic, kind: writes }
+  - { from: event-topic, to: process-queue, kind: event-target, detail: subscription }
+  - { from: event-topic, to: analytics-queue, kind: event-target, detail: subscription }
+  - { from: process-queue, to: processor, kind: event-source }
+  - { from: analytics-queue, to: analytics, kind: event-source }
+  - { from: processor, to: results, kind: writes }
+  - { from: process-queue, to: process-dlq, kind: dlq }
+scenarios:
+  - name: Event fans out
+    trigger: { at: ingest-api, event: POST /events }
+    steps:
+      - { at: ingestion, takes: 15ms }
+      - { at: event-topic, detached: true, note: Publish; the API answers 202 }
+      - { at: process-queue }
+      - { at: processor, takes: 800ms }
+      - { at: results, note: PutItem }
+      - { at: analytics-queue }
+      - { at: analytics, takes: 12s }
+  - name: Processor fails into the dead-letter queue
+    trigger: { at: process-queue, event: event 51aa }
+    steps:
+      - { at: processor, takes: 200ms, outcome: fail, retry: 2, note: an unhandled exception on every receive }
+      - { at: process-dlq, note: analytics still ran; only processing is parked }

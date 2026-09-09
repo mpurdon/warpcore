@@ -1,0 +1,47 @@
+holodeck:
+  id: rate-limiter
+  name: Rate limiter
+  family: classic
+  summary: An authorizer counts requests per key in a cache and refuses the excess before the backend sees it.
+  look_at:
+    - The limit is enforced in the authorizer, so a refused request never invokes the backend.
+    - The counter is one INCR with an expiry; a fixed window is cheap and good enough for most keys.
+    - When the cache is unreachable the limiter fails open. Blocking everyone is the worse failure.
+  difficulty: 1
+project: { name: limiter }
+resources:
+  - { name: public-api, type: api-gateway }
+  - name: limiter
+    type: lambda
+    config: { memory: 128, timeout: 3 }
+    note: A request authorizer. Returns Allow with the remaining quota in the context, or Deny.
+  - name: counters
+    type: elasticache-cluster
+    note: One key per client per window; INCR then EXPIRE on first hit. Nothing here is precious.
+  - { name: backend, type: lambda, config: { memory: 256, timeout: 10 } }
+  - { name: orders, type: dynamodb, config: { partitionKey: orderId } }
+connections:
+  - { from: public-api, to: limiter, kind: invokes, detail: authorizer }
+  - { from: limiter, to: counters, kind: uses }
+  - { from: public-api, to: backend, kind: invokes, detail: ANY / }
+  - { from: backend, to: orders, kind: uses }
+scenarios:
+  - name: Within the limit
+    trigger: { at: public-api, event: POST /orders }
+    steps:
+      - { at: limiter, takes: 5ms }
+      - { at: counters, takes: 1ms, note: INCR key:2026-09-08T12:04 → 41 of 100 }
+      - { at: backend, takes: 20ms }
+      - { at: orders }
+  - name: Limit trips
+    trigger: { at: public-api, event: POST /orders }
+    steps:
+      - { at: limiter, takes: 5ms, outcome: fail, note: "101 of 100; Deny, and the API answers 429 with Retry-After" }
+      - { at: counters, takes: 1ms }
+  - name: Cache unreachable, fail open
+    trigger: { at: public-api, event: POST /orders }
+    steps:
+      - { at: limiter, takes: 300ms }
+      - { at: counters, takes: 300ms, outcome: timeout, note: connect timeout; the limiter allows the request rather than block everyone }
+      - { at: backend, takes: 20ms }
+      - { at: orders }

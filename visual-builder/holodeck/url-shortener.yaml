@@ -1,0 +1,59 @@
+holodeck:
+  id: url-shortener
+  name: URL shortener
+  family: classic
+  summary: Redirects served from the edge cache, writes behind an API, clicks counted off a stream.
+  look_at:
+    - The read path never touches a function on a cache hit; CloudFront answers the redirect itself.
+    - A cache miss is the only time the redirect function runs, and it reads one item by key.
+    - Clicks are counted asynchronously; the redirect does not wait for the counter.
+  difficulty: 1
+project: { name: shortener }
+resources:
+  - { name: short.link, type: route53-zone }
+  - name: shortener-cdn
+    type: cloudfront
+    note: Caches every redirect by path. The TTL is the trade-off; a deleted link lives on for that long.
+  - { name: shortener-api, type: api-gateway }
+  - { name: create-link, type: lambda, config: { memory: 256, timeout: 5 } }
+  - name: redirect
+    type: lambda
+    config: { memory: 128, timeout: 3 }
+    note: Returns a 301 with Cache-Control so CloudFront keeps it.
+  - name: links
+    type: dynamodb
+    config: { partitionKey: slug }
+    note: One item per slug. The slug is the key, so a lookup is one GetItem.
+  - { name: clicks, type: kinesis-stream }
+  - { name: count-clicks, type: lambda, config: { memory: 256, timeout: 30 } }
+  - { name: link-stats, type: dynamodb, config: { partitionKey: slug } }
+connections:
+  - { from: short.link, to: shortener-cdn, kind: dns }
+  - { from: shortener-cdn, to: shortener-api, kind: origin }
+  - { from: shortener-api, to: create-link, kind: invokes, detail: POST /links }
+  - { from: shortener-api, to: redirect, kind: invokes, detail: "GET /{slug}" }
+  - { from: create-link, to: links, kind: writes }
+  - { from: redirect, to: links, kind: reads }
+  - { from: redirect, to: clicks, kind: writes }
+  - { from: clicks, to: count-clicks, kind: event-source }
+  - { from: count-clicks, to: link-stats, kind: writes }
+scenarios:
+  - name: Create a short link
+    trigger: { at: shortener-api, event: POST /links }
+    steps:
+      - { at: create-link, takes: 25ms, note: hashes the URL into a slug and checks it is free }
+      - { at: links, note: conditional put so a slug is never overwritten }
+  - name: Redirect, cache miss
+    trigger: { at: short.link, event: GET /a1b2c3 }
+    steps:
+      - { at: shortener-cdn, takes: 2ms, note: not in the cache; go to the origin }
+      - { at: shortener-api }
+      - { at: redirect, takes: 12ms }
+      - { at: links, note: GetItem by slug }
+      - { at: clicks, detached: true, note: PutRecord; the redirect does not wait }
+      - { at: count-clicks, takes: 40ms }
+      - { at: link-stats, note: UpdateItem ADD clicks 1 }
+  - name: Redirect, cache hit
+    trigger: { at: short.link, event: GET /a1b2c3 }
+    steps:
+      - { at: shortener-cdn, takes: 1ms, note: the 301 is in the cache; nothing behind it runs }

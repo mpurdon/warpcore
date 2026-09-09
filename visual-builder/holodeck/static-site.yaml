@@ -1,0 +1,44 @@
+holodeck:
+  id: static-site
+  name: Static site
+  family: reference
+  summary: Route 53 to CloudFront to S3, with a certificate and a WAF in front.
+  look_at:
+    - The bucket is private; only the distribution can read it, so the site has exactly one front door.
+    - The WAF answers before CloudFront does any work, so a blocked request costs almost nothing.
+    - A cache hit never leaves the edge. Look at how short the hit scenario is next to the miss.
+  difficulty: 1
+project: { name: site }
+resources:
+  - { name: www.example.com, type: route53-zone }
+  - { name: site-cert, type: acm-certificate }
+  - name: site-waf
+    type: waf
+    note: Managed rule groups plus a rate limit per IP. Evaluated at the edge before the cache.
+  - { name: site-cdn, type: cloudfront }
+  - name: site-bucket
+    type: s3
+    note: Block Public Access on; an origin access control lets only the distribution read.
+  - { name: access-logs, type: s3 }
+connections:
+  - { from: www.example.com, to: site-waf, kind: dns }
+  - { from: site-waf, to: site-cdn, kind: invokes, detail: inspects then forwards }
+  - { from: site-cdn, to: site-bucket, kind: origin }
+  - { from: site-cdn, to: site-cert, kind: reference, detail: certificate }
+  - { from: site-cdn, to: access-logs, kind: logs, detail: standard logs }
+scenarios:
+  - name: Page request, cache hit
+    trigger: { at: www.example.com, event: GET /about }
+    steps:
+      - { at: site-waf, takes: 1ms }
+      - { at: site-cdn, takes: 1ms, note: served from the edge; the bucket is never touched }
+  - name: Cache miss to the origin
+    trigger: { at: www.example.com, event: GET /about }
+    steps:
+      - { at: site-waf, takes: 1ms }
+      - { at: site-cdn, takes: 2ms, note: not cached at this edge }
+      - { at: site-bucket, takes: 15ms, note: GetObject about/index.html }
+  - name: Blocked by the WAF
+    trigger: { at: www.example.com, event: "GET /?q=' OR 1=1" }
+    steps:
+      - { at: site-waf, takes: 1ms, outcome: fail, note: matched the SQLi rule group; 403 from the edge }

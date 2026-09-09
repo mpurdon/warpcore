@@ -1,0 +1,62 @@
+holodeck:
+  id: twitter-style-timeline
+  name: Home timeline, in the style of Twitter
+  family: inspired
+  summary: Fan-out on write. A post is pushed into every follower's cached timeline; a read is one cache fetch.
+  look_at:
+    - Writes are expensive and reads are cheap, on purpose. Posting does work proportional to followers so reading does none.
+    - Timelines live in a capped list per user in the cache; the table of posts is only touched to hydrate ids.
+    - An account with millions of followers breaks the model. The lag scenario shows the batch retried and then parked.
+  source:
+    title: Timelines at Scale
+    by: Raffi Krikorian, QCon San Francisco
+    year: 2012
+  difficulty: 2
+project: { name: timeline }
+resources:
+  - { name: post-api, type: api-gateway }
+  - { name: create-post, type: lambda, config: { memory: 256, timeout: 5 } }
+  - { name: posts, type: dynamodb, config: { partitionKey: postId } }
+  - { name: post-stream, type: kinesis-stream, config: { shards: 4 } }
+  - name: fanout
+    type: lambda
+    config: { memory: 1024, timeout: 300 }
+    note: For each follower, push the post id onto their timeline list. Cost grows with followers, not readers.
+  - { name: followers, type: dynamodb, config: { partitionKey: userId, sortKey: followerId } }
+  - name: timelines
+    type: elasticache-cluster
+    note: One list per user, capped at 800 ids. Reading the home timeline is one LRANGE.
+  - { name: read-timeline, type: lambda, config: { memory: 256, timeout: 5 } }
+  - { name: fanout-failures, type: sqs }
+connections:
+  - { from: post-api, to: create-post, kind: invokes, detail: POST /posts }
+  - { from: create-post, to: posts, kind: writes }
+  - { from: create-post, to: post-stream, kind: writes }
+  - { from: post-stream, to: fanout, kind: event-source }
+  - { from: fanout, to: followers, kind: reads }
+  - { from: fanout, to: timelines, kind: writes }
+  - { from: post-api, to: read-timeline, kind: invokes, detail: GET /home }
+  - { from: read-timeline, to: timelines, kind: reads }
+  - { from: read-timeline, to: posts, kind: reads }
+  - { from: fanout, to: fanout-failures, kind: dlq, detail: on-failure destination }
+scenarios:
+  - name: Post fans out
+    trigger: { at: post-api, event: POST /posts }
+    steps:
+      - { at: create-post, takes: 10ms }
+      - { at: posts, note: PutItem; the poster gets a 201 here }
+      - { at: post-stream, detached: true }
+      - { at: fanout, takes: 60ms }
+      - { at: followers, note: Query all followers of the poster; 300 rows }
+      - { at: timelines, takes: 3ms, note: LPUSH and LTRIM on 300 lists }
+  - name: Home timeline read
+    trigger: { at: post-api, event: GET /home }
+    steps:
+      - { at: read-timeline, takes: 6ms }
+      - { at: timelines, takes: 1ms, note: LRANGE 0 49 }
+      - { at: posts, note: BatchGetItem for the 50 ids }
+  - name: Celebrity post, fan-out lag
+    trigger: { at: post-stream, event: post by an account with 30M followers }
+    steps:
+      - { at: fanout, takes: 300s, outcome: timeout, retry: 2, note: "thirty million followers do not fit in one invocation; the batch is retried, then parked" }
+      - { at: fanout-failures, note: the record waits here; a separate merge-on-read path serves this account's followers }

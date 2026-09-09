@@ -1,6 +1,7 @@
 import { BaseEdge, EdgeLabelRenderer, EdgeProps, getBezierPath, useReactFlow } from 'reactflow';
 import { Eye, Pencil, Zap, Route, AlertTriangle } from 'lucide-react';
 import { TRAFFIC_KINDS } from '../../utils/layers';
+import { isDlqEdge } from '../../utils/scenarios';
 import { EdgeView, PLAIN_EDGE } from '../../hooks/useCanvasView';
 
 // How far an edge fades for each emphasis; see EdgeView.
@@ -179,7 +180,7 @@ export default function PermissionEdge({
 
   const roleId = data?.roleId;
   const isResourceBased = data?.isResourceBased;
-  const isDLQ = data?.isDLQ;
+  const isDLQ = isDlqEdge({ data });
   const config = data?.config || {};
   const status = data?.status || 'draft';
   // Discovered edges: what the relationship is and, for access, who grants it.

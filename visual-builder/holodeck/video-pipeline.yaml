@@ -1,0 +1,71 @@
+holodeck:
+  id: video-pipeline
+  name: Video upload and streaming
+  family: classic
+  summary: Uploads go straight to S3 with a presigned URL; an event starts a state machine that probes, encodes and thumbnails; CloudFront serves the renditions.
+  look_at:
+    - The browser uploads to S3 directly; no function ever holds the file.
+    - The state machine runs the long encode on containers and the short steps on functions, and owns the retries for both.
+    - A corrupt file fails at the probe, before the expensive encode, and the run is parked with its input.
+  difficulty: 3
+project: { name: video }
+resources:
+  - { name: upload-api, type: api-gateway }
+  - { name: presign, type: lambda, config: { memory: 128, timeout: 5 } }
+  - name: uploads
+    type: s3
+    note: Presigned PUTs land here. The object-created event is what starts everything else.
+  - { name: on-upload, type: eventbridge-rule, config: { pattern: "source: aws.s3, detail-type: Object Created" } }
+  - name: transcode
+    type: step-functions
+    note: Probe, then encode and thumbnails in parallel, then the catalog write. Retry on the encode task; catch everything into the failed-jobs queue.
+  - { name: probe, type: lambda, config: { memory: 1024, timeout: 60 } }
+  - name: encode
+    type: ecs-service
+    config: { cpu: 4096, memory: 16384 }
+    note: A Fargate task per rendition ladder. Minutes, not seconds; that is why it is not a function.
+  - { name: thumbnails, type: lambda, config: { memory: 2048, timeout: 120 } }
+  - { name: renditions, type: s3 }
+  - { name: videos, type: dynamodb, config: { partitionKey: videoId } }
+  - { name: video-cdn, type: cloudfront }
+  - { name: failed-jobs, type: sqs }
+connections:
+  - { from: upload-api, to: presign, kind: invokes, detail: POST /uploads }
+  - { from: presign, to: uploads, kind: writes, detail: write }
+  - { from: uploads, to: on-upload, kind: invokes, detail: object created event }
+  - { from: on-upload, to: transcode, kind: event-target, detail: start execution }
+  - { from: transcode, to: probe, kind: invokes, detail: task }
+  - { from: transcode, to: encode, kind: invokes, detail: run task }
+  - { from: transcode, to: thumbnails, kind: invokes, detail: task }
+  - { from: probe, to: uploads, kind: reads }
+  - { from: encode, to: uploads, kind: reads }
+  - { from: encode, to: renditions, kind: writes }
+  - { from: thumbnails, to: renditions, kind: writes }
+  - { from: transcode, to: videos, kind: writes }
+  - { from: video-cdn, to: renditions, kind: origin }
+  - { from: transcode, to: failed-jobs, kind: dlq }
+scenarios:
+  - name: Upload and transcode
+    trigger: { at: upload-api, event: POST /uploads }
+    steps:
+      - { at: presign, takes: 5ms, note: "a presigned PUT URL, valid for 15 minutes" }
+      - { at: uploads, takes: 40s, note: the browser uploads 800 MB straight to the bucket }
+      - { at: on-upload }
+      - { at: transcode, takes: 10ms }
+      - { at: probe, takes: 2s, note: "ffprobe; duration, codec, resolution" }
+      - { at: encode, takes: 4m, note: "1080p, 720p and 480p ladders" }
+      - { at: renditions, note: HLS segments and playlists }
+      - { at: thumbnails, takes: 8s }
+      - { at: renditions, note: five stills }
+      - { at: videos, note: PutItem status READY with the playlist URL }
+  - name: Corrupt file
+    trigger: { at: uploads, event: object created broken.mov }
+    steps:
+      - { at: on-upload }
+      - { at: transcode, takes: 10ms }
+      - { at: probe, takes: 1s, outcome: fail, note: ffprobe cannot read the container; no encode is attempted }
+      - { at: failed-jobs, note: the run and its input are parked; the uploader is told }
+  - name: Playback
+    trigger: { at: video-cdn, event: GET /v/9f2/720p.m3u8 }
+    steps:
+      - { at: renditions, takes: 12ms, note: cache miss on the first viewer; every later segment is served from the edge }

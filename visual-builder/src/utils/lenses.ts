@@ -43,18 +43,19 @@ export const LENS_LAYERS: Record<Lens, Record<Layer, boolean>> = {
 
 const SECURITY_TYPES = new Set([
   'security-group', 'iam-role', 'iam-user', 'iam-policy', 'iam-instance-profile',
-  'secrets-manager', 'ssm-parameter', 'kms-key', 'acm-certificate',
+  'secrets-manager', 'ssm-parameter', 'kms-key', 'acm-certificate', 'cognito', 'waf',
 ]);
 
 const NETWORK_TYPES = new Set([
   'vpc', 'subnet', 'internet-gateway', 'nat-gateway', 'route-table', 'vpc-endpoint', 'elastic-ip',
-  'load-balancer', 'cloudfront', 'route53-zone', 'security-group', 'api-gateway', 'api-route',
+  'load-balancer', 'cloudfront', 'route53-zone', 'security-group', 'api-gateway', 'api-route', 'waf',
 ]);
 
 const DATAFLOW_TYPES = new Set([
   'agent', 'lambda', 'sqs', 'sns', 'kinesis-stream', 'kinesis-firehose', 'eventbridge', 'eventbridge-rule',
   'eventbridge-pipes', 'step-functions', 's3', 'dynamodb', 'api-gateway', 'api-route', 'bedrock',
   'ec2-instance', 'rds-instance', 'rds-cluster', 'ecs-service', 'load-balancer', 'cloudfront', 'elasticache-cluster',
+  'opensearch', 'glue', 'athena', 'cognito',
 ]);
 
 export type Emphasis = 'focus' | 'context';

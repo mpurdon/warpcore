@@ -4,6 +4,7 @@ import NodeWrapper from './NodeWrapper';
 import BidirectionalHandles from './BidirectionalHandles';
 
 interface EventBridgeRuleNodeData {
+  meta?: { note?: string };
   label: string;
   status?: NodeStatus;
   config?: {
@@ -54,7 +55,7 @@ export default function EventBridgeRuleNode({ id, data, selected }: Props) {
   const typeLabel = isScheduleRule ? 'Schedule Rule' : 'Event Rule';
 
   return (
-    <NodeWrapper nodeId={id} selected={selected} status={data.status}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status} note={data.meta?.note}>
       <div className={`node-inner px-4 py-3 min-w-[180px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

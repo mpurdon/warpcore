@@ -172,6 +172,11 @@ export const CANVAS_TYPES: Record<string, string> = {
   'AWS::EKS::Cluster': 'eks-cluster',
   'AWS::ElastiCache::CacheCluster': 'elasticache-cluster',
   'AWS::Elasticache::Cluster': 'elasticache-cluster',
+  'AWS::Cognito::UserPool': 'cognito',
+  'AWS::OpenSearchService::Domain': 'opensearch',
+  'AWS::Glue::Job': 'glue',
+  'AWS::Athena::WorkGroup': 'athena',
+  'AWS::WAFv2::WebACL': 'waf',
 };
 export const LAMBDA_TYPE = 'AWS::Lambda::Function';
 /** Anything without a node of its own is still drawn, as a plain box. */
@@ -270,6 +275,8 @@ export interface NodeMeta {
   compact?: boolean;
   /** Set by the lens re-flow on containers: how many members it removed. Not persisted. */
   hiddenCount?: number;
+  /** A note on the resource: the design decision worth teaching, in the author's words. */
+  note?: string;
 }
 
 export interface EdgeMeta {
@@ -299,16 +306,16 @@ export interface EnclosureInfo {
 
 export const ENCLOSURES: Record<EnclosureKind, EnclosureInfo> = {
   edge: { label: 'Edge & DNS', subtitle: 'CloudFront, Route 53, certificates, APIs', column: 0,
-    types: ['cloudfront', 'route53-zone', 'acm-certificate', 'api-gateway', 'api-route', 'load-balancer'],
+    types: ['cloudfront', 'route53-zone', 'acm-certificate', 'api-gateway', 'api-route', 'load-balancer', 'cognito', 'waf'],
     icon: Globe, border: 'border-violet-300', bg: 'bg-violet-50/40', header: 'text-violet-800' },
   messaging: { label: 'Messaging & Events', subtitle: 'queues, topics, streams, rules', column: 0,
     types: ['sqs', 'sns', 'kinesis-stream', 'kinesis-firehose', 'eventbridge', 'eventbridge-rule', 'eventbridge-pipes'],
     icon: Mail, border: 'border-purple-300', bg: 'bg-purple-50/40', header: 'text-purple-800' },
   compute: { label: 'Compute', subtitle: 'agents, functions, state machines, clusters', column: 1,
-    types: ['agent', 'lambda', 'step-functions', 'bedrock', 'ecs-cluster', 'ecs-service', 'eks-cluster', 'ec2-instance'],
+    types: ['agent', 'lambda', 'step-functions', 'bedrock', 'ecs-cluster', 'ecs-service', 'eks-cluster', 'ec2-instance', 'glue', 'athena'],
     icon: Boxes, border: 'border-blue-300', bg: 'bg-blue-50/40', header: 'text-blue-800' },
   data: { label: 'Data & Storage', subtitle: 'buckets, tables, databases, registries', column: 2,
-    types: ['s3', 'dynamodb', 'rds-instance', 'rds-cluster', 'elasticache-cluster', 'ecr', 'ebs-volume', 'ebs-snapshot'],
+    types: ['s3', 'dynamodb', 'rds-instance', 'rds-cluster', 'elasticache-cluster', 'ecr', 'ebs-volume', 'ebs-snapshot', 'opensearch'],
     icon: Database, border: 'border-orange-300', bg: 'bg-orange-50/40', header: 'text-orange-800' },
   secrets: { label: 'Secrets', subtitle: 'Secrets Manager and SecureString parameters', column: 3, types: ['secrets-manager'],
     icon: Vault, border: 'border-red-300', bg: 'bg-red-50/40', header: 'text-red-800' },
@@ -608,14 +615,23 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
     // Folded sub-resources are not edges from their own parent.
     if ((folded.has(c.from_arn) && folded.get(c.from_arn)!.arn === c.to_arn) || (folded.has(c.to_arn) && folded.get(c.to_arn)!.arn === c.from_arn)) continue;
 
-    if (c.kind === 'dlq') {
-      source.data.config = { ...source.data.config, dlq: { enabled: true, targetId: target.id, maxRetries: 3 } };
-      continue;
-    }
-
     const key = `${source.id}->${target.id}:${c.kind === 'access' ? 'access' : 'other'}`;
     if (seen.has(key)) continue;
     seen.add(key);
+
+    // A dead-letter queue is an edge of its own: amber, dashed, and a hop
+    // a scenario can take when a step gives up.
+    if (c.kind === 'dlq') {
+      const meta: EdgeMeta = { layer: layerFor(c.kind, c.detail), discovered: { kind: c.kind, detail: c.detail || 'dead-letter queue' } };
+      edges.push({
+        id: `edge-${key}`,
+        source: source.id,
+        target: target.id,
+        type: 'permission',
+        data: { isResourceBased: true, isDLQ: true, maxRetries: 3, config: {}, meta },
+      });
+      continue;
+    }
 
     const resourceBased = isResourceBasedConnection(source.type || '', target.type || '');
     const roleId = resourceBased ? undefined : (roleOf.get(source.id) ?? roleOf.get(target.id));

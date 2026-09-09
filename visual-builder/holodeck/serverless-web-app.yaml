@@ -1,0 +1,55 @@
+holodeck:
+  id: serverless-web-app
+  name: Serverless web app
+  family: reference
+  summary: Static front end from CloudFront, a REST API on Lambda, DynamoDB behind it, Cognito for sign-in.
+  look_at:
+    - The API checks the JWT against Cognito before any function runs; an expired token never reaches Lambda.
+    - Static assets and the API share one CloudFront distribution, so the browser talks to one origin.
+    - Each function gets one table and one role; there is no shared "app role".
+  difficulty: 1
+project: { name: webapp }
+resources:
+  - { name: app.example.com, type: route53-zone }
+  - name: web-cdn
+    type: cloudfront
+    note: One distribution with two origins - the bucket for /* and the API for /api/*.
+  - { name: web-assets, type: s3 }
+  - { name: app-api, type: api-gateway }
+  - name: users
+    type: cognito
+    note: The API Gateway JWT authorizer validates tokens against this pool. No function is involved in auth.
+  - { name: get-items, type: lambda, config: { memory: 256, timeout: 10 } }
+  - { name: put-item, type: lambda, config: { memory: 256, timeout: 10 } }
+  - { name: items, type: dynamodb, config: { partitionKey: userId, sortKey: itemId } }
+connections:
+  - { from: app.example.com, to: web-cdn, kind: dns }
+  - { from: web-cdn, to: web-assets, kind: origin, detail: "origin /*" }
+  - { from: web-cdn, to: app-api, kind: origin, detail: "origin /api/*" }
+  - { from: app-api, to: users, kind: invokes, detail: JWT authorizer }
+  - { from: app-api, to: get-items, kind: invokes, detail: GET /items }
+  - { from: app-api, to: put-item, kind: invokes, detail: POST /items }
+  - { from: get-items, to: items, kind: reads }
+  - { from: put-item, to: items, kind: writes }
+scenarios:
+  - name: Load the app
+    trigger: { at: app.example.com, event: GET / }
+    steps:
+      - { at: web-cdn, takes: 3ms, note: cache miss on a fresh deploy }
+      - { at: web-assets, note: index.html and the bundle }
+  - name: List my items
+    trigger: { at: app-api, event: GET /items }
+    steps:
+      - { at: users, takes: 4ms, note: signature and expiry checked against the pool's keys }
+      - { at: get-items, takes: 18ms }
+      - { at: items, note: Query on userId }
+  - name: Create an item
+    trigger: { at: app-api, event: POST /items }
+    steps:
+      - { at: users, takes: 4ms }
+      - { at: put-item, takes: 22ms }
+      - { at: items, note: PutItem }
+  - name: Expired token
+    trigger: { at: app-api, event: GET /items }
+    steps:
+      - { at: users, takes: 4ms, outcome: fail, note: the token expired an hour ago; the API answers 401 and no function runs }

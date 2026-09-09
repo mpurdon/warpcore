@@ -74,10 +74,18 @@ export function UnlockDialog({ onClose }: { onClose: () => void }) {
 
 /** The toolbar control: the lock's state, and the way to change it. */
 export function LockControl() {
-  const { locked, lock, configPath, projectName } = useStore();
+  const { locked, lock, configPath, projectName, holodeckPreview } = useStore();
   const envName = useCurrentEnvName();
   const [asking, setAsking] = useState(false);
 
+  if (holodeckPreview) {
+    return (
+      <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-indigo-50 text-indigo-800 text-sm border border-indigo-200 whitespace-nowrap" title="A Holodeck preview is read only. Save a copy to edit it.">
+        <Lock size={16} />
+        Preview
+      </span>
+    );
+  }
   if (!configPath) return null;
 
   return (

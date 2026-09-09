@@ -3,6 +3,7 @@ import YAML from 'yaml';
 import { DEFAULT_ENVIRONMENT_CONFIGS, EnvironmentConfig, RemovalPolicy } from '../store/useStore';
 import { orderParentsFirst } from './nodeTree';
 import { Scenario, ScenarioYaml, scenariosFromYaml, scenariosToYaml } from './scenarios';
+import { HolodeckMeta, holodeckMetaFromYaml, holodeckMetaToYaml } from './holodeck';
 
 export interface ResourceConfig {
   name: string;
@@ -56,6 +57,8 @@ export interface WarpcoreConfig {
   environments: Record<string, EnvironmentYaml>;
   /** Named events played through the canvas; see scenarios.ts. */
   scenarios?: ScenarioYaml[];
+  /** The Holodeck entry this project was copied from, with its notes; see holodeck.ts. */
+  holodeck?: Record<string, unknown>;
   canvas?: {
     nodes: Array<{
       id: string;
@@ -213,6 +216,7 @@ export function generateYAMLFromCanvas(
   extras: EnvironmentExtras = {},
   projectName?: string,
   scenarios: Scenario[] = [],
+  holodeck: HolodeckMeta | null = null,
 ): string {
   // The project's own name when it has one; otherwise derived from the first
   // agent, which is how untitled canvases have always been named.
@@ -239,6 +243,7 @@ export function generateYAMLFromCanvas(
       Object.entries(environments).map(([key, cfg]) => [key, environmentBlock(key, cfg, extras[key])]),
     ),
     ...(scenarios.length ? { scenarios: scenariosToYaml(scenarios) } : {}),
+    ...(holodeck ? { holodeck: holodeckMetaToYaml(holodeck) } : {}),
     canvas: {
       nodes: [],
       edges: [],
@@ -350,6 +355,8 @@ export interface ParsedCanvas {
   /** Everything else each environment block carried, kept for the round trip. */
   environmentExtras: EnvironmentExtras;
   scenarios: Scenario[];
+  /** The Holodeck entry the file was copied from, when it says so. */
+  holodeck: HolodeckMeta | null;
 }
 
 export function parseYAMLToCanvas(yamlContent: string): ParsedCanvas {
@@ -358,6 +365,7 @@ export function parseYAMLToCanvas(yamlContent: string): ParsedCanvas {
   const edges: Edge[] = [];
   const executionsPerMonth = config.project.cost_estimation?.executions_per_month ?? 100000;
   const scenarios = scenariosFromYaml(config.scenarios);
+  const holodeck = holodeckMetaFromYaml(config.holodeck);
 
   // Environments: whatever the file declares, else the defaults. A file with
   // only `account`/`region` per environment (older builders, hand-written)
@@ -418,7 +426,7 @@ export function parseYAMLToCanvas(yamlContent: string): ParsedCanvas {
       });
     }
 
-    return { nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras, scenarios };
+    return { nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras, scenarios, holodeck };
   }
 
   // Fallback: Generate nodes from semantic config
@@ -540,5 +548,5 @@ export function parseYAMLToCanvas(yamlContent: string): ParsedCanvas {
     }
   });
 
-  return { nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras, scenarios };
+  return { nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras, scenarios, holodeck };
 }

@@ -7,7 +7,7 @@ import ResourceNode from './ResourceNode';
 interface LogGroupNodeData {
   label: string;
   status?: NodeStatus;
-  meta?: { compact?: boolean; [key: string]: unknown };
+  meta?: { compact?: boolean; note?: string; [key: string]: unknown };
   config?: {
     logGroupPath?: string;
     logGroupName?: string; // legacy support
@@ -62,7 +62,7 @@ export default function LogGroupNode({ id, data, selected }: Props) {
   const hasPath = !!logPath;
 
   return (
-    <NodeWrapper nodeId={id} selected={selected} status={data.status}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status} note={data.meta?.note}>
       <div className={`node-inner px-4 py-3 min-w-[180px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

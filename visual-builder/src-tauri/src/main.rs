@@ -121,6 +121,10 @@ async fn read_config_file(path: String) -> Result<String, String> {
 // Write YAML configuration file
 #[tauri::command]
 async fn write_config_file(path: String, content: String) -> Result<(), String> {
+    // A copy from the Holodeck lands in a folder that does not exist yet.
+    if let Some(dir) = std::path::Path::new(&path).parent() {
+        tokio::fs::create_dir_all(dir).await.map_err(|e| e.to_string())?;
+    }
     tokio::fs::write(&path, content)
         .await
         .map_err(|e| e.to_string())

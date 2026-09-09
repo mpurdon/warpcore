@@ -3,7 +3,11 @@
 // inspect it, click a resource type to select one.
 
 import { useMemo, useState } from 'react';
-import { FolderKanban, Plus } from 'lucide-react';
+import { FolderKanban, LibraryBig, Plus, X } from 'lucide-react';
+import { familyInfo } from '../../utils/holodeck';
+import { findEntry } from '../../utils/holodeckLibrary';
+import { closePreview } from '../../utils/holodeckActions';
+import { HolodeckNotes, PRIMARY, QUIET, SaveCopyButton } from '../HolodeckParts';
 import { useReadOnly, useStore } from '../../store/useStore';
 import { EXECUTION_STEPS, estimateCost, formatCost, formatExecutions } from '../../utils/costEstimation';
 import RolesPanel from '../RolesPanel';
@@ -17,10 +21,11 @@ export default function ProjectInspector() {
   const {
     projectName, configPath, hasUnsavedChanges, nodes, environmentConfigs, currentEnvironment,
     inspectEnvironment, deploymentHistory, executionsPerMonth, setExecutionsPerMonth, selectNode,
-    scenarios, edges, newScenario,
+    scenarios, edges, newScenario, holodeck, holodeckPreview, openDialog,
   } = useStore();
   const readOnly = useReadOnly();
   const [tab, setTab] = useState<Tab>('overview');
+  const entry = holodeck ? findEntry(holodeck.id) : undefined;
 
   const byType = useMemo(() => {
     const counts = new Map<string, string[]>();
@@ -45,9 +50,11 @@ export default function ProjectInspector() {
         icon={FolderKanban}
         kind="Project"
         name={projectName || (nodes.length ? 'Unsaved project' : 'No project open')}
-        subtitle={configPath ? <span className="font-mono">{configPath}</span> : 'Open one from the Project menu, or drag resources onto the canvas.'}
+        subtitle={configPath ? <span className="font-mono">{configPath}</span> : holodeckPreview ? 'A Holodeck entry, in memory. Save a copy to make it yours.' : 'Open one from the Project menu, or drag resources onto the canvas.'}
         status={
-          configPath
+          holodeckPreview
+            ? <StatusDot tone="info" label="preview · read only" />
+            : configPath
             ? hasUnsavedChanges
               ? <StatusDot tone="warn" label="unsaved changes" />
               : <StatusDot tone="ok" label="saved" />
@@ -65,6 +72,25 @@ export default function ProjectInspector() {
 
       {tab === 'overview' && (
         <div className="flex-1 overflow-y-auto min-h-0">
+          {holodeck && (
+            <Section title={holodeckPreview ? 'Holodeck preview' : 'From the Holodeck'} hint={familyInfo(holodeck.family).tag}>
+              <div className="flex items-start gap-2 mb-2">
+                <LibraryBig size={14} className="text-indigo-600 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900">{holodeck.name}</div>
+                  {holodeck.summary && <p className="text-xs text-gray-600 mt-0.5">{holodeck.summary}</p>}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <HolodeckNotes meta={holodeck} heading={false} />
+              </div>
+              <div className="mt-2 flex items-center gap-1.5">
+                {holodeckPreview && entry && <SaveCopyButton entry={entry} className={PRIMARY} />}
+                {holodeckPreview && <button onClick={closePreview} className={QUIET}><X size={12} /> Close preview</button>}
+                <button onClick={() => openDialog('holodeck')} className={QUIET}><LibraryBig size={12} /> Library</button>
+              </div>
+            </Section>
+          )}
           <Section title="Environments" hint="click to inspect">
             {Object.entries(environmentConfigs).map(([key, cfg]) => (
               <Fact

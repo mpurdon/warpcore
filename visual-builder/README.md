@@ -285,6 +285,33 @@ Drag to orbit, scroll to zoom, right-drag to pan; *Follow* pans with the
 request as it plays, *Reset* frames everything again. A hand-drawn canvas
 is one sheet with every card on it.
 
+### The Holodeck
+
+A library of systems to walk through and copy, opened from the toolbar,
+the welcome screen or `⌘K`. Four families: AWS reference architectures,
+systems "in the style of" a well-known company (each citing its public
+talk or post, with the year, rendered on AWS and carrying no branding),
+system design classics, and warpcore starters. Every entry is authored in
+`visual-builder/holodeck/*.yaml` without coordinates and laid out as the
+same application stack an imported account gets, and ships with two to
+five scenarios, including the unhappy paths: the timeout, the retry into a
+dead-letter queue, the conditional write that loses.
+
+**Preview** loads an entry in memory, read only: play its scenarios, switch
+lenses, open the system view. Nothing is written, and whatever was open
+comes back when the preview closes. **Save a copy** writes a
+`warpcore.yaml` of your own and opens it unlocked. The **Mine** tab holds
+custom templates saved from the canvas.
+
+Scenario steps can fail: `outcome: fail | timeout` and `retry: n` in the
+file, or the controls on each step in the inspector. A failing step pulses
+red, each retry replays the hop, the log ticker shows the errors, and a
+dead-letter queue edge is a hop the request can take when a step gives up.
+A failure nothing catches is a note in the check, not a problem.
+
+Resources carry a note (`meta.note`): a marker on the card and a paragraph
+in the inspector, editable when the project is unlocked.
+
 ### The project lock
 
 Every project opens **locked**, and locks again whenever you switch
@@ -300,7 +327,7 @@ the toolbar to lock again.
 `⌘K` opens the command palette. Type part of a resource's name, type, id or
 ARN and press Enter: it is selected, the inspector shows it, and the canvas
 pans to it. The same box runs every action in the app - deploy, destroy,
-open, save, templates, explore, discover, lenses, layers, settings sections,
+open, save, the Holodeck, explore, discover, lenses, layers, settings sections,
 fit view, undo, redo - so nothing has to be hunted for.
 
 ### The inspector

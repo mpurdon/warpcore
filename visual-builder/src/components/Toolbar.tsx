@@ -5,11 +5,11 @@
 // §5.3 and UX_PLAN.md §3.6: one light chrome, colour only for state and for
 // the two actions that change AWS.
 
-import { Play, Trash2, FileText, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon, Box } from 'lucide-react';
+import { Play, Trash2, LibraryBig, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon, Box } from 'lucide-react';
 import { useCurrentEnvName, useStore } from '../store/useStore';
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import TemplateModal from './TemplateModal';
+import HolodeckDrawer from './HolodeckDrawer';
 import FileMenu from './FileMenu';
 import EnvironmentSelector from './EnvironmentSelector';
 import ProjectDiscoveryPanel from './ProjectDiscoveryPanel';
@@ -166,9 +166,9 @@ export default function Toolbar() {
           <span className="hidden 2xl:inline">Explore</span>
         </button>
 
-        <button onClick={() => openDialog('templates')} className={quiet} title="Start from a template, or save this canvas as one">
-          <FileText size={15} />
-          <span className="hidden 2xl:inline">Templates</span>
+        <button onClick={() => openDialog('holodeck')} className={quiet} title="The Holodeck: systems to walk through with scenarios, and copy to work from">
+          <LibraryBig size={15} />
+          <span className="hidden 2xl:inline">Holodeck</span>
         </button>
 
         <span className="w-px h-5 bg-gray-200 mx-1" />
@@ -227,7 +227,7 @@ export default function Toolbar() {
         </button>
       </div>
 
-      {dialog === 'templates' && <TemplateModal onClose={closeDialog} />}
+      {dialog === 'holodeck' && <HolodeckDrawer onClose={closeDialog} />}
       {dialog === 'shortcuts' && <ShortcutsHelp onClose={closeDialog} />}
 
       <AccountExplorerPanel isOpen={dialog === 'explorer'} onClose={closeDialog} />

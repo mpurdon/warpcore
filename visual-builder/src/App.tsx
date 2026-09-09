@@ -36,11 +36,13 @@ import PermissionLegend from './components/PermissionLegend';
 import CommandPalette from './components/CommandPalette';
 import ActivityDrawer, { ACTIVITY_BAR_HEIGHT, ACTIVITY_BODY_HEIGHT } from './components/ActivityDrawer';
 import WelcomeScreen from './components/WelcomeScreen';
+import HolodeckBanner from './components/HolodeckBanner';
 import ScenarioTransport from './components/ScenarioTransport';
 import SystemView from './components/SystemView';
 import { edgeView, isPlainEdge, ScenarioMarksContext, useLensView, useScenarioView } from './hooks/useCanvasView';
 import { usePlaybackClock } from './hooks/usePlaybackClock';
 import { registerCanvas } from './utils/canvasActions';
+import { isDlqEdge } from './utils/scenarios';
 import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
 import { edgeTypes } from './components/edges';
@@ -149,13 +151,16 @@ function Flow() {
   // Track selected nodes from React Flow's selection system
   const selectedNodes = nodes.filter(n => n.selected).map(n => n.id);
 
-  // Compute DLQ edges from node configurations
+  // Compute DLQ edges from node configurations. A canvas built from an
+  // account or a Holodeck entry carries its dead-letter queues as real
+  // edges already; those pairs are not drawn twice.
   const dlqEdges = useMemo(() => {
     const dlqEdgeList: Edge[] = [];
+    const drawn = new Set(edges.filter(isDlqEdge).map((e) => `${e.source}->${e.target}`));
 
     nodes.forEach(node => {
       const dlqConfig = node.data?.config?.dlq;
-      if (dlqConfig?.enabled && dlqConfig?.targetId) {
+      if (dlqConfig?.enabled && dlqConfig?.targetId && !drawn.has(`${node.id}->${dlqConfig.targetId}`)) {
         // Check if target node exists
         const targetExists = nodes.some(n => n.id === dlqConfig.targetId);
         if (targetExists) {
@@ -187,7 +192,7 @@ function Flow() {
     });
 
     return dlqEdgeList;
-  }, [nodes]);
+  }, [nodes, edges]);
 
   // The scenario on show and the lens re-flow, shared with the system view.
   const scenarioView = useScenarioView();
@@ -961,6 +966,7 @@ function Flow() {
           {showWelcome && <WelcomeScreen />}
           {systemView && !showWelcome && <SystemView reflow={reflow} />}
           <LockBanner />
+          <HolodeckBanner />
           <LensBar />
           <PermissionLegend bottomOffset={drawerHeight} />
           <ScenarioTransport bottomOffset={drawerHeight} />

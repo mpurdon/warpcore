@@ -136,7 +136,7 @@ export default function ResourceNode({ id, data, selected, type }: Props) {
   // everything stands on is numerous and rarely the subject.
   if (data.meta?.compact) {
     return (
-      <NodeWrapper nodeId={id} selected={selected} status={data.status}>
+      <NodeWrapper nodeId={id} selected={selected} status={data.status} note={data.meta?.note}>
         <div className={`node-inner px-2.5 py-2 ${statusClass}`} style={{ width: CHIP_W - 4 }} title={`${typeLabel}${awsId ? ' · ' + awsId : ''}`}>
           <BidirectionalHandles nodeId={id} />
           <div className="flex items-center gap-1.5">
@@ -152,7 +152,7 @@ export default function ResourceNode({ id, data, selected, type }: Props) {
   }
 
   return (
-    <NodeWrapper nodeId={id} selected={selected} status={data.status} costNode={{ type, data }}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status} costNode={{ type, data }} note={data.meta?.note}>
       <div className={`node-inner px-4 py-3 min-w-[160px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

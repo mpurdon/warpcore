@@ -13,6 +13,7 @@ import { Node, Edge } from 'reactflow';
 import { absolutePosition, BandKind, BAND_ORDER, CELL_H, CELL_W, CHIP_W, CHIP_H } from './stackLayout';
 import { displayNameFor } from './nodeName';
 import { Layer, TRAFFIC_KINDS } from './layers';
+import { isDlqEdge } from './scenarios';
 
 /** Canvas pixels per world unit. */
 export const UNIT = 100;
@@ -91,7 +92,7 @@ function levelY(band: BandKind | undefined): number {
 export function linkKind(edge: Edge): LinkKind {
   const meta = (edge.data?.meta || {}) as { discovered?: { kind: string }; access?: unknown };
   if (meta.access) return 'access';
-  if (edge.data?.isDLQ) return 'flow';
+  if (isDlqEdge(edge)) return 'flow';
   const kind = meta.discovered?.kind;
   if (!kind) return 'drawn';
   if (kind === 'logs') return 'logs';

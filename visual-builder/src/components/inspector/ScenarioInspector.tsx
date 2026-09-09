@@ -4,17 +4,17 @@
 // respects the lock; playing never does.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Circle, CircleDot, Pause, Play, Route, ShieldAlert, Sparkles, Square, Trash2, Wand2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Circle, CircleDot, Flame, Info, Pause, Play, Route, ShieldAlert, Sparkles, Square, Trash2, Wand2, X } from 'lucide-react';
 import { useReadOnly, useStore } from '../../store/useStore';
 import { displayNameFor } from '../../utils/nodeName';
 import { canvas } from '../../utils/canvasActions';
 import {
-  canBeStep, checkScenario, clockFor, formatTakes, hopIndex, logLinesUpTo, modelledTimeMs, parseTakes, Scenario, ScenarioStep, suggestPath,
+  canBeStep, checkScenario, clockFor, formatTakes, hopIndex, logLinesUpTo, modelledTimeMs, parseTakes, outcomeLabel, Scenario, ScenarioStep, StepOutcome, stepFails, suggestPath,
 } from '../../utils/scenarios';
 import InspectorHeader, { Fact, Section, StatusDot } from './InspectorHeader';
 
 const LEVEL_CLASS: Record<string, string> = {
-  START: 'text-gray-400', END: 'text-gray-400', REPORT: 'text-gray-400', INFO: 'text-emerald-300', WARN: 'text-amber-300',
+  START: 'text-gray-400', END: 'text-gray-400', REPORT: 'text-gray-400', INFO: 'text-emerald-300', WARN: 'text-amber-300', ERROR: 'text-red-300',
 };
 
 export default function ScenarioInspector({ scenario }: { scenario: Scenario }) {
@@ -195,6 +195,8 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
                       <span className="text-gray-400 font-normal"> · {byId.get(step.at)?.type || 'missing'}</span>
                     </button>
                     {step.detached && <span className="text-[10px] text-gray-500 border border-gray-200 rounded px-1" title="Fire and forget: the request does not wait for this step">detached</span>}
+                    {step.retry ? <span className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1" title={`Retried ${step.retry} time${step.retry === 1 ? '' : 's'} before the outcome`}>×{step.retry + 1}</span> : null}
+                    {stepFails(step) && <span className="text-[10px] text-red-700 bg-red-50 border border-red-200 rounded px-1 inline-flex items-center gap-0.5" title={`The last attempt ${outcomeLabel(step)}`}><Flame size={9} /> {outcomeLabel(step)}</span>}
                     {!readOnly && (
                       <span className="flex items-center gap-0.5 shrink-0">
                         <button onClick={() => move(i, -1)} disabled={i === 0} className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-30" title="Move up"><ArrowUp size={11} /></button>
@@ -212,12 +214,31 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
                       className="flex-1 min-w-0 text-[11px] border border-gray-200 rounded px-1.5 py-0.5 disabled:bg-transparent disabled:border-transparent disabled:px-0"
                     />
                     <TakesInput value={step.takes} disabled={readOnly} onChange={(takes) => patchStep(i, { takes })} />
-                    {!readOnly && (
+                    {!readOnly && (<>
+                      <select
+                        value={step.outcome ?? 'ok'}
+                        onChange={(e) => patchStep(i, { outcome: e.target.value === 'ok' ? undefined : (e.target.value as StepOutcome) })}
+                        className={`text-[10px] border rounded px-1 py-0.5 bg-white shrink-0 ${stepFails(step) ? 'border-red-300 text-red-700' : 'border-gray-200 text-gray-600'}`}
+                        title="How the last attempt ends"
+                      >
+                        <option value="ok">ok</option>
+                        <option value="fail">fails</option>
+                        <option value="timeout">times out</option>
+                      </select>
+                      <input
+                        type="number"
+                        min={0}
+                        max={9}
+                        value={step.retry ?? 0}
+                        onChange={(e) => { const n = Math.max(0, Math.min(9, parseInt(e.target.value || '0', 10) || 0)); patchStep(i, { retry: n || undefined }); }}
+                        className="w-10 text-[10px] border border-gray-200 rounded px-1 py-0.5 tabular-nums shrink-0"
+                        title="Retries before the outcome; each replays the hop"
+                      />
                       <label className="flex items-center gap-1 text-[10px] text-gray-500 shrink-0" title="Fire and forget: the request does not wait for this step">
                         <input type="checkbox" checked={Boolean(step.detached)} onChange={(e) => patchStep(i, { detached: e.target.checked || undefined })} />
                         detached
                       </label>
-                    )}
+                    </>)}
                   </div>
                   <div className="pl-7 mt-0.5 text-[10px] leading-snug">
                     {c?.evidence ? (
@@ -228,6 +249,9 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
                     ) : null}
                     {c?.problems.map((p) => (
                       <span key={p} className="flex items-center gap-1 text-amber-800"><ShieldAlert size={10} className="shrink-0" /> {p}</span>
+                    ))}
+                    {c?.notes.map((p) => (
+                      <span key={p} className="flex items-center gap-1 text-gray-500"><Info size={10} className="shrink-0" /> {p}</span>
                     ))}
                   </div>
                 </li>
@@ -288,7 +312,12 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
               {check.problems.map((p) => <li key={p} className="text-xs text-amber-800 flex items-start gap-1"><ShieldAlert size={12} className="mt-0.5 shrink-0" /> {p}</li>)}
             </ul>
           )}
-          <p className="text-[10px] text-gray-400 mt-2">Checked against the wiring on the canvas: invocations, event sources and targets, and access arrows from IAM policies.</p>
+          {check.notes.length > 0 && (
+            <ul className="mt-2 space-y-0.5">
+              {check.notes.map((p) => <li key={p} className="text-xs text-gray-600 flex items-start gap-1"><Info size={12} className="mt-0.5 shrink-0 text-gray-400" /> {p}</li>)}
+            </ul>
+          )}
+          <p className="text-[10px] text-gray-400 mt-2">Checked against the wiring on the canvas: invocations, event sources and targets, dead-letter queues, and access arrows from IAM policies.</p>
         </Section>
 
         {!readOnly && (

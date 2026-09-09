@@ -1,0 +1,63 @@
+holodeck:
+  id: uber-style-dispatch
+  name: Ride dispatch, in the style of Uber
+  family: inspired
+  summary: Driver locations stream into a geo index; a rider's request becomes an offer to the nearest driver, retried down the list until one accepts.
+  look_at:
+    - Location updates never touch the request path; they keep the geo index warm on their own.
+    - Dispatch is a queue consumer, so a burst of requests queues instead of overwhelming the matcher.
+    - An unanswered offer is a retry to the next driver; three unanswered offers park the request for a human.
+  source:
+    title: Scaling Uber's Real-time Market Platform
+    by: Matt Ranney, QCon
+    year: 2015
+  difficulty: 2
+project: { name: dispatch }
+resources:
+  - { name: driver-locations, type: kinesis-stream, config: { shards: 8 } }
+  - { name: update-location, type: lambda, config: { memory: 256, timeout: 10 } }
+  - name: geo-index
+    type: elasticache-cluster
+    note: GEOADD per driver on every heartbeat, GEORADIUS on every request. The index is the whole supply side.
+  - { name: rider-api, type: api-gateway }
+  - { name: request-ride, type: lambda, config: { memory: 256, timeout: 5 } }
+  - { name: trips, type: dynamodb, config: { partitionKey: tripId } }
+  - { name: offers, type: sqs }
+  - name: dispatch
+    type: lambda
+    config: { memory: 512, timeout: 60 }
+    note: Picks the nearest drivers and offers the trip to one at a time. Idempotent per trip so a redelivery is harmless.
+  - { name: notify-driver, type: sns }
+  - { name: unmatched, type: sqs }
+connections:
+  - { from: driver-locations, to: update-location, kind: event-source }
+  - { from: update-location, to: geo-index, kind: writes }
+  - { from: rider-api, to: request-ride, kind: invokes, detail: POST /rides }
+  - { from: request-ride, to: trips, kind: writes }
+  - { from: request-ride, to: offers, kind: writes }
+  - { from: offers, to: dispatch, kind: event-source }
+  - { from: dispatch, to: geo-index, kind: reads }
+  - { from: dispatch, to: notify-driver, kind: writes }
+  - { from: dispatch, to: trips, kind: writes }
+  - { from: offers, to: unmatched, kind: dlq }
+scenarios:
+  - name: Driver location update
+    trigger: { at: driver-locations, event: heartbeat every 4 s }
+    steps:
+      - { at: update-location, takes: 5ms, note: one invocation per batch of records }
+      - { at: geo-index, takes: 1ms, note: GEOADD drivers lon lat driverId }
+  - name: Rider requests a trip
+    trigger: { at: rider-api, event: POST /rides }
+    steps:
+      - { at: request-ride, takes: 15ms }
+      - { at: trips, note: PutItem status REQUESTED; the rider gets a trip id back now }
+      - { at: offers, detached: true }
+      - { at: dispatch, takes: 40ms }
+      - { at: geo-index, takes: 2ms, note: "GEORADIUS 2 km, nearest five" }
+      - { at: notify-driver, note: Publish the offer to the nearest driver's endpoint }
+      - { at: trips, note: UpdateItem status OFFERED }
+  - name: No driver accepts
+    trigger: { at: offers, event: trip 7f3a }
+    steps:
+      - { at: dispatch, takes: 15s, outcome: fail, retry: 2, note: each offer expires unanswered after 15 s; the next nearest driver is tried }
+      - { at: unmatched, note: three drivers declined; the request is parked for manual dispatch }

@@ -7,6 +7,7 @@ import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
 import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
 import type { Playhead, Scenario } from '../utils/scenarios';
 import { advance as advancePlayhead, canBeStep, createScenario, seekTo } from '../utils/scenarios';
+import type { HolodeckMeta } from '../utils/holodeck';
 
 // Sections of the application settings view. Order here is display order.
 export const SETTINGS_SECTIONS = [
@@ -15,7 +16,28 @@ export const SETTINGS_SECTIONS = [
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Task dialogs. One at a time; they are modal because they run a job. */
-export type Dialog = 'templates' | 'explorer' | 'discovery' | 'shortcuts';
+export type Dialog = 'holodeck' | 'explorer' | 'discovery' | 'shortcuts';
+
+/**
+ * A project as the store holds it: what `loadProject` puts on the canvas
+ * and `snapshotProject` takes off it. Opening a file, the demo, a Holodeck
+ * preview and a template all go through the one loader, so none of them
+ * can forget a field.
+ */
+export interface ProjectState {
+  nodes: Node[];
+  edges: Edge[];
+  scenarios: Scenario[];
+  configPath: string | null;
+  projectName: string | null;
+  environmentConfigs: Record<string, EnvironmentConfig>;
+  environmentExtras: Record<string, Record<string, unknown>>;
+  executionsPerMonth: number;
+  currentEnvironment: string;
+  locked: boolean;
+  holodeck: HolodeckMeta | null;
+}
+
 
 
 // Node status types with meaningful states:
@@ -105,6 +127,15 @@ export const DEFAULT_ENVIRONMENT_CONFIGS: Record<string, EnvironmentConfig> = {
       dynamoDbBackup: true,
     },
   },
+};
+
+export const DEFAULT_EXECUTIONS_PER_MONTH = 100000;
+
+/** Nothing open: an empty, unlocked-by-absence canvas with the default environments. */
+export const EMPTY_PROJECT: ProjectState = {
+  nodes: [], edges: [], scenarios: [], configPath: null, projectName: null,
+  environmentConfigs: DEFAULT_ENVIRONMENT_CONFIGS, environmentExtras: {}, executionsPerMonth: DEFAULT_EXECUTIONS_PER_MONTH,
+  currentEnvironment: 'dev', locked: true, holodeck: null,
 };
 
 /**
@@ -202,6 +233,10 @@ const HISTORY_LIMIT = 100;
 const COALESCE_MS = 400;
 let lastRecordedAt = 0;
 
+// Measured width and height are React Flow's own bookkeeping, written when
+// a node mounts; a resize the operator makes lands in `style`. So a
+// measurement is neither dirty nor a step, and a freshly loaded canvas
+// stays clean.
 function sameNodeIgnoringSelection(a: Node, b: Node): boolean {
   return a === b || (
     a.id === b.id
@@ -212,8 +247,6 @@ function sameNodeIgnoringSelection(a: Node, b: Node): boolean {
     && a.style === b.style
     && a.position.x === b.position.x
     && a.position.y === b.position.y
-    && a.width === b.width
-    && a.height === b.height
   );
 }
 
@@ -394,6 +427,25 @@ interface StoreState {
   lock: () => void;
   unlock: () => void;
 
+  // The Holodeck (utils/holodeck.ts). `holodeck` is the entry the canvas
+  // came from, if any: its notes show in the project inspector. A preview
+  // is the entry loaded in memory, read-only, with no file; whatever was
+  // open before is stashed and comes back when the preview closes.
+  holodeck: HolodeckMeta | null;
+  holodeckPreview: boolean;
+  previewStash: ProjectState | null;
+  /** Record where the canvas came from. Not a preview: any stash is dropped. */
+  setHolodeck: (meta: HolodeckMeta | null) => void;
+  /** Put the entry on the canvas as a preview, stashing the current project the first time. */
+  beginHolodeckPreview: (meta: HolodeckMeta, project: ProjectState) => void;
+  /** Leave the preview; the caller loads what comes back, or EMPTY_PROJECT. */
+  endHolodeckPreview: () => ProjectState | null;
+
+  // The one way a project gets onto the canvas. Atomic: nothing to undo,
+  // nothing dirty, no selection, no playhead, no preview.
+  loadProject: (project: ProjectState) => void;
+  snapshotProject: () => ProjectState;
+
   // Application settings view. Replaces the workspace while open; the canvas
   // is hidden, not unmounted.
   settingsOpen: boolean;
@@ -438,8 +490,9 @@ interface StoreState {
   setLayer: (layer: Layer, on: boolean) => void;
 }
 
-/** The lock only bites once a project is open; an unsaved canvas is free. */
-export const selectReadOnly = (s: { locked: boolean; configPath: string | null }): boolean => s.locked && Boolean(s.configPath);
+/** The lock only bites once a project is open; an unsaved canvas is free. A Holodeck preview is always read-only. */
+export const selectReadOnly = (s: { locked: boolean; configPath: string | null; holodeckPreview: boolean }): boolean =>
+  (s.locked && Boolean(s.configPath)) || s.holodeckPreview;
 export const useReadOnly = (): boolean => useStore(selectReadOnly);
 
 /** Display name of the current deploy scope. */
@@ -449,6 +502,27 @@ export const useCurrentEnvName = (): string => useStore(selectCurrentEnvName);
 
 // Read once at startup; the mirrors below all derive from it.
 const initialPrefs = getPreferences();
+
+/** The project fields of the state, for the stash. */
+function snapshotOf(s: ProjectState): ProjectState {
+  return {
+    nodes: s.nodes, edges: s.edges, scenarios: s.scenarios, configPath: s.configPath, projectName: s.projectName,
+    environmentConfigs: s.environmentConfigs, environmentExtras: s.environmentExtras, executionsPerMonth: s.executionsPerMonth,
+    currentEnvironment: s.currentEnvironment, locked: s.locked, holodeck: s.holodeck,
+  };
+}
+
+/** The state change that puts a project on the canvas, with everything transient cleared. */
+function projectPatch(p: ProjectState): Partial<StoreState> {
+  lastRecordedAt = 0;
+  return {
+    ...snapshotOf(p),
+    // A project's current environment must be one it has.
+    currentEnvironment: p.environmentConfigs[p.currentEnvironment] ? p.currentEnvironment : Object.keys(p.environmentConfigs)[0] ?? p.currentEnvironment,
+    playhead: null, recording: false, inspectedScenario: null, inspectedEnvironment: null, selectedNode: null, editingNode: null,
+    past: [], future: [], hasUnsavedChanges: false,
+  };
+}
 
 /**
  * A playback action: given the scenario playing and the playhead, the next
@@ -705,15 +779,15 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!scenario) return {};
     const speed = state.playhead?.speed ?? 1;
     const playhead: Playhead = scenario.steps.length
-      ? { scenarioId: id, index: 0, phase: 'travel', playing: true, speed }
-      : { scenarioId: id, index: -1, phase: 'dwell', playing: false, speed };
+      ? { scenarioId: id, index: 0, phase: 'travel', attempt: 0, playing: true, speed }
+      : { scenarioId: id, index: -1, phase: 'dwell', attempt: 0, playing: false, speed };
     return { playhead, recording: false, inspectedScenario: state.inspectedScenario ?? id };
   }),
   stopPlayback: () => set({ playhead: null }),
   setPlaying: (playing) => set(withPlayback((scenario, head) => {
     // Play at the end starts over.
     if (playing && head.phase === 'end') {
-      return { ...head, index: 0, phase: scenario.steps.length ? 'travel' : 'dwell', playing: scenario.steps.length > 0 };
+      return { ...head, index: 0, phase: scenario.steps.length ? 'travel' : 'dwell', attempt: 0, playing: scenario.steps.length > 0 };
     }
     return { ...head, playing };
   })),
@@ -729,6 +803,25 @@ export const useStore = create<StoreState>((set, get) => ({
   locked: true,
   lock: () => set({ locked: true }),
   unlock: () => set({ locked: false }),
+
+  // Holodeck
+  holodeck: null,
+  holodeckPreview: false,
+  previewStash: null,
+  setHolodeck: (meta) => set({ holodeck: meta, holodeckPreview: false, previewStash: null }),
+  beginHolodeckPreview: (meta, project) => set((state) => ({
+    ...projectPatch(project),
+    previewStash: state.holodeckPreview ? state.previewStash : snapshotOf(state),
+    holodeck: meta,
+    holodeckPreview: true,
+  })),
+  endHolodeckPreview: () => {
+    const stash = get().previewStash;
+    set({ holodeck: null, holodeckPreview: false, previewStash: null });
+    return stash;
+  },
+  loadProject: (project) => set({ ...projectPatch(project), holodeckPreview: false, previewStash: null }),
+  snapshotProject: () => snapshotOf(get()),
 
   // Settings view
   settingsOpen: false,

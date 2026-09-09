@@ -6,7 +6,7 @@
 // when nothing editable has focus.
 
 import { useEffect } from 'react';
-import { useStore } from '../store/useStore';
+import { selectReadOnly, useStore } from '../store/useStore';
 import { canvas } from '../utils/canvasActions';
 import { openProjectDialog, saveProject } from '../utils/projectIO';
 import { blockedReason, runDeployment } from '../utils/deployRunner';
@@ -25,7 +25,7 @@ export function useShortcuts({ deleteSelected }: { deleteSelected: () => void })
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
       const editable = inEditable(e.target);
-      const readOnly = s.locked && Boolean(s.configPath);
+      const readOnly = selectReadOnly(s);
 
       // Cmd/Ctrl+R reloads the frontend in a dev build: the webview has no
       // menu for it, and a missed hot-reload otherwise looks like a bug.

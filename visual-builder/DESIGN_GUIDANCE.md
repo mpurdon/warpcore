@@ -76,7 +76,7 @@ An honest inventory, so the rest of the document talks about real surfaces.
 | Environment Configuration | `EnvironmentConfigPanel.tsx` | Modal: removal policies, logging, lambda defaults, **plus** debug mode and regions of interest | Wrong shape (modal) and wrong contents (mixes shared and personal settings) |
 | Account Explorer | `AccountExplorerPanel.tsx` | Modal: pick profile, scan, browse discovered resources | Right idea, wrong container. Its tooltip points to a Settings menu that does not exist |
 | Project Discovery | `ProjectDiscoveryPanel.tsx` | Modal: scan project for Strands components | Fine as a task dialog |
-| Template modal, File menu, recents | `TemplateModal.tsx`, `FileMenu.tsx`, `recentProjects.ts` | Open / new / recent projects | Fine |
+| Holodeck drawer, File menu, recents | `HolodeckDrawer.tsx`, `FileMenu.tsx`, `recentProjects.ts` | Library of systems to preview and copy (was the template modal) / open / recent projects | Fine |
 | Preferences | `preferences.ts` | `debugMode`, `regions` in localStorage | Correctly separated in code, not in the UI |
 
 The code comment in `preferences.ts` already states the principle this document formalises:
@@ -593,3 +593,28 @@ playhead. Shipped in `utils/systemLayout.ts` (pure, tested) and
   only plates, cards, arcs and the pulse.
 - **Follow pans.** Following the request moves the camera and the orbit
   target by the same offset, so the viewpoint the operator chose is kept.
+
+## 14. The Holodeck
+
+[2026-09-08. Plan and shipped state in `HOLODECK_PLAN.md`.]
+
+- **A library, not a template gallery.** Every entry is a system with
+  scenarios, laid out by the same stack layout an imported account gets,
+  so a walk through an example and a walk through a real account look the
+  same. Entries are authored without coordinates; hand placement is how
+  templates rot.
+- **Preview writes nothing.** It is the demo account generalised: in
+  memory, read-only, the open project stashed and restored. It refuses when
+  something unsaved would be lost, and says why. Save a copy is the only way
+  to a file, and it goes through the one project-creation path.
+- **Honest labels.** Reference, inspired by (with the source and year, no
+  branding), textbook, starter. An "in the style of" entry is a rendering
+  of a public description on AWS services and says so on the card and in
+  the inspector.
+- **The unhappy path is the point.** A diagram shows the happy path; the
+  simulator shows the timeout, the retry, the dead-letter queue, the lost
+  request. Failure is data on the step (`outcome`, `retry`), the check
+  treats an uncaught failure as a note, and the canvas shows it in red.
+- **Notes travel with the project.** `meta.note` is how an entry teaches
+  and how a user annotates their own system; the same field, the same
+  marker.

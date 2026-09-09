@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, CornerDownLeft } from 'lucide-react';
-import { useStore, NodeStatus, SETTINGS_SECTIONS } from '../store/useStore';
+import { selectReadOnly, useStore, NodeStatus, SETTINGS_SECTIONS } from '../store/useStore';
 import { displayNameFor } from '../utils/nodeName';
 import { DISCOVERED_TYPES, discoveredTypeLabel } from '../utils/discoveredTypes';
 import { groupItems, PaletteItem, rankItems } from '../utils/palette';
@@ -14,6 +14,7 @@ import { LAYERS } from '../utils/layers';
 import { canvas } from '../utils/canvasActions';
 import { openProjectDialog, saveProject } from '../utils/projectIO';
 import { blockedReason, runDeployment } from '../utils/deployRunner';
+import { closePreview } from '../utils/holodeckActions';
 import { StatusDot, Tone } from './inspector/InspectorHeader';
 
 const TONE: Record<NodeStatus, Tone> = {
@@ -61,7 +62,8 @@ export default function CommandPalette() {
     list.push({ id: 'destroy', kind: 'command', group: 'Actions', title: `Destroy ${envName}`, subtitle: destroyBlock ?? 'Asks first, then runs warpcore destroy', keywords: ['delete', 'teardown', 'remove'], run: after(() => { if (destroyBlock) return; if (confirm(`Destroy every resource in the ${envName} environment?`)) void runDeployment('destroy'); }) });
     list.push({ id: 'save', kind: 'command', group: 'Actions', title: 'Save project', subtitle: s.configPath ? s.configPath : 'No file yet: open or create a project first', shortcut: '⌘S', run: after(() => { void saveProject(); }) });
     list.push({ id: 'open', kind: 'command', group: 'Actions', title: 'Open project…', subtitle: 'Choose a warpcore.yaml', shortcut: '⌘O', run: after(() => { void openProjectDialog(); }) });
-    list.push({ id: 'templates', kind: 'command', group: 'Actions', title: 'Templates…', subtitle: 'Start from a template or save this canvas as one', run: after(() => s.openDialog('templates')) });
+    list.push({ id: 'holodeck', kind: 'command', group: 'Actions', title: 'Holodeck…', subtitle: 'Systems to walk through with scenarios, and copy to work from', keywords: ['template', 'example', 'library', 'reference', 'architecture'], run: after(() => s.openDialog('holodeck')) });
+    if (s.holodeckPreview) list.push({ id: 'holodeck-close', kind: 'command', group: 'Actions', title: 'Close the Holodeck preview', subtitle: 'Back to what was open before', keywords: ['preview'], run: after(() => { void closePreview(); }) });
     list.push({ id: 'explore', kind: 'command', group: 'Actions', title: 'Explore an AWS account…', subtitle: 'Scan an account and turn it into a project', keywords: ['scan', 'discover', 'import', 'reverse'], run: after(() => s.openDialog('explorer')) });
     if (s.configPath) list.push({ id: 'discover', kind: 'command', group: 'Actions', title: 'Discover Strands components…', subtitle: 'Scan this project\'s code', keywords: ['scan'], run: after(() => s.openDialog('discovery')) });
     if (s.configPath && !s.locked) list.push({ id: 'lock', kind: 'command', group: 'Actions', title: 'Lock the project', subtitle: 'Back to view-only', run: after(() => s.lock()) });
@@ -91,7 +93,7 @@ export default function CommandPalette() {
       list.push({ id: `scn-play-${sc.id}`, kind: 'command', group: 'Scenarios', title: `Play scenario: ${sc.name}`, subtitle: sc.steps.length ? `${sc.steps.length} steps from ${sc.trigger.at}` : 'No steps yet', keywords: ['scenario', 'simulate', 'request'], run: after(() => { if (sc.steps.length) s.playScenario(sc.id); else s.inspectScenario(sc.id); }) });
       list.push({ id: `scn-open-${sc.id}`, kind: 'command', group: 'Scenarios', title: `Inspect scenario: ${sc.name}`, keywords: ['scenario', 'edit'], run: after(() => s.inspectScenario(sc.id)) });
     }
-    if (s.nodes.length && !(s.locked && s.configPath)) {
+    if (s.nodes.length && !selectReadOnly(s)) {
       list.push({ id: 'scn-new', kind: 'command', group: 'Scenarios', title: 'New scenario', subtitle: 'Play a request through the system, step by step', keywords: ['scenario', 'simulate', 'record'], run: after(() => s.newScenario(s.selectedNode ?? undefined)) });
     }
 
@@ -128,7 +130,7 @@ export default function CommandPalette() {
     // The palette rebuilds when it opens; the store fields it reads are
     // captured then, which is what a snapshot-style list wants.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paletteOpen, s.nodes, s.environmentConfigs, s.currentEnvironment, s.configPath, s.locked, s.lens, s.layers, s.rightPanelVisible, s.activityOpen, s.run, s.past.length, s.future.length, s.scenarios, s.playhead, s.selectedNode, s.systemView]);
+  }, [paletteOpen, s.nodes, s.environmentConfigs, s.currentEnvironment, s.configPath, s.locked, s.lens, s.layers, s.rightPanelVisible, s.activityOpen, s.run, s.past.length, s.future.length, s.scenarios, s.playhead, s.selectedNode, s.systemView, s.holodeckPreview]);
 
   const ranked = useMemo(() => rankItems(query, items, query.trim() ? 40 : 200), [query, items]);
   const groups = useMemo(() => groupItems(ranked), [ranked]);

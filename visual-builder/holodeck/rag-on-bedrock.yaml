@@ -1,0 +1,58 @@
+holodeck:
+  id: rag-on-bedrock
+  name: RAG on Bedrock
+  family: reference
+  summary: Documents embedded into OpenSearch on upload; questions answered by retrieving passages and asking a model.
+  look_at:
+    - Ingestion and answering share the embeddings model; the same vectors on both sides is what makes retrieval work.
+    - The answer function makes three model calls in sequence, so its latency is the sum of theirs.
+    - Throttling is the usual failure; the retry scenario shows the backoff the SDK does for you.
+  difficulty: 2
+project: { name: rag }
+resources:
+  - { name: documents, type: s3 }
+  - { name: index-docs, type: lambda, config: { memory: 1024, timeout: 300 } }
+  - name: embeddings
+    type: bedrock
+    config: { modelId: amazon.titan-embed-text-v2:0 }
+    note: Used at both ingestion and query time. Changing the model means re-embedding every document.
+  - name: vectors
+    type: opensearch
+    note: A k-NN index; each chunk is a vector plus the text and a pointer back to the document.
+  - { name: qa-api, type: api-gateway }
+  - { name: answer, type: lambda, config: { memory: 512, timeout: 30 } }
+  - { name: llm, type: bedrock, config: { modelId: anthropic.claude-sonnet-4-5 } }
+  - { name: conversations, type: dynamodb, config: { partitionKey: sessionId, sortKey: turn } }
+connections:
+  - { from: documents, to: index-docs, kind: invokes, detail: object created }
+  - { from: index-docs, to: documents, kind: reads }
+  - { from: index-docs, to: embeddings, kind: reads }
+  - { from: index-docs, to: vectors, kind: writes }
+  - { from: qa-api, to: answer, kind: invokes, detail: POST /ask }
+  - { from: answer, to: conversations, kind: uses }
+  - { from: answer, to: embeddings, kind: reads }
+  - { from: answer, to: vectors, kind: reads }
+  - { from: answer, to: llm, kind: reads }
+scenarios:
+  - name: Document ingested
+    trigger: { at: documents, event: object created guide.pdf }
+    steps:
+      - { at: index-docs, takes: 800ms, note: splits into 40 chunks }
+      - { at: embeddings, takes: 120ms, note: one call per batch of chunks }
+      - { at: vectors, note: bulk index; 40 vectors }
+  - name: Question answered
+    trigger: { at: qa-api, event: POST /ask }
+    steps:
+      - { at: answer, takes: 2.4s }
+      - { at: conversations, note: the last few turns for context }
+      - { at: embeddings, takes: 90ms, note: embed the question }
+      - { at: vectors, takes: 30ms, note: "k-NN, top 5 chunks" }
+      - { at: llm, takes: 1.8s, note: the question plus the five passages as context }
+      - { at: conversations, note: the answer is stored as the next turn }
+  - name: Model throttled
+    trigger: { at: qa-api, event: POST /ask }
+    steps:
+      - { at: answer, takes: 4s }
+      - { at: embeddings, takes: 90ms }
+      - { at: vectors, takes: 30ms }
+      - { at: llm, takes: 600ms, retry: 2, note: ThrottlingException twice; the SDK backs off and the third call gets through }

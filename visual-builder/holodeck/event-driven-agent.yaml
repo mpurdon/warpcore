@@ -1,0 +1,30 @@
+holodeck:
+  id: event-driven-agent
+  name: Event-driven agent
+  family: starter
+  summary: An agent fed by an SQS queue, writing to DynamoDB, with a dead-letter queue for poison messages.
+  look_at:
+    - The queue is the buffer; the agent's concurrency is the drain rate.
+    - A message that keeps failing is redriven to the dead-letter queue after three receives, and the rest keep flowing.
+  difficulty: 1
+project: { name: event-agent }
+resources:
+  - { name: event-queue, type: sqs, config: { visibilityTimeout: 60 } }
+  - { name: event-processor, type: agent, config: { runtime: python3.12, memory: 512, timeout: 30 } }
+  - { name: data-store, type: dynamodb, config: { partitionKey: eventId } }
+  - { name: poison-messages, type: sqs }
+connections:
+  - { from: event-queue, to: event-processor, kind: event-source }
+  - { from: event-processor, to: data-store, kind: writes }
+  - { from: event-queue, to: poison-messages, kind: dlq }
+scenarios:
+  - name: Event processed
+    trigger: { at: event-queue, event: batch of 10 }
+    steps:
+      - { at: event-processor, takes: 300ms }
+      - { at: data-store, note: BatchWriteItem }
+  - name: Poison message
+    trigger: { at: event-queue, event: malformed event }
+    steps:
+      - { at: event-processor, takes: 50ms, outcome: fail, retry: 2, note: raises on every receive; after the third the queue gives up }
+      - { at: poison-messages, note: kept for inspection; nothing else was held up }

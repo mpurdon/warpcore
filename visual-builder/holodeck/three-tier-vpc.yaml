@@ -1,0 +1,70 @@
+holodeck:
+  id: three-tier-vpc
+  name: Three-tier VPC application
+  family: reference
+  summary: A load balancer in public subnets, containers in private subnets, Aurora and a cache in data subnets.
+  look_at:
+    - Only the load balancer has a public address. Containers reach the internet through the NAT gateway and nothing reaches them directly.
+    - The cache sits in front of the database on the read path; the miss scenario is the only one that reaches Aurora.
+    - Security groups reference each other by group, not by IP, so scaling the service changes nothing in the rules.
+  difficulty: 2
+project: { name: shop }
+resources:
+  - { name: shop.example.com, type: route53-zone }
+  - { name: app-vpc, type: vpc, config: { cidr: 10.0.0.0/16 } }
+  - { name: public-a, type: subnet, in: app-vpc, config: { cidr: 10.0.0.0/24, availabilityZone: us-east-1a, public: true } }
+  - { name: public-b, type: subnet, in: app-vpc, config: { cidr: 10.0.1.0/24, availabilityZone: us-east-1b, public: true } }
+  - { name: private-a, type: subnet, in: app-vpc, config: { cidr: 10.0.10.0/24, availabilityZone: us-east-1a } }
+  - { name: private-b, type: subnet, in: app-vpc, config: { cidr: 10.0.11.0/24, availabilityZone: us-east-1b } }
+  - { name: data-a, type: subnet, in: app-vpc, config: { cidr: 10.0.20.0/24, availabilityZone: us-east-1a } }
+  - { name: igw, type: internet-gateway, in: app-vpc }
+  - { name: nat, type: nat-gateway, in: public-a }
+  - { name: web-sg, type: security-group, in: app-vpc, config: { inboundRules: ["443 from 0.0.0.0/0"], openToWorld: true } }
+  - { name: app-sg, type: security-group, in: app-vpc, config: { inboundRules: ["8080 from web-sg"] } }
+  - { name: data-sg, type: security-group, in: app-vpc, config: { inboundRules: ["5432 from app-sg", "6379 from app-sg"] } }
+  - name: web-alb
+    type: load-balancer
+    in: public-a
+    groups: [web-sg]
+    note: The only thing with a public IP. Terminates TLS and forwards to the service on 8080.
+  - name: web-service
+    type: ecs-service
+    in: private-a
+    groups: [app-sg]
+    config: { desiredCount: 3, cpu: 512, memory: 1024 }
+    note: Fargate tasks with no public IP. Outbound traffic leaves through the NAT gateway.
+  - { name: catalog-db, type: rds-cluster, in: data-a, groups: [data-sg], config: { engine: aurora-postgresql } }
+  - name: session-cache
+    type: elasticache-cluster
+    in: data-a
+    groups: [data-sg]
+    note: Product pages and sessions. A miss costs a database round trip; the hit scenario never leaves the cache.
+  - { name: product-images, type: s3 }
+connections:
+  - { from: shop.example.com, to: web-alb, kind: dns }
+  - { from: web-alb, to: web-service, kind: invokes, detail: target group }
+  - { from: web-service, to: session-cache, kind: uses }
+  - { from: web-service, to: catalog-db, kind: uses }
+  - { from: web-service, to: product-images, kind: reads }
+scenarios:
+  - name: Product page, cache hit
+    trigger: { at: shop.example.com, event: GET /products/42 }
+    steps:
+      - { at: web-alb, takes: 2ms }
+      - { at: web-service, takes: 12ms }
+      - { at: session-cache, takes: 1ms, note: GET product:42 hits }
+  - name: Cache miss to the database
+    trigger: { at: shop.example.com, event: GET /products/42 }
+    steps:
+      - { at: web-alb, takes: 2ms }
+      - { at: web-service, takes: 45ms }
+      - { at: session-cache, takes: 1ms, note: GET product:42 misses }
+      - { at: catalog-db, takes: 18ms, note: SELECT from products; the result is written back to the cache with a TTL }
+      - { at: product-images, note: presigned URLs for the gallery }
+  - name: Database failover
+    trigger: { at: shop.example.com, event: GET /products/42 }
+    steps:
+      - { at: web-alb, takes: 2ms }
+      - { at: web-service, takes: 45ms }
+      - { at: session-cache, takes: 1ms }
+      - { at: catalog-db, takes: 5s, retry: 1, note: the writer is failing over; the first connect times out and the driver reconnects to the new writer }

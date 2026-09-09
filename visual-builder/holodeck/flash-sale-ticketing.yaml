@@ -1,0 +1,60 @@
+holodeck:
+  id: flash-sale-ticketing
+  name: Flash-sale ticketing
+  family: classic
+  summary: Ten thousand buyers, two hundred seats. A waiting room meters the crowd; a conditional write decides who gets the seat.
+  look_at:
+    - The seat table is the only arbiter. Two buyers for one seat both issue a conditional put and exactly one succeeds.
+    - The waiting room is a queue drained at a fixed rate; the database never sees the burst.
+    - A hold that is not paid for expires on a schedule, so an abandoned checkout returns the seat.
+  difficulty: 2
+project: { name: tickets }
+resources:
+  - { name: ticket-api, type: api-gateway }
+  - name: waiting-room
+    type: sqs
+    note: Every buyer enters here. The consumer runs with a small concurrency, which is the admission rate.
+  - name: hold-seat
+    type: lambda
+    config: { memory: 256, timeout: 10, reservedConcurrency: 20 }
+    note: Reserved concurrency of 20 is the throttle. Twenty holds in flight, never more.
+  - name: seats
+    type: dynamodb
+    config: { partitionKey: eventId, sortKey: seatId }
+    note: PutItem with attribute_not_exists(holder). The condition is the whole correctness story.
+  - { name: pay, type: lambda, config: { memory: 256, timeout: 20 } }
+  - { name: payment-key, type: secrets-manager }
+  - { name: orders, type: dynamodb, config: { partitionKey: orderId } }
+  - { name: hold-expiry, type: eventbridge-rule, config: { schedule: rate(1 minute) } }
+  - { name: release-holds, type: lambda, config: { memory: 256, timeout: 30 } }
+connections:
+  - { from: ticket-api, to: waiting-room, kind: writes, detail: write }
+  - { from: waiting-room, to: hold-seat, kind: event-source }
+  - { from: hold-seat, to: seats, kind: writes }
+  - { from: ticket-api, to: pay, kind: invokes, detail: POST /orders }
+  - { from: pay, to: seats, kind: writes }
+  - { from: pay, to: payment-key, kind: reads }
+  - { from: pay, to: orders, kind: writes }
+  - { from: hold-expiry, to: release-holds, kind: event-target }
+  - { from: release-holds, to: seats, kind: uses }
+scenarios:
+  - name: Buy a seat
+    trigger: { at: ticket-api, event: POST /holds }
+    steps:
+      - { at: waiting-room, takes: 2s, note: queued behind the crowd; the browser polls for its turn }
+      - { at: hold-seat, takes: 15ms }
+      - { at: seats, note: "conditional put succeeds; holder set, expires in 10 minutes" }
+      - { at: pay, takes: 900ms }
+      - { at: payment-key }
+      - { at: seats, note: UpdateItem status SOLD }
+      - { at: orders }
+  - name: Seat already taken
+    trigger: { at: waiting-room, event: hold request for A12 }
+    steps:
+      - { at: hold-seat, takes: 15ms }
+      - { at: seats, outcome: fail, note: ConditionalCheckFailedException; another buyer won A12 a moment ago and this one is told to pick again }
+  - name: Hold expires
+    trigger: { at: hold-expiry, event: every minute }
+    steps:
+      - { at: release-holds, takes: 120ms }
+      - { at: seats, note: Query holds older than 10 minutes and clear them }

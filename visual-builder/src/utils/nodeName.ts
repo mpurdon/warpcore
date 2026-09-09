@@ -27,6 +27,11 @@ export const NAME_FIELDS: Record<string, string> = {
   'eventbridge-pipes': 'pipeName',
   'log-group': 'logGroupPath',
   lambda: 'functionName',
+  cognito: 'userPoolName',
+  opensearch: 'domainName',
+  glue: 'jobName',
+  athena: 'workGroupName',
+  waf: 'webAclName',
 };
 
 export function nameFieldFor(type: string | undefined): string {

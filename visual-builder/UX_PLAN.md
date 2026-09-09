@@ -123,7 +123,7 @@ against a sandbox account before it is wired to a production environment.
 ### 2. Command palette (⌘K)
 
 Resources by name, type, id or ARN; environments; and every action in the app (deploy,
-destroy, open, save, templates, explore, discover, lenses, layers, settings sections, fit
+destroy, open, save, the Holodeck, explore, discover, lenses, layers, settings sections, fit
 view, lock). Selecting a resource selects it, opens the inspector and pans the canvas to it.
 
 ### 3. Lenses
@@ -196,3 +196,7 @@ DESIGN_GUIDANCE.md §12.
 The system view, also shipped 2026-09-08: the canvas as terraces in
 three.js, read only, reading the same lens, selection and playhead, so a
 scenario plays identically in both. DESIGN_GUIDANCE.md §13.
+
+Next: the Holodeck, a library of example systems with scenarios and a
+drawer to preview and copy them. Plan and the state it builds on:
+HOLODECK_PLAN.md.

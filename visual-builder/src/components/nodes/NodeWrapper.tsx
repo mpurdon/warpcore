@@ -4,7 +4,7 @@
 // reads at a glance and survives the lens dimming.
 
 import { useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { MessageSquareText, X } from 'lucide-react';
 import { Node } from 'reactflow';
 import { NodeStatus, useReadOnly, useStore } from '../../store/useStore';
 import { badgeLabel, badgeTone } from '../../utils/scenarios';
@@ -19,6 +19,8 @@ interface Props {
   status?: NodeStatus;
   /** When given, the Cost lens draws this node's monthly estimate on it. */
   costNode?: { type?: string; data: any };
+  /** A note on the resource (meta.note): a marker on the card, the text in the inspector. */
+  note?: string;
 }
 
 export const STATUS_DOT: Record<NodeStatus, { color: string; label: string; pulse?: boolean }> = {
@@ -31,7 +33,7 @@ export const STATUS_DOT: Record<NodeStatus, { color: string; label: string; puls
   present: { color: '#d1d5db', label: 'Exists in the account; health unknown' },
 };
 
-export default function NodeWrapper({ nodeId, selected, children, className = '', status, costNode }: Props) {
+export default function NodeWrapper({ nodeId, selected, children, className = '', status, costNode, note }: Props) {
   const [isHovered, setIsHovered] = useState(false);
   const setSelectedNode = useStore((s) => s.setSelectedNode);
   const lens = useStore((s) => s.lens);
@@ -82,6 +84,11 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
       {logging && (
         <span className="scn-writing" title="Receiving log lines (synthetic)">
           <span /><span /><span />
+        </span>
+      )}
+      {note && (
+        <span className="node-note-marker" title={note}>
+          <MessageSquareText size={9} />
         </span>
       )}
 

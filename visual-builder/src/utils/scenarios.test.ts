@@ -134,7 +134,7 @@ describe('checkScenario', () => {
 });
 
 describe('playhead', () => {
-  const start = (): Playhead => ({ scenarioId: 'webhook-received', index: 0, phase: 'travel', playing: true, speed: 1 });
+  const start = (): Playhead => ({ scenarioId: 'webhook-received', index: 0, phase: 'travel', attempt: 0, playing: true, speed: 1 });
 
   it('alternates travel and dwell and stops at the end', () => {
     const s = scenario();
@@ -218,7 +218,109 @@ describe('synthetic logs', () => {
   it('accumulates one block per compute step reached so far', () => {
     const { nodes, edges } = webhook();
     const s = scenario();
-    expect(logLinesUpTo(s, { scenarioId: s.id, index: 0, phase: 'travel', playing: false, speed: 1 }, nodes, edges)).toEqual([]);
-    expect(logLinesUpTo(s, { scenarioId: s.id, index: 3, phase: 'dwell', playing: false, speed: 1 }, nodes, edges).map((b) => b.at)).toEqual(['authorizer', 'fn']);
+    expect(logLinesUpTo(s, { scenarioId: s.id, index: 0, phase: 'travel', attempt: 0, playing: false, speed: 1 }, nodes, edges)).toEqual([]);
+    expect(logLinesUpTo(s, { scenarioId: s.id, index: 3, phase: 'dwell', attempt: 0, playing: false, speed: 1 }, nodes, edges).map((b) => b.at)).toEqual(['authorizer', 'fn']);
+  });
+});
+
+// ---------------------------------------------------------- unhappy paths
+
+describe('failure paths', () => {
+  // A queue feeding a function that gives up, and the queue's dead-letter queue.
+  function orders(): { nodes: Node[]; edges: Edge[] } {
+    const nodes = [node('queue', 'sqs'), node('fn', 'lambda'), node('dlq', 'sqs'), node('table', 'dynamodb'), node('logs', 'log-group')];
+    const edges = [
+      discovered('e1', 'queue', 'fn', 'event-source', 'event source mapping'),
+      access('e2', 'fn', 'table', 'write', ['dynamodb:PutItem']),
+      discovered('e3', 'fn', 'logs', 'logs', 'function log group'),
+      { id: 'e4', source: 'queue', target: 'dlq', type: 'permission', data: { isDLQ: true, meta: { layer: 'triggers', discovered: { kind: 'dlq', detail: 'dead-letter queue' } } } } as Edge,
+    ];
+    return { nodes, edges };
+  }
+  const giveUp = (): Scenario => ({
+    id: 'gives-up', name: 'Gives up', trigger: { at: 'queue' },
+    steps: [{ at: 'fn', takes: 100, outcome: 'timeout', retry: 2 }, { at: 'dlq' }],
+  });
+  const recovers = (): Scenario => ({
+    id: 'recovers', name: 'Recovers', trigger: { at: 'queue' },
+    steps: [{ at: 'fn', takes: 100, retry: 1 }, { at: 'table' }],
+  });
+  const lost = (): Scenario => ({
+    id: 'lost', name: 'Lost', trigger: { at: 'queue' },
+    steps: [{ at: 'fn', outcome: 'fail' }],
+  });
+
+  it('round-trips outcome and retry through YAML', () => {
+    const yaml = scenariosToYaml([giveUp()]);
+    expect(yaml[0].steps![0]).toEqual({ at: 'fn', takes: '100ms', outcome: 'timeout', retry: 2 });
+    expect(yaml[0].steps![1]).toEqual({ at: 'dlq' });
+    const back = scenariosFromYaml(yaml);
+    expect(back[0].steps[0].outcome).toBe('timeout');
+    expect(back[0].steps[0].retry).toBe(2);
+    expect(back[0].steps[1].outcome).toBeUndefined();
+  });
+
+  it('replays the hop once per retry before moving on', () => {
+    const s = giveUp();
+    let head: Playhead = { scenarioId: s.id, index: 0, phase: 'travel', attempt: 0, playing: true, speed: 1 };
+    const phases: string[] = [];
+    for (let i = 0; i < 8; i++) { head = advance(s, head); phases.push(`${head.index}:${head.phase}:${head.attempt}`); }
+    expect(phases).toEqual(['0:dwell:0', '0:travel:1', '0:dwell:1', '0:travel:2', '0:dwell:2', '1:travel:0', '1:dwell:0', '1:end:0']);
+    // Seeking resets the attempt.
+    expect(seekTo(s, head, 0).attempt).toBe(0);
+  });
+
+  it('marks a failing attempt, then the failed step, and a recovered step as visited', () => {
+    const { nodes, edges } = orders();
+    const s = giveUp();
+    const check = checkScenario(s, nodes, edges);
+    expect(check.problems).toEqual([]);
+    expect(check.notes).toEqual([]);
+    const during = playbackMarks(s, { scenarioId: s.id, index: 0, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, check);
+    expect(during.state.get('fn')).toBe('failing');
+    const after = playbackMarks(s, { scenarioId: s.id, index: 1, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, check);
+    expect(after.state.get('fn')).toBe('failed');
+    expect(after.state.get('dlq')).toBe('active');
+    // The dead-letter hop is the evidence for the last step.
+    expect(check.steps[1].evidence?.edgeId).toBe('e4');
+
+    const r = recovers();
+    const rc = checkScenario(r, nodes, edges);
+    const mid = playbackMarks(r, { scenarioId: r.id, index: 0, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, rc);
+    expect(mid.state.get('fn')).toBe('failing');
+    const last = playbackMarks(r, { scenarioId: r.id, index: 0, phase: 'dwell', attempt: 1, playing: true, speed: 1 }, rc);
+    expect(last.state.get('fn')).toBe('active');
+    const done = playbackMarks(r, { scenarioId: r.id, index: 1, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, rc);
+    expect(done.state.get('fn')).toBe('visited');
+  });
+
+  it('notes a failure nothing catches, without calling it a problem', () => {
+    const { nodes, edges } = orders();
+    const check = checkScenario(lost(), nodes, edges);
+    expect(check.ok).toBe(true);
+    expect(check.notes).toHaveLength(1);
+    expect(check.notes[0]).toMatch(/nothing retries it and no dead-letter queue/);
+  });
+
+  it('counts every attempt in the modelled time', () => {
+    const s = giveUp();
+    expect(modelledTimeMs(s, { index: 0, phase: 'dwell', attempt: 0 })).toBe(100);
+    expect(modelledTimeMs(s, { index: 0, phase: 'dwell', attempt: 2 })).toBe(300);
+    expect(modelledTimeMs(s, { index: 1, phase: 'dwell', attempt: 0 })).toBe(400);
+  });
+
+  it('logs an ERROR per failed attempt and only the attempts made so far', () => {
+    const { nodes, edges } = orders();
+    const s = giveUp();
+    const all = syntheticLogLines(s, 0, nodes, edges);
+    expect(all.filter((l) => l.level === 'START')).toHaveLength(3);
+    expect(all.filter((l) => l.level === 'ERROR')).toHaveLength(3);
+    expect(all.find((l) => l.level === 'ERROR')?.text).toMatch(/timed out/);
+    const soFar = logLinesUpTo(s, { scenarioId: s.id, index: 0, phase: 'dwell', attempt: 1, playing: true, speed: 1 }, nodes, edges);
+    expect(soFar[0].lines.filter((l) => l.level === 'START')).toHaveLength(2);
+    // A recovered step fails once, then gets through.
+    const r = recovers();
+    const rl = syntheticLogLines(r, 0, nodes, edges);
+    expect(rl.filter((l) => l.level === 'ERROR')).toHaveLength(1);
   });
 });

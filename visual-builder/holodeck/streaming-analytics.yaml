@@ -1,0 +1,54 @@
+holodeck:
+  id: streaming-analytics
+  name: Streaming analytics
+  family: reference
+  summary: Clickstream into Kinesis, buffered by Firehose into S3, catalogued by Glue, queried with Athena.
+  look_at:
+    - Nothing on the write path is synchronous past the API; Firehose buffers for up to a minute before anything lands in S3.
+    - The transform function runs per batch inside Firehose, not per event.
+    - Athena reads the lake directly; there is no database to size.
+  difficulty: 2
+project: { name: analytics }
+resources:
+  - { name: events-api, type: api-gateway }
+  - { name: ingest, type: lambda, config: { memory: 256, timeout: 5 } }
+  - { name: clickstream, type: kinesis-stream, config: { shards: 4 } }
+  - name: delivery
+    type: kinesis-firehose
+    note: Buffers 60 s or 5 MB, whichever first, then writes one Parquet object. Latency is the price of cheap storage.
+  - { name: transform, type: lambda, config: { memory: 512, timeout: 60 } }
+  - { name: data-lake, type: s3, config: { bucketName: analytics-data-lake } }
+  - name: catalog-crawler
+    type: glue
+    note: Runs nightly, discovers new partitions, keeps the table definition Athena reads.
+  - { name: analytics, type: athena }
+  - { name: query-results, type: s3 }
+connections:
+  - { from: events-api, to: ingest, kind: invokes, detail: POST /events }
+  - { from: ingest, to: clickstream, kind: writes }
+  - { from: clickstream, to: delivery, kind: event-source, detail: stream source }
+  - { from: delivery, to: transform, kind: invokes, detail: record transformation }
+  - { from: delivery, to: data-lake, kind: writes }
+  - { from: data-lake, to: catalog-crawler, kind: invokes, detail: nightly schedule }
+  - { from: catalog-crawler, to: data-lake, kind: reads }
+  - { from: analytics, to: data-lake, kind: reads }
+  - { from: analytics, to: query-results, kind: writes }
+scenarios:
+  - name: Click event lands in the lake
+    trigger: { at: events-api, event: POST /events }
+    steps:
+      - { at: ingest, takes: 8ms }
+      - { at: clickstream, note: "PutRecord, partition key is the session id" }
+      - { at: delivery, takes: 60s, note: sits in the buffer until it fills or a minute passes }
+      - { at: transform, takes: 250ms, note: one invocation for the whole batch; flattens and drops bad rows }
+      - { at: data-lake, note: one Parquet object per batch under dt=YYYY-MM-DD/ }
+  - name: Analyst runs a query
+    trigger: { at: analytics, event: "SELECT page, count(*) FROM clicks WHERE dt = today" }
+    steps:
+      - { at: data-lake, takes: 3s, note: scans only the partition the WHERE clause names }
+      - { at: query-results, note: the result set as CSV }
+  - name: Crawler updates the catalog
+    trigger: { at: data-lake, event: nightly at 02:00 }
+    steps:
+      - { at: catalog-crawler, takes: 90s }
+      - { at: data-lake, note: lists new dt= prefixes and adds them as partitions }

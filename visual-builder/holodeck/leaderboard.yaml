@@ -1,0 +1,55 @@
+holodeck:
+  id: leaderboard
+  name: Leaderboard
+  family: classic
+  summary: Scores stream in and land in a sorted set; the top hundred is one cache read; a snapshot is written every hour.
+  look_at:
+    - The sorted set answers "top N" and "my rank" in logarithmic time; the table only keeps history.
+    - Writes go through a stream so a burst at the end of a match is absorbed, not dropped.
+    - The hourly snapshot to S3 is the recovery story: the cache is fast, not durable.
+  difficulty: 1
+project: { name: leaderboard }
+resources:
+  - { name: scores-api, type: api-gateway }
+  - { name: submit-score, type: lambda, config: { memory: 128, timeout: 5 } }
+  - { name: score-stream, type: kinesis-stream }
+  - { name: rank, type: lambda, config: { memory: 256, timeout: 30 } }
+  - name: board
+    type: elasticache-cluster
+    note: ZADD on every score, ZREVRANGE for the top, ZREVRANK for one player. Restored from the last snapshot if lost.
+  - { name: score-history, type: dynamodb, config: { partitionKey: playerId, sortKey: ts } }
+  - { name: read-board, type: lambda, config: { memory: 128, timeout: 5 } }
+  - { name: hourly, type: eventbridge-rule, config: { schedule: rate(1 hour) } }
+  - { name: snapshot, type: lambda, config: { memory: 512, timeout: 60 } }
+  - { name: snapshots, type: s3 }
+connections:
+  - { from: scores-api, to: submit-score, kind: invokes, detail: POST /scores }
+  - { from: submit-score, to: score-stream, kind: writes }
+  - { from: score-stream, to: rank, kind: event-source }
+  - { from: rank, to: board, kind: writes }
+  - { from: rank, to: score-history, kind: writes }
+  - { from: scores-api, to: read-board, kind: invokes, detail: GET /top }
+  - { from: read-board, to: board, kind: reads }
+  - { from: hourly, to: snapshot, kind: event-target }
+  - { from: snapshot, to: board, kind: reads }
+  - { from: snapshot, to: snapshots, kind: writes }
+scenarios:
+  - name: Score submitted
+    trigger: { at: scores-api, event: POST /scores }
+    steps:
+      - { at: submit-score, takes: 4ms }
+      - { at: score-stream, detached: true, note: "PutRecord, partition key playerId" }
+      - { at: rank, takes: 12ms, note: one invocation per batch }
+      - { at: board, takes: 1ms, note: ZADD board 18250 player:77 }
+      - { at: score-history, note: PutItem for the audit trail }
+  - name: Top hundred
+    trigger: { at: scores-api, event: GET /top }
+    steps:
+      - { at: read-board, takes: 3ms }
+      - { at: board, takes: 1ms, note: ZREVRANGE board 0 99 WITHSCORES }
+  - name: Hourly snapshot
+    trigger: { at: hourly, event: every hour }
+    steps:
+      - { at: snapshot, takes: 2s }
+      - { at: board, takes: 400ms, note: ZRANGE the whole set }
+      - { at: snapshots, note: PutObject board-2026-09-08T12.json }

@@ -1,0 +1,34 @@
+holodeck:
+  id: bedrock-agent
+  name: Bedrock AI agent
+  family: starter
+  summary: A chat API in front of an agent that calls a Bedrock model and keeps the conversation in DynamoDB.
+  look_at:
+    - The agent reads the history before the model call and writes the new turn after it; the model itself is stateless.
+    - Throttling is the failure to expect first; the retry scenario shows what the SDK's backoff looks like.
+  difficulty: 1
+project: { name: chat-agent }
+resources:
+  - { name: chat-api, type: api-gateway }
+  - { name: ai-agent, type: agent, config: { runtime: python3.12, memory: 1024, timeout: 60 } }
+  - { name: claude, type: bedrock, config: { modelId: anthropic.claude-sonnet-4-5 } }
+  - { name: conversation-history, type: dynamodb, config: { partitionKey: sessionId, sortKey: turn } }
+connections:
+  - { from: chat-api, to: ai-agent, kind: invokes, detail: POST /chat }
+  - { from: ai-agent, to: claude, kind: reads }
+  - { from: ai-agent, to: conversation-history, kind: uses }
+scenarios:
+  - name: Chat turn
+    trigger: { at: chat-api, event: POST /chat }
+    steps:
+      - { at: ai-agent, takes: 2.1s }
+      - { at: conversation-history, note: Query the last 20 turns }
+      - { at: claude, takes: 1.9s }
+      - { at: conversation-history, note: PutItem the new turn }
+  - name: Model throttled
+    trigger: { at: chat-api, event: POST /chat }
+    steps:
+      - { at: ai-agent, takes: 3.5s }
+      - { at: conversation-history }
+      - { at: claude, takes: 400ms, retry: 1, note: ThrottlingException once; the SDK waits and the second call succeeds }
+      - { at: conversation-history }

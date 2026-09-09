@@ -1,0 +1,44 @@
+holodeck:
+  id: multi-agent-workflow
+  name: Multi-agent workflow
+  family: starter
+  summary: An orchestrator agent starts a Step Functions workflow that runs research, writing and review agents in turn.
+  look_at:
+    - The orchestrator does not call the other agents; the state machine does, so the sequence and the retries are declared, not coded.
+    - A rejected draft fails the run into a queue where it can be inspected and restarted.
+  difficulty: 2
+project: { name: multi-agent }
+resources:
+  - { name: workflow-api, type: api-gateway }
+  - { name: orchestrator, type: agent, config: { runtime: python3.12, memory: 512, timeout: 30 } }
+  - { name: report-workflow, type: step-functions }
+  - { name: research-agent, type: agent, config: { runtime: python3.12, memory: 1024, timeout: 300 } }
+  - { name: writer-agent, type: agent, config: { runtime: python3.12, memory: 1024, timeout: 300 } }
+  - { name: reviewer-agent, type: agent, config: { runtime: python3.12, memory: 1024, timeout: 300 } }
+  - { name: output-store, type: s3 }
+  - { name: failed-runs, type: sqs }
+connections:
+  - { from: workflow-api, to: orchestrator, kind: invokes, detail: POST /reports }
+  - { from: orchestrator, to: report-workflow, kind: writes }
+  - { from: report-workflow, to: research-agent, kind: invokes, detail: task }
+  - { from: report-workflow, to: writer-agent, kind: invokes, detail: task }
+  - { from: report-workflow, to: reviewer-agent, kind: invokes, detail: task }
+  - { from: reviewer-agent, to: output-store, kind: writes }
+  - { from: report-workflow, to: failed-runs, kind: dlq }
+scenarios:
+  - name: Report produced
+    trigger: { at: workflow-api, event: POST /reports }
+    steps:
+      - { at: orchestrator, takes: 30ms, note: validates the brief and starts a run }
+      - { at: report-workflow, takes: 10ms }
+      - { at: research-agent, takes: 45s }
+      - { at: writer-agent, takes: 60s }
+      - { at: reviewer-agent, takes: 30s }
+      - { at: output-store, note: PutObject report.md }
+  - name: Reviewer rejects the draft
+    trigger: { at: report-workflow, event: run 3b9e }
+    steps:
+      - { at: research-agent, takes: 45s }
+      - { at: writer-agent, takes: 60s }
+      - { at: reviewer-agent, takes: 30s, outcome: fail, note: the review finds unsupported claims and fails the task }
+      - { at: failed-runs, note: the run's state is parked; restart it from the writer with the review attached }

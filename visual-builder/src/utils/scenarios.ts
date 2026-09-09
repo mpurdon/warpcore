@@ -22,6 +22,9 @@ import { BANDS } from './stackLayout';
 
 // ------------------------------------------------------------------ model
 
+/** How a step ends. `ok` is the default and is never written. */
+export type StepOutcome = 'ok' | 'fail' | 'timeout';
+
 export interface ScenarioStep {
   /** Node id of the resource the request is at. */
   at: string;
@@ -31,6 +34,44 @@ export interface ScenarioStep {
   takes?: number;
   /** Fire and forget: the pulse leaves, the playhead does not wait. */
   detached?: boolean;
+  /**
+   * The unhappy path. A failing step pulses red; with `retry` the hop is
+   * replayed that many times first. `outcome` is what the last attempt
+   * does: `ok` after retries means the retry got through.
+   */
+  outcome?: StepOutcome;
+  /** Attempts after the first, before the outcome. */
+  retry?: number;
+}
+
+/** How many times the request arrives at the step. */
+export function attemptsOf(step: Pick<ScenarioStep, 'retry'>): number {
+  return (step.retry ?? 0) + 1;
+}
+
+/** True when the step's last attempt fails or times out. */
+export function stepFails(step: Pick<ScenarioStep, 'outcome'>): boolean {
+  return step.outcome === 'fail' || step.outcome === 'timeout';
+}
+
+/** True when the given attempt (0-based) fails: every attempt before the last, and the last when the step fails. */
+export function attemptFails(step: Pick<ScenarioStep, 'outcome' | 'retry'>, attempt: number): boolean {
+  return attempt < (step.retry ?? 0) || stepFails(step);
+}
+
+/** "fails" or "times out", for labels. */
+export function outcomeLabel(step: Pick<ScenarioStep, 'outcome'>): string {
+  return step.outcome === 'timeout' ? 'times out' : 'fails';
+}
+
+/** A scenario with a failing or retried step: what a diagram leaves out. */
+export function isUnhappy(scenario: Pick<Scenario, 'steps'>): boolean {
+  return scenario.steps.some((st) => stepFails(st) || Boolean(st.retry));
+}
+
+/** A dead-letter edge, whether drawn from a connection (`meta.discovered`, which is what a saved file keeps) or from a node's config. */
+export function isDlqEdge(edge: Pick<Edge, 'data'>): boolean {
+  return Boolean(edge.data?.isDLQ) || edge.data?.meta?.discovered?.kind === 'dlq';
 }
 
 export interface Scenario {
@@ -45,7 +86,7 @@ export interface Scenario {
 export interface ScenarioYaml {
   name: string;
   trigger: { at: string; event?: string };
-  steps?: Array<{ at: string; note?: string; takes?: string | number; detached?: boolean }>;
+  steps?: Array<{ at: string; note?: string; takes?: string | number; detached?: boolean; outcome?: string; retry?: number }>;
 }
 
 /** A scenario id no other scenario in the list has. */
@@ -95,6 +136,8 @@ export function scenariosFromYaml(list: unknown): Scenario[] {
       const takes = parseTakes(s.takes);
       if (takes !== undefined) step.takes = takes;
       if (s.detached) step.detached = true;
+      if (s.outcome === 'fail' || s.outcome === 'timeout') step.outcome = s.outcome;
+      if (typeof s.retry === 'number' && s.retry > 0) step.retry = Math.floor(s.retry);
       steps.push(step);
     }
     out.push({
@@ -116,6 +159,8 @@ export function scenariosToYaml(scenarios: Scenario[]): ScenarioYaml[] {
       ...(step.note ? { note: step.note } : {}),
       ...(step.takes !== undefined ? { takes: formatTakes(step.takes) } : {}),
       ...(step.detached ? { detached: true } : {}),
+      ...(stepFails(step) ? { outcome: step.outcome } : {}),
+      ...(step.retry ? { retry: step.retry } : {}),
     })),
   }));
 }
@@ -181,7 +226,7 @@ function hopFor(edge: Edge, from: string): Hop | null {
   const meta = (edge.data?.meta || {}) as { discovered?: { kind: string; detail: string }; access?: { level: string; via: string; actions: string[] }; layer?: string };
   const outgoing = edge.source === from;
   const to = outgoing ? edge.target : edge.source;
-  if (edge.data?.isDLQ) return outgoing ? { edge, to, kind: 'trigger', label: 'dead-letter queue', rank: 60 } : null;
+  if (isDlqEdge(edge)) return outgoing ? { edge, to, kind: 'trigger', label: 'dead-letter queue', rank: 60 } : null;
   if (meta.access) {
     if (!outgoing) return null;
     const level = meta.access.level;
@@ -301,12 +346,15 @@ export interface StepCheck {
   logGroups: string[];
   logEdges: string[];
   problems: string[];
+  /** Worth knowing, not wrong: a failure nothing catches. */
+  notes: string[];
 }
 
 export interface ScenarioCheck {
   triggerExists: boolean;
   steps: StepCheck[];
   problems: string[];
+  notes: string[];
   ok: boolean;
 }
 
@@ -335,9 +383,18 @@ export function checkScenario(scenario: Scenario, nodes: Node[], edges: Edge[], 
   const triggerExists = byId.has(scenario.trigger.at);
   if (!triggerExists) problems.push(`Trigger ${scenario.trigger.at} is not on the canvas`);
   const earlier: string[] = [scenario.trigger.at];
-  const steps: StepCheck[] = scenario.steps.map((step) => {
+  // A failing step is caught when a later step is reached over a dead-letter
+  // hop from it or from anything before it: the queue's redrive, the
+  // function's own DLQ.
+  const caught = (i: number): boolean => {
+    const sources = [scenario.trigger.at, ...scenario.steps.slice(0, i + 1).map((s) => s.at)];
+    const later = new Set(scenario.steps.slice(i + 1).map((s) => s.at));
+    return sources.some((from) => (index.hops.get(from) || []).some((h) => isDlqEdge(h.edge) && later.has(h.to)));
+  };
+  const steps: StepCheck[] = scenario.steps.map((step, i) => {
     const node = byId.get(step.at);
     const stepProblems: string[] = [];
+    const notes: string[] = [];
     let evidence: StepEvidence | null = null;
     let logs = { groups: [] as string[], edgeIds: [] as string[] };
     if (!node) {
@@ -349,13 +406,20 @@ export function checkScenario(scenario: Scenario, nodes: Node[], edges: Edge[], 
         logs = index.logs.get(step.at) ?? logs;
         if (logs.groups.length === 0) stepProblems.push(`${name(step.at)} has no log group wired`);
       }
+      if (stepFails(step) && !caught(i)) {
+        const what = outcomeLabel(step);
+        notes.push(step.retry
+          ? `${name(step.at)} ${what} after ${step.retry} ${step.retry === 1 ? 'retry' : 'retries'} and no dead-letter queue catches it`
+          : `${name(step.at)} ${what} here; nothing retries it and no dead-letter queue catches it`);
+      }
     }
     earlier.push(step.at);
-    return { at: step.at, evidence, logGroups: logs.groups, logEdges: logs.edgeIds, problems: stepProblems };
+    return { at: step.at, evidence, logGroups: logs.groups, logEdges: logs.edgeIds, problems: stepProblems, notes };
   });
   if (scenario.steps.length === 0) problems.push('No steps yet');
   for (const s of steps) problems.push(...s.problems);
-  return { triggerExists, steps, problems, ok: problems.length === 0 };
+  const notes = steps.flatMap((s) => s.notes);
+  return { triggerExists, steps, problems, notes, ok: problems.length === 0 };
 }
 
 // --------------------------------------------------------------- playback
@@ -372,6 +436,8 @@ export interface Playhead {
   scenarioId: string;
   index: number;
   phase: 'travel' | 'dwell' | 'end';
+  /** Which arrival at the step this is: 0 the first, then one per retry. */
+  attempt: number;
   playing: boolean;
   /** 0.5, 1, 2, 4. */
   speed: number;
@@ -397,20 +463,22 @@ export function phaseDurationMs(scenario: Scenario, head: Pick<Playhead, 'index'
   return dwell / speed;
 }
 
-/** The playhead one phase later. */
+/** The playhead one phase later. A step with retries is travelled to again before the request moves on. */
 export function advance(scenario: Scenario, head: Playhead): Playhead {
   if (head.phase === 'end') return head;
   const last = scenario.steps.length - 1;
   if (head.phase === 'travel') return { ...head, phase: 'dwell' };
+  const step = scenario.steps[head.index];
+  if (step && head.attempt < (step.retry ?? 0)) return { ...head, phase: 'travel', attempt: head.attempt + 1 };
   if (head.index >= last) return { ...head, phase: 'end', playing: false };
-  return { ...head, index: head.index + 1, phase: 'travel' };
+  return { ...head, index: head.index + 1, phase: 'travel', attempt: 0 };
 }
 
 /** The playhead at the start of a step, or at the trigger for -1. */
 export function seekTo(scenario: Scenario, head: Playhead, index: number): Playhead {
   const clamped = Math.max(-1, Math.min(scenario.steps.length - 1, index));
-  if (clamped < 0) return { ...head, index: -1, phase: 'dwell' };
-  return { ...head, index: clamped, phase: 'dwell' };
+  if (clamped < 0) return { ...head, index: -1, phase: 'dwell', attempt: 0 };
+  return { ...head, index: clamped, phase: 'dwell', attempt: 0 };
 }
 
 /** How many steps the request has reached at the playhead: a dwelling step counts, one being travelled to does not. */
@@ -419,18 +487,29 @@ export function stepsDone(scenario: Scenario, head: Pick<Playhead, 'index' | 'ph
   return Math.max(0, Math.min(scenario.steps.length, head.phase === 'dwell' ? head.index + 1 : head.index));
 }
 
-/** Modelled time into the request at the playhead: the `takes` of every step done so far. */
-export function modelledTimeMs(scenario: Scenario, head: Pick<Playhead, 'index' | 'phase'>): number {
+/**
+ * Modelled time into the request at the playhead: the `takes` of every
+ * attempt made so far. A timed-out attempt costs its full `takes` too.
+ */
+export function modelledTimeMs(scenario: Scenario, head: Pick<Playhead, 'index' | 'phase'> & { attempt?: number }): number {
   let t = 0;
   const upTo = stepsDone(scenario, head);
   for (let i = 0; i < upTo; i++) {
-    if (scenario.steps[i].detached) continue;
-    t += scenario.steps[i].takes ?? DEFAULT_TAKES_MS;
+    const step = scenario.steps[i];
+    if (step.detached) continue;
+    const attempts = i === head.index && head.phase === 'dwell' ? (head.attempt ?? 0) + 1 : attemptsOf(step);
+    t += (step.takes ?? DEFAULT_TAKES_MS) * attempts;
   }
   return t;
 }
 
-export type StepState = 'pending' | 'travelling' | 'active' | 'visited';
+/**
+ * What a node is doing at the playhead. `failing` is the request dying on
+ * it right now; `failed` is a step whose last attempt failed, once passed.
+ */
+export type StepState = 'pending' | 'travelling' | 'active' | 'visited' | 'failed' | 'failing';
+
+const STATE_RANK: Record<StepState, number> = { pending: 0, travelling: 1, visited: 2, failed: 3, active: 4, failing: 5 };
 
 /** What every node on the canvas is doing at the playhead. */
 export interface PlaybackMarks {
@@ -461,13 +540,12 @@ export function playbackMarks(scenario: Scenario, head: Playhead | null, check: 
   scenario.steps.forEach((s, i) => {
     const current = state.get(s.at);
     let next: StepState;
-    if (i <= doneThrough) next = 'visited';
+    if (i <= doneThrough) next = stepFails(s) ? 'failed' : 'visited';
     else if (i === head.index && head.phase === 'travel') next = 'travelling';
     else next = 'pending';
-    if (i === head.index && head.phase === 'dwell') next = 'active';
+    if (i === head.index && head.phase === 'dwell') next = attemptFails(s, head.attempt) ? 'failing' : 'active';
     // A node visited twice keeps its strongest state.
-    const order: StepState[] = ['pending', 'travelling', 'visited', 'active'];
-    if (!current || order.indexOf(next) > order.indexOf(current)) state.set(s.at, next);
+    if (!current || STATE_RANK[next] > STATE_RANK[current]) state.set(s.at, next);
   });
 
   const current = head.phase !== 'end' ? check.steps[head.index] : undefined;
@@ -505,9 +583,16 @@ function hash(s: string): number {
 export interface LogLine {
   /** Milliseconds into the request. */
   t: number;
-  level: 'START' | 'INFO' | 'WARN' | 'END' | 'REPORT';
+  level: 'START' | 'INFO' | 'WARN' | 'ERROR' | 'END' | 'REPORT';
   text: string;
 }
+
+const FAILURES = [
+  'Unhandled exception: ServiceUnavailable',
+  'Unhandled exception: ThrottlingException: Rate exceeded',
+  'Unhandled exception: ConnectionResetError',
+  'Unhandled exception: ValidationError',
+];
 
 const VERB_BY_TYPE: Record<string, string[]> = {
   dynamodb: ['PutItem', 'GetItem', 'Query', 'UpdateItem'],
@@ -526,28 +611,32 @@ const VERB_BY_TYPE: Record<string, string[]> = {
   bedrock: ['InvokeModel'],
   'rds-instance': ['SELECT', 'INSERT'],
   'rds-cluster': ['SELECT', 'INSERT'],
-  'elasticache-cluster': ['GET', 'SET'],
+  'elasticache-cluster': ['GET', 'SET', 'INCR', 'ZADD'],
+  opensearch: ['Search', 'Index'],
+  cognito: ['InitiateAuth', 'GetUser'],
+  athena: ['StartQueryExecution'],
+  glue: ['StartJobRun'],
+  'ecs-service': ['HTTP GET'],
+  'load-balancer': ['HTTP GET'],
+  cloudfront: ['GET'],
 };
 
 /**
- * Plausible lines for one compute step: a START, something about the event,
- * one line per resource the request goes on to touch, an END and a REPORT.
- * Decoration that shows data moving; it never claims to be what the code logs.
+ * Plausible lines for one compute step: per attempt a START, something
+ * about the event, one line per resource the request goes on to touch, an
+ * END and a REPORT; a failing attempt ends in an ERROR instead. Decoration
+ * that shows data moving; it never claims to be what the code logs.
+ * `attempts` caps how many arrivals are shown, for the playhead mid-retry.
  */
-export function syntheticLogLines(scenario: Scenario, stepIndex: number, nodes: Node[], edges: Edge[], index = hopIndex(nodes, edges)): LogLine[] {
+export function syntheticLogLines(scenario: Scenario, stepIndex: number, nodes: Node[], edges: Edge[], index = hopIndex(nodes, edges), attempts = Infinity): LogLine[] {
   const step = scenario.steps[stepIndex];
   if (!step) return [];
   const byId = new Map(nodes.map((n) => [n.id, n]));
   // What this step is wired to directly; a queue fed by its topic is not its call.
   const direct = new Set((index.hops.get(step.at) || []).map((h) => h.to));
   const rnd = mulberry32(hash(`${scenario.id}/${stepIndex}/${step.at}`));
-  const requestId = `${Math.floor(rnd() * 0xffff).toString(16).padStart(4, '0')}${Math.floor(rnd() * 0xffff).toString(16).padStart(4, '0')}…`;
-  const start = modelledTimeMs(scenario, { index: stepIndex, phase: 'travel' });
   const takes = step.takes ?? DEFAULT_TAKES_MS;
-  const lines: LogLine[] = [{ t: start, level: 'START', text: `RequestId: ${requestId}` }];
-  let t = start + Math.max(1, Math.round(takes * 0.05));
   const eventText = stepIndex === 0 && scenario.trigger.event ? scenario.trigger.event : step.note;
-  if (eventText) { lines.push({ t, level: 'INFO', text: eventText }); t += Math.max(1, Math.round(takes * 0.1)); }
   // The resources this compute step goes on to call itself, until the next compute step.
   const touched: string[] = [];
   for (let i = stepIndex + 1; i < scenario.steps.length; i++) {
@@ -556,23 +645,43 @@ export function syntheticLogLines(scenario: Scenario, stepIndex: number, nodes: 
     if (COMPUTE_TYPES.has(n.type || '')) break;
     if (direct.has(scenario.steps[i].at)) touched.push(scenario.steps[i].at);
   }
-  for (const id of touched) {
-    const n = byId.get(id)!;
-    const verbs = VERB_BY_TYPE[n.type || ''] || ['call'];
-    const verb = verbs[Math.floor(rnd() * verbs.length)];
-    const ms = Math.max(1, Math.round(scenario.steps.find((s) => s.at === id)?.takes ?? (5 + rnd() * 40)));
-    lines.push({ t, level: rnd() < 0.08 ? 'WARN' : 'INFO', text: `${verb} ${displayNameFor(n)} ${ms} ms` });
-    t += ms;
+  const total = attemptsOf(step);
+  const shown = Math.min(total, Math.max(1, attempts));
+  const arrival = modelledTimeMs(scenario, { index: stepIndex, phase: 'travel' });
+  const lines: LogLine[] = [];
+  for (let attempt = 0; attempt < shown; attempt++) {
+    const start = arrival + attempt * takes;
+    const requestId = `${Math.floor(rnd() * 0xffff).toString(16).padStart(4, '0')}${Math.floor(rnd() * 0xffff).toString(16).padStart(4, '0')}…`;
+    lines.push({ t: start, level: 'START', text: `RequestId: ${requestId}${attempt ? `  (retry ${attempt} of ${total - 1})` : ''}` });
+    let t = start + Math.max(1, Math.round(takes * 0.05));
+    if (eventText) { lines.push({ t, level: 'INFO', text: eventText }); t += Math.max(1, Math.round(takes * 0.1)); }
+    const fails = attemptFails(step, attempt);
+    // A timeout dies before it gets to its calls; a failure gets partway.
+    const calls = step.outcome === 'timeout' && fails ? touched.slice(0, Math.floor(touched.length / 2)) : touched;
+    for (const id of calls) {
+      const n = byId.get(id)!;
+      const verbs = VERB_BY_TYPE[n.type || ''] || ['call'];
+      const verb = verbs[Math.floor(rnd() * verbs.length)];
+      const ms = Math.max(1, Math.round(scenario.steps.find((s) => s.at === id)?.takes ?? (5 + rnd() * 40)));
+      lines.push({ t, level: rnd() < 0.08 ? 'WARN' : 'INFO', text: `${verb} ${displayNameFor(n)} ${ms} ms` });
+      t += ms;
+    }
+    const end = start + takes;
+    if (fails) {
+      const text = step.outcome === 'timeout'
+        ? `Task timed out after ${(takes / 1000).toFixed(2)} seconds`
+        : FAILURES[Math.floor(rnd() * FAILURES.length)];
+      lines.push({ t: Math.max(t, end), level: 'ERROR', text });
+    }
+    lines.push({ t: Math.max(t, end), level: 'END', text: `RequestId: ${requestId}` });
+    const memory = 128 * (1 + Math.floor(rnd() * 8));
+    const used = Math.round(memory * (0.3 + rnd() * 0.5));
+    lines.push({ t: Math.max(t, end), level: 'REPORT', text: `Duration: ${takes} ms  Memory Size: ${memory} MB  Max Memory Used: ${used} MB${fails ? '  Status: error' : ''}` });
   }
-  const end = start + takes;
-  lines.push({ t: Math.max(t, end), level: 'END', text: `RequestId: ${requestId}` });
-  const memory = 128 * (1 + Math.floor(rnd() * 8));
-  const used = Math.round(memory * (0.3 + rnd() * 0.5));
-  lines.push({ t: Math.max(t, end), level: 'REPORT', text: `Duration: ${takes} ms  Memory Size: ${memory} MB  Max Memory Used: ${used} MB` });
   return lines;
 }
 
-/** Lines for every compute step up to and including the playhead's. */
+/** Lines for every compute step up to and including the playhead's, and only the attempts made so far. */
 export function logLinesUpTo(scenario: Scenario, head: Playhead | null, nodes: Node[], edges: Edge[]): { at: string; lines: LogLine[] }[] {
   if (!head) return [];
   const out: { at: string; lines: LogLine[] }[] = [];
@@ -581,7 +690,8 @@ export function logLinesUpTo(scenario: Scenario, head: Playhead | null, nodes: N
   for (let i = 0; i < stepsDone(scenario, head); i++) {
     const node = byId.get(scenario.steps[i].at);
     if (!node || !COMPUTE_TYPES.has(node.type || '')) continue;
-    out.push({ at: scenario.steps[i].at, lines: syntheticLogLines(scenario, i, nodes, edges, index) });
+    const attempts = i === head.index && head.phase === 'dwell' ? head.attempt + 1 : Infinity;
+    out.push({ at: scenario.steps[i].at, lines: syntheticLogLines(scenario, i, nodes, edges, index, attempts) });
   }
   return out;
 }
@@ -604,8 +714,9 @@ export function badgeLabel(n: number): string {
 }
 
 /** The badge's tone class for a node's state at the playhead. */
-export function badgeTone(state: StepState | undefined): '' | 'active' | 'pending' {
+export function badgeTone(state: StepState | undefined): '' | 'active' | 'pending' | 'failed' {
   if (state === 'active') return 'active';
+  if (state === 'failed' || state === 'failing') return 'failed';
   if (state === 'pending' || state === 'travelling') return 'pending';
   return '';
 }

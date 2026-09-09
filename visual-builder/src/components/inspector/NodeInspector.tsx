@@ -2,9 +2,9 @@
 // → Raw (the node as JSON). Relationships are navigable: click a connected
 // resource to move to it.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Node } from 'reactflow';
-import { ArrowLeftRight, Box, Plus, Settings2, ShieldAlert } from 'lucide-react';
+import { ArrowLeftRight, Box, MessageSquareText, Plus, Settings2, ShieldAlert } from 'lucide-react';
 import { useReadOnly, useStore, NodeStatus } from '../../store/useStore';
 import { displayNameFor, isOpenToWorld } from '../../utils/nodeName';
 import { shortType } from '../../utils/accountExplorer';
@@ -29,7 +29,7 @@ const STATUS: Record<NodeStatus, { tone: Tone; label: string; pulse?: boolean }>
 };
 
 export default function NodeInspector({ node }: { node: Node }) {
-  const { nodes, edges, executionsPerMonth, setEditingNode, selectNode, executionLogs, scenarios, newScenario } = useStore();
+  const { nodes, edges, executionsPerMonth, setEditingNode, selectNode, executionLogs, scenarios, newScenario, setNodes } = useStore();
   const through = useMemo(() => scenarios.filter((sc) => sc.trigger.at === node.id || sc.steps.some((st) => st.at === node.id)), [scenarios, node.id]);
   const readOnly = useReadOnly();
   const [tab, setTab] = useState<Tab>('overview');
@@ -120,6 +120,13 @@ export default function NodeInspector({ node }: { node: Node }) {
 
       {tab === 'overview' && (
         <div className="flex-1 overflow-y-auto min-h-0">
+          {(meta.note || !readOnly) && (
+            <NoteSection
+              note={meta.note}
+              readOnly={readOnly}
+              onChange={(note) => setNodes(nodes.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, meta: { ...(n.data?.meta || {}), note: note || undefined } } } : n)))}
+            />
+          )}
           <Section title="Configuration" hint={summary.length === 0 ? 'nothing set yet' : `${summary.length} shown`}>
             {summary.length === 0 ? (
               <button onClick={() => setEditingNode(node.id)} disabled={readOnly} className="text-xs text-blue-700 hover:underline disabled:text-gray-400 disabled:no-underline">
@@ -302,5 +309,37 @@ export default function NodeInspector({ node }: { node: Node }) {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * A note on the resource: the design decision worth teaching, saved with
+ * the project (meta.note). Read-only projects show it; unlocked ones edit it.
+ */
+function NoteSection({ note, readOnly, onChange }: { note: string | undefined; readOnly: boolean; onChange: (note: string) => void }) {
+  const [draft, setDraft] = useState(note ?? '');
+  useEffect(() => setDraft(note ?? ''), [note]);
+  const commit = () => { if (draft.trim() !== (note ?? '')) onChange(draft.trim()); };
+  if (readOnly) {
+    return (
+      <Section title="Note">
+        <div className="text-xs text-gray-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-2 flex gap-2">
+          <MessageSquareText size={13} className="text-amber-700 mt-0.5 shrink-0" />
+          <span className="whitespace-pre-wrap">{note}</span>
+        </div>
+      </Section>
+    );
+  }
+  return (
+    <Section title="Note" hint={note ? undefined : 'why this is here'}>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        placeholder="The decision worth remembering about this resource. Shown as a marker on the card."
+        rows={draft ? Math.min(6, Math.max(2, draft.split('\n').length + 1)) : 2}
+        className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 leading-relaxed"
+      />
+    </Section>
   );
 }

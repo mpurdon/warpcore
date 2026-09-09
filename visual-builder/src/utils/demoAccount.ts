@@ -6,7 +6,7 @@
 
 import type { AccountProject } from './projectFromAccount';
 import { buildCanvas } from './projectFromAccount';
-import { useStore } from '../store/useStore';
+import { EMPTY_PROJECT, useStore } from '../store/useStore';
 
 const ACCOUNT = '123456789012';
 const REGION = 'us-east-1';
@@ -82,27 +82,27 @@ export const DEMO_ACCOUNT: AccountProject = {
 /** Put the demo account on the canvas, unlocked, with the webhook scenario. */
 export function loadDemo(): Record<string, string> {
   const built = buildCanvas(DEMO_ACCOUNT);
-  const s = useStore.getState();
-  s.setNodes(built.nodes);
-  s.setEdges(built.edges);
-  s.setProjectName('gitf');
-  s.resetHistory();
-  s.setHasUnsavedChanges(false);
-  s.unlock();
   const ids = Object.fromEntries(built.nodes.map((n) => [String(n.data?.label), n.id]));
-  s.setScenarios([{
-    id: 'webhook-received',
-    name: 'Webhook received',
-    trigger: { at: ids['gitf-api'], event: 'POST /webhook' },
-    steps: [
-      { at: ids['gitf-authorizer'], takes: 40, note: 'validates the signature' },
-      { at: ids['gitf-key'], note: 'decrypts the signing secret' },
-      { at: ids['gitf'], takes: 180 },
-      { at: ids['gitf-sessions'], note: 'writes the session row' },
-      { at: ids['gitf-events'], detached: true, note: 'fan-out' },
-      { at: ids['gitf-index-queue'] },
-      { at: ids['gitf-indexer'], takes: 90 },
-    ],
-  }]);
+  useStore.getState().loadProject({
+    ...EMPTY_PROJECT,
+    nodes: built.nodes,
+    edges: built.edges,
+    projectName: 'gitf',
+    locked: false,
+    scenarios: [{
+      id: 'webhook-received',
+      name: 'Webhook received',
+      trigger: { at: ids['gitf-api'], event: 'POST /webhook' },
+      steps: [
+        { at: ids['gitf-authorizer'], takes: 40, note: 'validates the signature' },
+        { at: ids['gitf-key'], note: 'decrypts the signing secret' },
+        { at: ids['gitf'], takes: 180 },
+        { at: ids['gitf-sessions'], note: 'writes the session row' },
+        { at: ids['gitf-events'], detached: true, note: 'fan-out' },
+        { at: ids['gitf-index-queue'] },
+        { at: ids['gitf-indexer'], takes: 90 },
+      ],
+    }],
+  });
   return ids;
 }

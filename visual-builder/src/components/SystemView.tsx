@@ -24,6 +24,7 @@ const LINK_OPACITY: Record<LinkKind, number> = { flow: 0.9, access: 0.85, logs: 
 const EMPHASIS_FACTOR = { normal: 1, dimmed: 0.35, background: 0.15 } as const;
 const BLUE = 0x2563eb;
 const AMBER = 0xf59e0b;
+const RED = 0xdc2626;
 const INK = 0x1f2937;
 const EMPTY: ReadonlySet<string> = new Set();
 
@@ -399,12 +400,13 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
       mat.emissive.set(0x000000);
       mat.emissiveIntensity = 0;
       mat.opacity = playing && !involved ? 0.25 : 1;
-      c.outline.material.color.set(selected ? BLUE : state === 'visited' || state === 'active' ? INK : 0xd1d5db);
+      c.outline.material.color.set(selected ? BLUE : state === 'failed' || state === 'failing' ? RED : state === 'visited' || state === 'active' ? INK : 0xd1d5db);
       c.outline.material.opacity = mat.opacity;
       c.label.element.classList.toggle('sv-dim', playing && !involved);
       c.label.element.classList.toggle('sv-selected', selected);
       let lift = 0;
       if (state === 'active') { mat.emissive.set(BLUE); mat.emissiveIntensity = 0.55; lift = 0.18; }
+      else if (state === 'failing') { mat.emissive.set(RED); mat.emissiveIntensity = 0.6; lift = 0.18; }
       else if (state === 'travelling') { mat.emissive.set(BLUE); mat.emissiveIntensity = 0.2; }
       if (logging) { mat.emissive.set(AMBER); mat.emissiveIntensity = 0.5; }
       const y = c.card.y + CARD_H / 2 + lift;

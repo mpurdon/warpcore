@@ -9,7 +9,7 @@ import { ChevronsLeft, ChevronsRight, Crosshair, Pause, Play, Route, X } from 'l
 import { useStore } from '../store/useStore';
 import { canvas } from '../utils/canvasActions';
 import { useScenarioView } from '../hooks/useCanvasView';
-import { formatTakes, modelledTimeMs, phaseDurationMs } from '../utils/scenarios';
+import { formatTakes, modelledTimeMs, outcomeLabel, phaseDurationMs, stepFails } from '../utils/scenarios';
 
 const SPEEDS = [0.5, 1, 2, 4];
 
@@ -42,7 +42,8 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
   const label = sv.name;
   const atEnd = head.phase === 'end';
   const current = head.index;
-  const where = atEnd ? 'finished' : current < 0 ? `at ${label(scenario.trigger.at)}` : `${head.phase === 'travel' ? 'to' : 'at'} ${label(scenario.steps[current].at)}`;
+  const retrying = !atEnd && current >= 0 && head.attempt > 0 ? ` · retry ${head.attempt} of ${scenario.steps[current].retry}` : '';
+  const where = atEnd ? 'finished' : current < 0 ? `at ${label(scenario.trigger.at)}` : `${head.phase === 'travel' ? 'to' : 'at'} ${label(scenario.steps[current].at)}${retrying}`;
   const modelled = modelledTimeMs(scenario, head);
   const problems = check.steps[current]?.problems ?? [];
   const duration = phaseDurationMs(scenario, head);
@@ -81,18 +82,19 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
           const done = atEnd || i < current || (i === current && head.phase === 'dwell');
           const active = !atEnd && i === current;
           const flagged = (check.steps[i]?.problems.length ?? 0) > 0;
+          const fill = flagged ? 'bg-amber-400' : stepFails(step) ? 'bg-red-500' : 'bg-blue-400';
           return (
             <button
               key={i}
               onClick={() => seekPlayback(i)}
               className="relative flex-1 h-2.5 rounded-sm overflow-hidden bg-white/15 hover:bg-white/25"
-              title={`${i + 1}. ${label(step.at)}${step.note ? ` · ${step.note}` : ''}${flagged ? ' · flagged' : ''}`}
+              title={`${i + 1}. ${label(step.at)}${step.note ? ` · ${step.note}` : ''}${step.retry ? ` · ${step.retry} retries` : ''}${stepFails(step) ? ` · ${outcomeLabel(step)}` : ''}${flagged ? ' · flagged' : ''}`}
             >
-              <span className={`absolute inset-y-0 left-0 ${flagged ? 'bg-amber-400' : 'bg-blue-400'}`} style={{ width: done ? '100%' : 0 }} />
+              <span className={`absolute inset-y-0 left-0 ${fill}`} style={{ width: done ? '100%' : 0 }} />
               {active && head.phase === 'travel' && (
                 <span
-                  key={`${i}-${head.speed}-${head.playing}`}
-                  className={`absolute inset-y-0 left-0 ${flagged ? 'bg-amber-400' : 'bg-blue-400'} scn-fill`}
+                  key={`${i}-${head.attempt}-${head.speed}-${head.playing}`}
+                  className={`absolute inset-y-0 left-0 ${fill} scn-fill`}
                   style={{ animationDuration: `${duration}ms`, animationPlayState: head.playing ? 'running' : 'paused' }}
                 />
               )}

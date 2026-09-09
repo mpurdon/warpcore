@@ -1,0 +1,73 @@
+holodeck:
+  id: slack-style-messaging
+  name: Team chat, in the style of Slack
+  family: inspired
+  summary: Persistent WebSockets in front, a message service behind, fan-out through a queue to every open socket and a push to everyone else.
+  look_at:
+    - The sender's request is done once the message is stored and on the fan-out queue; delivery to every socket happens after.
+    - Membership and presence live in the cache, so the fan-out worker never asks the database who is online.
+    - A failing fan-out worker retries twice, then the batch lands on the dead-letter queue; the message itself is already safe in the table.
+  source:
+    title: How Slack Works
+    by: Keith Adams, QCon San Francisco
+    year: 2016
+  difficulty: 2
+project: { name: teamchat }
+resources:
+  - name: ws-gateway
+    type: api-gateway
+    config: { protocol: WEBSOCKET }
+    note: One long-lived connection per client. The gateway keeps the socket; the functions behind it are stateless.
+  - { name: on-connect, type: lambda, config: { memory: 128, timeout: 5 } }
+  - name: connections
+    type: dynamodb
+    config: { partitionKey: userId, sortKey: connectionId }
+    note: Which sockets belong to which user. A user with two tabs has two rows.
+  - { name: send-message, type: lambda, config: { memory: 256, timeout: 10 } }
+  - { name: messages, type: dynamodb, config: { partitionKey: channelId, sortKey: ts } }
+  - name: channel-members
+    type: elasticache-cluster
+    note: Membership sets and presence. Read on every send; the truth is in the database, the speed is here.
+  - { name: fanout, type: sqs }
+  - { name: deliver, type: lambda, config: { memory: 256, timeout: 30 } }
+  - { name: mobile-push, type: sns }
+  - { name: fanout-dlq, type: sqs }
+connections:
+  - { from: ws-gateway, to: on-connect, kind: invokes, detail: $connect }
+  - { from: on-connect, to: connections, kind: writes }
+  - { from: ws-gateway, to: send-message, kind: invokes, detail: sendMessage route }
+  - { from: send-message, to: messages, kind: writes }
+  - { from: send-message, to: channel-members, kind: reads }
+  - { from: send-message, to: fanout, kind: writes }
+  - { from: fanout, to: deliver, kind: event-source }
+  - { from: deliver, to: connections, kind: reads }
+  - { from: deliver, to: ws-gateway, kind: writes, detail: write }
+  - { from: deliver, to: mobile-push, kind: writes }
+  - { from: fanout, to: fanout-dlq, kind: dlq }
+scenarios:
+  - name: Client connects
+    trigger: { at: ws-gateway, event: $connect }
+    steps:
+      - { at: on-connect, takes: 6ms, note: the token in the query string is checked }
+      - { at: connections, note: "PutItem userId, connectionId" }
+  - name: Message sent to a channel
+    trigger: { at: ws-gateway, event: sendMessage }
+    steps:
+      - { at: send-message, takes: 20ms }
+      - { at: messages, note: PutItem; the message is durable from here }
+      - { at: channel-members, takes: 1ms, note: SMEMBERS channel; who gets it and who is online }
+      - { at: fanout, detached: true, note: one queue message per 100 recipients }
+      - { at: deliver, takes: 35ms }
+      - { at: connections, note: Query the sockets of each recipient }
+      - { at: ws-gateway, note: PostToConnection to every open socket }
+  - name: Recipient is offline
+    trigger: { at: fanout, event: batch of recipients }
+    steps:
+      - { at: deliver, takes: 30ms }
+      - { at: connections, note: no rows for that user; nothing to post to }
+      - { at: mobile-push, note: Publish to the user's device endpoint instead }
+  - name: Fan-out worker keeps failing
+    trigger: { at: fanout, event: batch of recipients }
+    steps:
+      - { at: deliver, takes: 30s, outcome: timeout, retry: 2, note: a slow PostToConnection stalls the batch; after three receives the queue redrives it }
+      - { at: fanout-dlq, note: the batch waits here; the message was stored long ago and the sender never noticed }

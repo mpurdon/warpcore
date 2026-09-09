@@ -7,7 +7,6 @@
 // write warpcore.yaml, and open it. See DESIGN_GUIDANCE.md §5.4.
 
 import { useEffect, useMemo, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { AlertCircle, AlertTriangle, Check, FolderOpen, Info, RefreshCw, Square, X } from 'lucide-react';
 import {
@@ -19,7 +18,7 @@ import { joinPath } from '../utils/host';
 import {
   AccountProject, baselineExcludes, buildCanvas, createProjectFromAccount, hasOwnNode, selectResources, slug,
 } from '../utils/projectFromAccount';
-import { openProjectFile } from '../utils/projectIO';
+import { chooseDirectory, openProjectFile, PROJECT_NAME_RE, PROJECT_NAME_RULE } from '../utils/projectIO';
 import { regionLabel } from '../utils/regions';
 import ScanProgressView from './ScanProgressView';
 import Toggle from './ui/Toggle';
@@ -36,7 +35,6 @@ interface Props {
 
 type Phase = 'form' | 'running' | 'done';
 
-const NAME_RE = /^[a-z][a-z0-9-]*$/;
 const slugify = (s: string) => slug(s, 64, true);
 
 function PatternList({
@@ -152,16 +150,16 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
   const primaryRegion = allRegions ? scannedRegions[0] : [...regions].sort()[0];
 
   const problems: string[] = [];
-  if (!NAME_RE.test(name)) problems.push('Project name must be lowercase letters, digits and hyphens, starting with a letter.');
+  if (!PROJECT_NAME_RE.test(name)) problems.push(`Project name: ${PROJECT_NAME_RULE}`);
   if (!parentDir) problems.push('Choose where to create the project.');
   if (!allRegions && regions.size === 0) problems.push('Pick at least one region.');
-  if (!NAME_RE.test(envKey)) problems.push('Environment key must be lowercase letters, digits and hyphens.');
+  if (!PROJECT_NAME_RE.test(envKey)) problems.push('Environment key must be lowercase letters, digits and hyphens.');
   if (!envName.trim()) problems.push('Give the environment a name.');
   if (!primaryRegion) problems.push('No region to use as the environment default.');
 
   const chooseDir = async () => {
-    const picked = await open({ directory: true, defaultPath: parentDir || undefined, title: 'Create the project inside…' });
-    if (picked && typeof picked === 'string') setParentDir(picked);
+    const picked = await chooseDirectory(parentDir, 'Create the project inside…');
+    if (picked) setParentDir(picked);
   };
 
   const run = async () => {

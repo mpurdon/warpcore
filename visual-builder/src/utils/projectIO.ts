@@ -5,39 +5,31 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useStore } from '../store/useStore';
+
+/** Lowercase letters, digits and hyphens, starting with a letter: what the CLI accepts as a project name. */
+export const PROJECT_NAME_RE = /^[a-z][a-z0-9-]*$/;
+export const PROJECT_NAME_RULE = 'Lowercase letters, digits and hyphens, starting with a letter.';
+
+/** The OS folder picker; null when dismissed. */
+export async function chooseDirectory(defaultPath: string, title: string): Promise<string | null> {
+  const picked = await open({ directory: true, defaultPath: defaultPath || undefined, title });
+  return picked && typeof picked === 'string' ? picked : null;
+}
 import { generateYAMLFromCanvas, parseYAMLToCanvas } from './configSync';
 import { addRecentProject, extractProjectName } from './recentProjects';
 
 export async function openProjectFile(filePath: string): Promise<void> {
   const content = await invoke<string>('read_config_file', { path: filePath });
   const parsed = parseYAMLToCanvas(content);
-  const s = useStore.getState();
-  s.setNodes(parsed.nodes);
-  s.setEdges(parsed.edges);
-  s.setEnvironmentConfigs(parsed.environmentConfigs);
-  s.setEnvironmentExtras(parsed.environmentExtras);
-  s.setConfigPath(filePath);
-  s.setHasUnsavedChanges(false);
-  s.setExecutionsPerMonth(parsed.executionsPerMonth);
-  s.setScenarios(parsed.scenarios);
-  // A project's current environment must be one it has.
-  if (!parsed.environmentConfigs[s.currentEnvironment]) {
-    const first = Object.keys(parsed.environmentConfigs)[0];
-    if (first) s.setCurrentEnvironment(first);
-  }
-  s.setSelectedNode(null);
-  s.inspectEnvironment(null);
-  s.setEditingNode(null);
-  // Loading is not an edit: nothing to undo, nothing dirty.
-  s.resetHistory();
-  s.setHasUnsavedChanges(false);
-  // Every opened project starts locked; see ProjectLock.tsx.
-  s.lock();
-
   const name = extractProjectName(content);
-  s.setProjectName(name);
+  const s = useStore.getState();
+  // Every opened project starts locked; see ProjectLock.tsx.
+  s.loadProject({
+    nodes: parsed.nodes, edges: parsed.edges, scenarios: parsed.scenarios,
+    environmentConfigs: parsed.environmentConfigs, environmentExtras: parsed.environmentExtras, executionsPerMonth: parsed.executionsPerMonth,
+    configPath: filePath, projectName: name, currentEnvironment: s.currentEnvironment, locked: true, holodeck: parsed.holodeck,
+  });
   addRecentProject(name, filePath);
-
   await invoke('watch_config_file', { path: filePath });
 }
 
@@ -75,7 +67,7 @@ export async function saveProject(): Promise<boolean> {
     // Keep the project's name across saves: deriving it from the first agent
     // renamed every project after its first function.
     const yamlContent = generateYAMLFromCanvas(
-      s.nodes, s.edges, s.executionsPerMonth, s.environmentConfigs, s.environmentExtras, s.projectName || undefined, s.scenarios,
+      s.nodes, s.edges, s.executionsPerMonth, s.environmentConfigs, s.environmentExtras, s.projectName || undefined, s.scenarios, s.holodeck,
     );
     await invoke('write_config_file', { path: s.configPath, content: yamlContent });
     lastSaveTime = Date.now();

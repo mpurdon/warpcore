@@ -11,8 +11,8 @@
 // with the awsType column here.
 
 import {
-  Boxes, Cloud, Database, FileKey, Fingerprint, Globe, HardDrive, UserSquare, KeyRound, Layers,
-  LucideIcon, Map, Network, Route, Server, Split, Waypoints, Camera, Wifi,
+  Boxes, Cloud, Combine, Database, FileKey, Fingerprint, Globe, HardDrive, UserCheck, UserSquare, KeyRound, Layers,
+  LucideIcon, Map, Network, Route, Search, Server, Shield, Split, Table2, Waypoints, Camera, Wifi,
 } from 'lucide-react';
 
 export interface DiscoveredTypeInfo {
@@ -46,6 +46,12 @@ export const DISCOVERED_TYPES: Record<string, DiscoveredTypeInfo> = {
   'iam-instance-profile': { label: 'Instance Profile', icon: UserSquare, color: 'text-yellow-600' },
   'iam-user': { label: 'IAM User', icon: UserSquare, color: 'text-yellow-600' },
   'iam-policy': { label: 'IAM Policy', icon: FileKey, color: 'text-yellow-600' },
+  // Services the Holodeck's reference architectures need.
+  'cognito': { label: 'Cognito User Pool', icon: UserCheck, color: 'text-rose-600' },
+  'opensearch': { label: 'OpenSearch Domain', icon: Search, color: 'text-sky-600' },
+  'glue': { label: 'Glue Job', icon: Combine, color: 'text-purple-600' },
+  'athena': { label: 'Athena Workgroup', icon: Table2, color: 'text-purple-600' },
+  'waf': { label: 'WAF Web ACL', icon: Shield, color: 'text-red-600' },
   'aws-resource': { label: 'AWS Resource', icon: Cloud, color: 'text-gray-500' },
 };
 

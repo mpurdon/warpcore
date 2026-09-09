@@ -12,6 +12,7 @@ interface AgentNodeData {
     name?: string;
     [key: string]: any;
   };
+  meta?: { note?: string };
 }
 
 interface Props {
@@ -26,7 +27,7 @@ export default function AgentNode({ id, data, selected }: Props) {
   const hasCustomName = !!data.config?.name;
 
   return (
-    <NodeWrapper nodeId={id} selected={selected} status={data.status} costNode={{ type: 'agent', data }}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status} costNode={{ type: 'agent', data }} note={data.meta?.note}>
       <div className={`node-inner px-4 py-3 min-w-[180px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 
