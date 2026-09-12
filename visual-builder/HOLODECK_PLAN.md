@@ -124,7 +124,7 @@ scenarios:
 - **Playhead.** `Playhead {scenarioId, index, phase: travel|dwell|end,
   playing, speed}`. Two facts; everything continuous is CSS or the 3D
   frame loop. `advance`, `seekTo`, `phaseDurationMs` (travel 700 ms, dwell
-  clamped 900 to 3000 ms, over speed), `stepsDone`, `modelledTimeMs` (sum
+  clamped 1800 to 6000 ms, over speed), `stepsDone`, `modelledTimeMs` (sum
   of `takes`, default 100 ms, detached steps excluded), `playbackMarks`
   (per node: step numbers and state pending/travelling/active/visited;
   the pulse edge; log edges and log groups lit).

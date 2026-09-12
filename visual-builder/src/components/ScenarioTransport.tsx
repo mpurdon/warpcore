@@ -11,7 +11,8 @@ import { canvas } from '../utils/canvasActions';
 import { useScenarioView } from '../hooks/useCanvasView';
 import { formatTakes, modelledTimeMs, outcomeLabel, phaseDurationMs, stepFails } from '../utils/scenarios';
 
-const SPEEDS = [0.5, 1, 2, 4];
+// 1× is deliberately slow enough to follow a hop by eye; the rest is for skimming.
+const SPEEDS = [1, 2, 4, 8];
 
 export const TRANSPORT_HEIGHT = 44;
 

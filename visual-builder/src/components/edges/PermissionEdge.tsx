@@ -3,9 +3,12 @@ import { Eye, Pencil, Zap, Route, AlertTriangle } from 'lucide-react';
 import { TRAFFIC_KINDS } from '../../utils/layers';
 import { isDlqEdge } from '../../utils/scenarios';
 import { EdgeView, PLAIN_EDGE } from '../../hooks/useCanvasView';
+import FlowPulse from './FlowPulse';
 
 // How far an edge fades for each emphasis; see EdgeView.
-const EDGE_OPACITY: Record<EdgeView['emphasis'], number> = { normal: 1, dimmed: 0.3, background: 0.15 };
+const EDGE_OPACITY: Record<EdgeView['emphasis'], number> = { normal: 1, dimmed: 0.3, background: 0.08 };
+/** A hop the request has not reached yet: sketched, so the story so far reads as the solid line. */
+const AHEAD_OPACITY = 0.5;
 
 export const PERMISSION_COLORS = {
   read: '#3b82f6',    // Blue
@@ -243,10 +246,12 @@ export default function PermissionEdge({
 
   if (view.logging) {
     edgeStyle = { stroke: '#f59e0b', strokeWidth: 2.5, strokeDasharray: '4 6' };
+  } else if (view.ahead) {
+    edgeStyle = { ...edgeStyle, strokeWidth: Number(edgeStyle.strokeWidth ?? 2) + 0.5, strokeDasharray: '6 6' };
   } else if (view.onPath) {
     edgeStyle = { ...edgeStyle, strokeWidth: Number(edgeStyle.strokeWidth ?? 2) + 1.5, strokeDasharray: undefined };
   }
-  const edgeOpacity = EDGE_OPACITY[view.emphasis];
+  const edgeOpacity = view.ahead ? AHEAD_OPACITY : EDGE_OPACITY[view.emphasis];
 
   // Get config summary for display
   const getConfigSummary = () => {
@@ -302,24 +307,22 @@ export default function PermissionEdge({
         {...(view.logging ? { className: 'scn-log-flow' } : {})}
       />
 
-      {/* The request travelling this hop: a dot that runs the path once and stays at the far end. */}
+      {/* The request crossing this hop: a comet that runs the path and holds at the far end. A retry crosses again. */}
       {view.pulse && (
-        <g key={`pulse-${id}-${view.pulse.durationMs}-${view.pulse.reverse}`} className="scn-pulse" style={{ pointerEvents: 'none' }}>
-          <circle r={10} fill="rgba(37, 99, 235, 0.22)">
-            <animateMotion dur={`${view.pulse.durationMs}ms`} fill="freeze" path={edgePath} keyPoints={view.pulse.reverse ? '1;0' : '0;1'} keyTimes="0;1" calcMode="linear" />
-          </circle>
-          <circle r={5} fill="#2563eb" stroke="#ffffff" strokeWidth={1.5}>
-            <animateMotion dur={`${view.pulse.durationMs}ms`} fill="freeze" path={edgePath} keyPoints={view.pulse.reverse ? '1;0' : '0;1'} keyTimes="0;1" calcMode="linear" />
-          </circle>
-        </g>
+        <FlowPulse
+          key={`pulse-${id}-${view.pulse.reverse}-${view.pulse.attempt}`}
+          path={edgePath}
+          reverse={view.pulse.reverse}
+          durationMs={view.pulse.durationMs}
+          playing={view.pulse.playing}
+        />
       )}
 
-      <EdgeLabelRenderer>
+      {view.emphasis !== 'background' && <EdgeLabelRenderer>
         <div
           style={{
             position: 'absolute',
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            pointerEvents: view.emphasis === 'background' ? 'none' : 'all',
             opacity: edgeOpacity,
           }}
           className="nodrag nopan"
@@ -384,7 +387,7 @@ export default function PermissionEdge({
             </div>
           )}
         </div>
-      </EdgeLabelRenderer>
+      </EdgeLabelRenderer>}
     </>
   );
 }

@@ -52,6 +52,8 @@ interface Built {
 interface Pulse {
   linkId: string;
   reverse: boolean;
+  /** Which attempt crosses; a retry re-crosses the same link. */
+  attempt: number;
   durationMs: number;
   startedAt: number;
   /** Set while paused; the elapsed time is frozen at pausedAt - startedAt. */
@@ -421,21 +423,21 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     }
     st.logging = sv?.marks.logging ?? EMPTY;
     const edgeById = new Map(edges.map((e) => [e.id, e]));
-    let pulseView: { edgeId: string; reverse: boolean; durationMs: number } | null = null;
+    let pulseView: { edgeId: string; reverse: boolean; durationMs: number; attempt: number } | null = null;
     for (const [id, l] of b.links) {
       const edge = edgeById.get(id);
       const view = edge ? edgeView(edge, layers, selectedNode, sv) : null;
       l.mesh.visible = view?.visible ?? true;
-      l.mesh.material.opacity = LINK_OPACITY[l.link.kind] * EMPHASIS_FACTOR[view?.emphasis ?? 'normal'];
+      l.mesh.material.opacity = LINK_OPACITY[l.link.kind] * EMPHASIS_FACTOR[view?.emphasis ?? 'normal'] * (view?.ahead ? 0.5 : 1);
       l.mesh.material.color.set(view?.logging ? AMBER : LINK_COLOR[l.link.kind]);
-      if (view?.pulse) pulseView = { edgeId: id, ...view.pulse };
+      if (view?.pulse) pulseView = { edgeId: id, reverse: view.pulse.reverse, durationMs: view.pulse.durationMs, attempt: view.pulse.attempt };
     }
     // The pulse: start its clock when the hop changes, freeze it on pause.
     if (pulseView && head) {
       const prev = st.pulse;
       const now = performance.now();
-      if (!prev || prev.linkId !== pulseView.edgeId || prev.reverse !== pulseView.reverse) {
-        st.pulse = { linkId: pulseView.edgeId, reverse: pulseView.reverse, durationMs: pulseView.durationMs, startedAt: now, pausedAt: head.playing ? null : now };
+      if (!prev || prev.linkId !== pulseView.edgeId || prev.reverse !== pulseView.reverse || prev.attempt !== pulseView.attempt) {
+        st.pulse = { linkId: pulseView.edgeId, reverse: pulseView.reverse, attempt: pulseView.attempt, durationMs: pulseView.durationMs, startedAt: now, pausedAt: head.playing ? null : now };
       } else if (head.playing && prev.pausedAt !== null) {
         st.pulse = { ...prev, durationMs: pulseView.durationMs, startedAt: now - (prev.pausedAt - prev.startedAt), pausedAt: null };
       } else if (!head.playing && prev.pausedAt === null) {

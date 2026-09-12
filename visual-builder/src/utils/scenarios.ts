@@ -443,11 +443,11 @@ export interface Playhead {
   speed: number;
 }
 
-/** Wall-clock milliseconds a pulse takes to cross an edge, at 1×. */
-export const TRAVEL_MS = 700;
+/** Wall-clock milliseconds a pulse takes to cross an edge, at 1×. Slow enough to follow; the transport goes up to 8×. */
+export const TRAVEL_MS = 1400;
 /** Wall-clock milliseconds a step stays lit, at 1×, before its `takes` is considered. */
-export const DWELL_MIN_MS = 900;
-export const DWELL_MAX_MS = 3000;
+export const DWELL_MIN_MS = 1800;
+export const DWELL_MAX_MS = 6000;
 /** Modelled duration of a step with no `takes`. */
 export const DEFAULT_TAKES_MS = 100;
 
@@ -516,8 +516,8 @@ export interface PlaybackMarks {
   /** Step numbers (1-based) each node carries; the trigger carries 0. */
   numbers: Map<string, number[]>;
   state: Map<string, StepState>;
-  /** The edge the pulse is on, and the direction it travels. */
-  pulse: { edgeId: string; reverse: boolean } | null;
+  /** The edge the pulse is on, the direction it travels, and which attempt this is (a retry crosses the edge again). */
+  pulse: { edgeId: string; reverse: boolean; attempt: number } | null;
   /** Edges into log groups that are lit right now. */
   logEdges: Set<string>;
   /** Log groups receiving lines right now. */
@@ -551,7 +551,7 @@ export function playbackMarks(scenario: Scenario, head: Playhead | null, check: 
   const current = head.phase !== 'end' ? check.steps[head.index] : undefined;
   if (current) {
     const ev = current.evidence;
-    if (head.phase === 'travel' && ev) pulse = { edgeId: ev.edgeId, reverse: ev.reverse };
+    if (head.phase === 'travel' && ev) pulse = { edgeId: ev.edgeId, reverse: ev.reverse, attempt: head.attempt };
     if (head.phase === 'dwell') {
       for (const g of current.logGroups) logging.add(g);
       for (const e of current.logEdges) logEdges.add(e);

@@ -171,7 +171,7 @@ describe('playhead', () => {
     const s = scenario();
     const check = checkScenario(s, nodes, edges);
     const travelling = playbackMarks(s, { ...start(), index: 2, phase: 'travel' }, check);
-    expect(travelling.pulse).toEqual({ edgeId: 'e1', reverse: false });
+    expect(travelling.pulse).toEqual({ edgeId: 'e1', reverse: false, attempt: 0 });
     expect(travelling.state.get('api')).toBe('visited');
     expect(travelling.state.get('fn')).toBe('travelling');
     expect(travelling.state.get('sessions')).toBe('pending');

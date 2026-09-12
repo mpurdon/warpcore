@@ -44,8 +44,10 @@ export interface ScenarioView {
   /** The playhead when this scenario is the one playing. */
   head: Playhead | null;
   marks: PlaybackMarks;
-  /** Edges that carry a hop of the scenario. */
-  pathEdges: Set<string>;
+  /** Edges that carry a hop of the scenario, with the first step (0-based) that crosses each. */
+  pathEdges: Map<string, number>;
+  /** Steps are being appended by clicking nodes; the wiring must stay readable. */
+  recording: boolean;
   /** Edges from a compute step to its log groups. */
   logEdges: Set<string>;
   /** Where the request is: the node it is at or heading to, and the one it left. */
@@ -61,6 +63,7 @@ export function useScenarioView(): ScenarioView | null {
   const scenarios = useStore((s) => s.scenarios);
   const inspectedScenario = useStore((s) => s.inspectedScenario);
   const playhead = useStore((s) => s.playhead);
+  const recording = useStore((s) => s.recording);
   const id = playhead?.scenarioId ?? inspectedScenario;
   const scenario = useMemo(() => (id ? scenarios.find((s) => s.id === id) ?? null : null), [scenarios, id]);
   // The check depends on the wiring only; the playhead ticks without it.
@@ -70,7 +73,10 @@ export function useScenarioView(): ScenarioView | null {
     if (!scenario || !check) return null;
     const head = playhead && playhead.scenarioId === scenario.id ? playhead : null;
     const marks = playbackMarks(scenario, head, check);
-    const pathEdges = new Set(check.steps.flatMap((st) => (st.evidence ? [st.evidence.edgeId] : [])));
+    const pathEdges = new Map<string, number>();
+    check.steps.forEach((st, i) => {
+      if (st.evidence && !pathEdges.has(st.evidence.edgeId)) pathEdges.set(st.evidence.edgeId, i);
+    });
     const logEdges = new Set(check.steps.flatMap((st) => st.logEdges));
     let focus: ScenarioView['focus'] = null;
     if (head && head.phase !== 'end') {
@@ -80,8 +86,8 @@ export function useScenarioView(): ScenarioView | null {
         focus = step ? { at: step.at, from: step.evidence?.from } : null;
       }
     }
-    return { scenario, check, head, marks, pathEdges, logEdges, focus, name: index.name };
-  }, [scenario, check, playhead, index]);
+    return { scenario, check, head, marks, pathEdges, logEdges, focus, recording, name: index.name };
+  }, [scenario, check, playhead, index, recording]);
 }
 
 /** Node marks for the node components; null when no scenario is on show. */
@@ -94,32 +100,42 @@ export const useScenarioMarks = (): PlaybackMarks | null => useContext(ScenarioM
 export interface EdgeView {
   /** Off-layer edges are hidden unless they touch the selection or tell the scenario's story. */
   visible: boolean;
-  /** normal; dimmed: on a layer that is off, shown for the selection; background: not part of the scenario playing. */
+  /** normal; dimmed: on a layer that is off, shown for the selection, or beside the scenario on show; background: not part of the scenario playing. */
   emphasis: 'normal' | 'dimmed' | 'background';
   /** Carries a hop of the scenario on show. */
   onPath: boolean;
+  /** On the path, but the request has not reached this hop yet: drawn as what is to come. */
+  ahead: boolean;
   /** Carries log writes of the step the request is at. */
   logging: boolean;
-  /** The request is travelling this edge. */
-  pulse: { reverse: boolean; durationMs: number } | null;
+  /** The request is travelling this edge: which way, how long the crossing takes, whether the clock is running, and which attempt (a retry crosses again). */
+  pulse: { reverse: boolean; durationMs: number; playing: boolean; attempt: number } | null;
 }
 
-export const PLAIN_EDGE: EdgeView = { visible: true, emphasis: 'normal', onPath: false, logging: false, pulse: null };
+export const PLAIN_EDGE: EdgeView = { visible: true, emphasis: 'normal', onPath: false, ahead: false, logging: false, pulse: null };
 
 export function edgeView(e: Edge, layers: Record<Layer, boolean>, selectedNode: string | null, sv: ScenarioView | null): EdgeView {
   const layer = e.data?.meta?.layer as Layer | undefined;
   const layerOn = !layer || layers[layer];
-  const onPath = sv ? sv.pathEdges.has(e.id) : false;
+  const firstStep = sv?.pathEdges.get(e.id);
+  const onPath = firstStep !== undefined;
   const isLog = sv ? sv.logEdges.has(e.id) : false;
   const touchesSelection = selectedNode !== null && (e.source === selectedNode || e.target === selectedNode);
   const visible = layerOn || touchesSelection || onPath || isLog;
-  const emphasis: EdgeView['emphasis'] = !layerOn && !onPath && !isLog ? 'dimmed' : sv?.head && !onPath && !isLog ? 'background' : 'normal';
-  const pulse = sv?.marks.pulse?.edgeId === e.id ? { reverse: sv.marks.pulse.reverse, durationMs: TRAVEL_MS / (sv.head?.speed || 1) } : null;
+  // Beside the story: stepped back while a scenario is on show, out of the
+  // way while it plays. Recording keeps the wiring readable to pick from.
+  const beside = sv !== null && !sv.recording && !onPath && !isLog;
+  const emphasis: EdgeView['emphasis'] = !layerOn && !onPath && !isLog ? 'dimmed' : beside ? (sv.head ? 'background' : 'dimmed') : 'normal';
+  // The story so far is solid; hops the request has not reached are sketched.
+  const ahead = onPath && !!sv?.head && sv.head.phase !== 'end' && firstStep > sv.head.index;
+  const pulse = sv?.marks.pulse?.edgeId === e.id
+    ? { reverse: sv.marks.pulse.reverse, durationMs: TRAVEL_MS / (sv.head?.speed || 1), playing: sv.head?.playing ?? false, attempt: sv.marks.pulse.attempt }
+    : null;
   const logging = sv ? sv.marks.logEdges.has(e.id) : false;
-  return { visible, emphasis, onPath, logging, pulse };
+  return { visible, emphasis, onPath, ahead, logging, pulse };
 }
 
 /** Whether an edge view is the plain one, so the edge can keep its identity. */
 export function isPlainEdge(v: EdgeView): boolean {
-  return v.visible && v.emphasis === 'normal' && !v.onPath && !v.logging && !v.pulse;
+  return v.visible && v.emphasis === 'normal' && !v.onPath && !v.ahead && !v.logging && !v.pulse;
 }
