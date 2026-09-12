@@ -53,6 +53,10 @@ const GENERIC_PREFIXES = new Set([
   'main', 'app', 'service', 'data', 'log', 'logs', 'role', 'key', 'alias', 'arn', 'rds', 's3', 'sqs', 'sns', 'ec2', 'vpc',
   'subnet', 'sg', 'igw', 'nat', 'rtb', 'eni', 'vol', 'snap', 'ami', 'i', 'e', 'z', 'cloudfront', 'cloudwatch', 'events',
 ]);
+// Environment tokens: "dev-talend-vpc" is talend's, in dev. Skipped, not stopped at.
+const ENV_TOKENS = new Set(['dev', 'test', 'qa', 'uat', 'stage', 'staging', 'preprod', 'nonprod', 'prod', 'production', 'sandbox', 'my', 'the']);
+// An AWS-generated id: a short type prefix and a hex tail. Names nothing.
+const AWS_ID = /^[a-z]{1,8}-[0-9a-f]{8,17}$/;
 
 export function slugId(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
@@ -61,10 +65,15 @@ export function slugId(s: string): string {
 /** The first meaningful token of a name: "shop-orders-table" -> "shop", "/shop/prod/db" -> "shop". */
 export function namePrefix(name: string): string | null {
   const cleaned = name.replace(/^\/+/, '').replace(/^arn:[^:]*:[^:]*:[^:]*:[^:]*:/, '');
-  const token = cleaned.split(/[-_/.:\s]+/)[0]?.toLowerCase() ?? '';
-  if (token.length < 3 || /^\d+$/.test(token) || GENERIC_PREFIXES.has(token)) return null;
+  if (AWS_ID.test(cleaned.toLowerCase())) return null;
+  const tokens = cleaned.split(/[-_/.:\s]+/).map((t) => t.toLowerCase());
   // A whole name with no separator is not a prefix of anything.
-  if (token.length === cleaned.length) return null;
+  if (tokens.length < 2) return null;
+  // Past the environment, the first token that names something.
+  let i = 0;
+  while (i < tokens.length - 1 && ENV_TOKENS.has(tokens[i])) i++;
+  const token = tokens[i] ?? '';
+  if (token.length < 3 || /^\d+$/.test(token) || GENERIC_PREFIXES.has(token)) return null;
   return token;
 }
 
@@ -153,7 +162,9 @@ export function clusterApplications(items: ClusterItem[], links: ClusterLink[], 
   }
 
   // 4. What is left: connected components. Two or more together are an
-  //    application of their own; a loner is shared platform.
+  //    application of their own, provided they run something: a VPC with
+  //    only its own plumbing in it is platform, not an application. A
+  //    loner is shared platform.
   const unassigned = items.filter((i) => !assignments.has(i.id));
   const seen = new Set<string>();
   const components: ClusterItem[][] = [];
@@ -174,8 +185,8 @@ export function clusterApplications(items: ClusterItem[], links: ClusterLink[], 
   }
   components.sort((a, b) => b.length - a.length);
   for (const comp of components) {
-    if (comp.length === 1) {
-      setApp(comp[0].id, SHARED_ID, SHARED_NAME, 'not wired to any application');
+    if (comp.length === 1 || comp.every((c) => c.platform)) {
+      for (const c of comp) setApp(c.id, SHARED_ID, SHARED_NAME, comp.length === 1 ? 'not wired to any application' : 'platform with nothing running on it');
       continue;
     }
     // Name it after the most common prefix, else the busiest member, else

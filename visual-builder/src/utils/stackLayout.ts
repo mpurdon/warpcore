@@ -35,7 +35,7 @@ export const BANDS: Record<BandKind, BandInfo> = {
     icon: Globe, border: 'border-violet-200', bg: 'bg-violet-50/60', header: 'text-violet-800' },
   compute: { label: 'Compute', subtitle: 'what serves it',
     types: ['agent', 'lambda', 'step-functions', 'bedrock', 'ecs-cluster', 'ecs-service', 'eks-cluster', 'ec2-instance', 'vpc',
-      'internet-gateway', 'nat-gateway', 'route-table', 'vpc-endpoint', 'elastic-ip', 'security-group', 'subnet', 'glue', 'athena'],
+      'internet-gateway', 'nat-gateway', 'route-table', 'vpc-endpoint', 'security-group', 'subnet', 'glue', 'athena'],
     icon: Boxes, border: 'border-sky-200', bg: 'bg-sky-50/60', header: 'text-sky-800' },
   bus: { label: 'Bus', subtitle: 'queues, topics, streams, rules',
     types: ['sqs', 'sns', 'kinesis-stream', 'kinesis-firehose', 'eventbridge', 'eventbridge-rule', 'eventbridge-pipes'],
@@ -45,7 +45,7 @@ export const BANDS: Record<BandKind, BandInfo> = {
     icon: Database, border: 'border-orange-200', bg: 'bg-orange-50/60', header: 'text-orange-800' },
   platform: { label: 'Platform', subtitle: 'roles, secrets, keys, parameters, logs, alarms',
     types: ['secrets-manager', 'kms-key', 'ssm-parameter', 'iam-instance-profile', 'iam-user', 'iam-policy', 'iam-role',
-      'log-group', 'cloudwatch-alarm', 'cloudwatch-dashboard', 'aws-resource'],
+      'log-group', 'cloudwatch-alarm', 'cloudwatch-dashboard', 'elastic-ip', 'aws-resource'],
     icon: Activity, border: 'border-gray-200', bg: 'bg-gray-50/80', header: 'text-gray-600' },
 };
 
@@ -77,6 +77,8 @@ const ADD_COLUMN_MIN_H = 120;
 export const SUBNET_MIN_H = 150;
 /** Slim column for a subnet with nothing in it. */
 export const EMPTY_SUBNET_W = 64;
+/** Chips across the VPC's plumbing strip when there are no subnets to set the width. */
+const STRIP_MIN_COLS = 3;
 const EMPTY_SUBNET_H = 120;
 
 /** Columns of full cells across a tile. Sets the tile's width. */
@@ -153,21 +155,28 @@ export function layoutStackCanvas(nodes: Node[]): void {
 
 /** The widest thing a tile has to hold: four columns, or its widest VPC. */
 function tileInnerWidth(band: Node, childrenOf: Map<string, Node[]>, measure: (n: Node) => Box): number {
-  const tileId = band.parentNode;
+  const tileId = band.type === 'application' ? band.id : band.parentNode;
   const bands = tileId ? childrenOf.get(tileId) || [] : [band];
   let inner = TILE_COLS * CELL_W + (TILE_COLS - 1) * GROUP_GAP;
-  for (const b of bands) {
-    for (const child of childrenOf.get(b.id) || []) {
-      if (child.type === 'vpc') inner = Math.max(inner, measure(child).w);
-    }
-  }
+  const widest = (children: Node[]) => {
+    for (const child of children) if (child.type === 'vpc') inner = Math.max(inner, measure(child).w);
+  };
+  widest(bands);
+  for (const b of bands) widest(childrenOf.get(b.id) || []);
   return inner;
 }
 
+/**
+ * A tile: its bands stacked in request order. A tile with a single band
+ * holds the members itself (buildCanvas skips the band), laid out the same
+ * way under the tile's own header.
+ */
 function layoutTile(tile: Node, childrenOf: Map<string, Node[]>, measure: (n: Node) => Box): Box {
-  const bands = (childrenOf.get(tile.id) || []).filter((b) => b.type === 'band');
+  const children = childrenOf.get(tile.id) || [];
+  const bands = children.filter((b) => b.type === 'band');
+  const members = children.filter((b) => b.type !== 'band');
   bands.sort((a, b) => BAND_ORDER.indexOf(a.data?.meta?.band) - BAND_ORDER.indexOf(b.data?.meta?.band));
-  const inner = tileInnerWidth(bands[0] ?? tile, childrenOf, measure);
+  const inner = tileInnerWidth(tile, childrenOf, measure);
   let y = GROUP_HEADER;
   for (const band of bands) {
     const box = measure(band);
@@ -175,6 +184,10 @@ function layoutTile(tile: Node, childrenOf: Map<string, Node[]>, measure: (n: No
     band.extent = 'parent';
     band.position = { x: GROUP_PAD, y };
     y += box.h + GROUP_GAP;
+  }
+  if (members.length) {
+    const kind = (tile.data?.meta?.band as BandKind) || 'compute';
+    y = layoutMembers(tile, members, kind, measure, GROUP_PAD + BAND_PAD, y, inner) + GROUP_GAP;
   }
   const w = inner + GROUP_PAD * 2 + BAND_PAD * 2;
   const h = Math.max(y - GROUP_GAP + GROUP_PAD, GROUP_HEADER + CELL_H);
@@ -188,34 +201,32 @@ function layoutTile(tile: Node, childrenOf: Map<string, Node[]>, measure: (n: No
  */
 function layoutBand(band: Node, children: Node[], measure: (n: Node) => Box, inner: number): Box {
   const kind = (band.data?.meta?.band as BandKind) || 'platform';
+  const bottom = Math.max(layoutMembers(band, children, kind, measure, BAND_PAD, BAND_HEADER, inner), BAND_HEADER + (children.length ? 0 : 24));
+  return { w: inner + BAND_PAD * 2, h: bottom + BAND_PAD };
+}
+
+/** Members of a band (or a one-band tile) from (left, top) across `width`; returns the bottom edge. */
+function layoutMembers(container: Node, children: Node[], kind: BandKind, measure: (n: Node) => Box, left: number, top: number, width: number): number {
   const vpcs = children.filter((c) => c.type === 'vpc');
   const loose = children.filter((c) => c.type !== 'vpc');
   loose.sort((a, b) => String(a.data?.label).localeCompare(String(b.data?.label)));
 
   const place = (c: Node, x: number, y: number) => {
-    c.parentNode = band.id;
+    c.parentNode = container.id;
     c.extent = 'parent';
     c.position = { x, y };
   };
 
-  let bottom = BAND_HEADER;
-  const left = BAND_PAD;
-  const width = inner;
-
-  // VPCs: full rows on the right side of the band, stacked.
+  // VPCs: full rows on the right side, stacked.
   let vpcWidth = 0;
-  let vpcBottom = BAND_HEADER;
-  for (const vpc of vpcs) {
-    const box = measure(vpc);
-    vpcWidth = Math.max(vpcWidth, box.w);
-  }
-  let vy = BAND_HEADER;
+  for (const vpc of vpcs) vpcWidth = Math.max(vpcWidth, measure(vpc).w);
+  let vy = top;
   for (const vpc of vpcs) {
     const box = measure(vpc);
     place(vpc, left + width - box.w, vy);
     vy += box.h + GROUP_GAP;
-    vpcBottom = vy - GROUP_GAP;
   }
+  const vpcBottom = vpcs.length ? vy - GROUP_GAP : top;
 
   // The grid of everything else, in the room the VPCs leave.
   const cellW = kind === 'platform' ? CHIP_W : CELL_W;
@@ -223,15 +234,12 @@ function layoutBand(band: Node, children: Node[], measure: (n: Node) => Box, inn
   const room = vpcs.length ? Math.max(cellW, width - vpcWidth - GROUP_GAP) : width;
   const cols = Math.max(1, Math.floor((room + GROUP_GAP) / (cellW + GROUP_GAP)));
   loose.forEach((c, i) => {
-    const box = measure(c);
-    void box;
-    place(c, left + (i % cols) * (cellW + GROUP_GAP), BAND_HEADER + Math.floor(i / cols) * (cellH + GROUP_GAP));
+    measure(c);
+    place(c, left + (i % cols) * (cellW + GROUP_GAP), top + Math.floor(i / cols) * (cellH + GROUP_GAP));
   });
   const rows = Math.ceil(loose.length / cols);
-  const looseBottom = rows ? BAND_HEADER + rows * cellH + (rows - 1) * GROUP_GAP : BAND_HEADER;
-  bottom = Math.max(looseBottom, vpcBottom, BAND_HEADER + (children.length ? 0 : 24));
-
-  return { w: width + BAND_PAD * 2, h: bottom + BAND_PAD };
+  const looseBottom = rows ? top + rows * cellH + (rows - 1) * GROUP_GAP : top;
+  return Math.max(looseBottom, vpcBottom);
 }
 
 /** Children stacked vertically inside a labelled box. */
@@ -250,26 +258,18 @@ export function layoutStack(group: Node, children: Node[], measure: (n: Node) =>
   return { w: w + GROUP_PAD * 2, h: Math.max(y + GROUP_PAD - GROUP_GAP, GROUP_HEADER + CELL_H) };
 }
 
-/** A VPC: a strip of VPC-level things on top, subnets in a row below. */
+/**
+ * A VPC: subnets in a row, with the VPC's own plumbing (gateways, route
+ * tables, endpoints) as a strip of chips above them. The subnets set the
+ * width; the strip wraps to it, so a VPC with many route tables is tall
+ * rather than wide.
+ */
 export function layoutVpc(vpc: Node, childrenOf: Map<string, Node[]>, measure: (n: Node) => Box): Box {
   const children = childrenOf.get(vpc.id) || [];
   const subnets = children.filter((n) => n.type === 'subnet');
   const strip = children.filter((n) => n.type !== 'subnet');
-  const typeRank: Record<string, number> = { 'internet-gateway': 0, 'nat-gateway': 1, 'route-table': 2, 'vpc-endpoint': 3, 'security-group': 4 };
+  const typeRank: Record<string, number> = { 'internet-gateway': 0, 'nat-gateway': 1, 'vpc-endpoint': 2, 'route-table': 3, 'security-group': 4 };
   strip.sort((a, b) => (typeRank[a.type || ''] ?? 9) - (typeRank[b.type || ''] ?? 9) || String(a.data?.label).localeCompare(String(b.data?.label)));
-
-  let x = GROUP_PAD;
-  let y = GROUP_HEADER;
-  let width = 0;
-  for (const n of strip) {
-    const box = measure(n);
-    n.parentNode = vpc.id;
-    n.extent = 'parent';
-    n.position = { x, y };
-    x += box.w + 16;
-    width = Math.max(width, x);
-  }
-  if (strip.length) y += CELL_H + 24;
 
   // Subnets are partitions: side-by-side columns of equal height, public
   // first, then by availability zone, the way a table editor shows columns.
@@ -289,6 +289,23 @@ export function layoutVpc(vpc: Node, childrenOf: Map<string, Node[]>, measure: (
   const boxes = subnets.map((sn) => (isEmpty(sn) ? { w: EMPTY_SUBNET_W, h: EMPTY_SUBNET_H } : measure(sn)));
   const populated = boxes.filter((_, i) => !isEmpty(subnets[i]));
   const columnHeight = populated.length ? Math.max(SUBNET_MIN_H, ...populated.map((b) => b.h)) : EMPTY_SUBNET_H;
+  const subnetsWidth = boxes.reduce((w, b) => w + b.w + GROUP_GAP, 0) - (boxes.length ? GROUP_GAP : 0);
+
+  // The strip wraps to the subnets' width; with no subnets, to a few chips.
+  const stripWidth = Math.max(subnetsWidth, STRIP_MIN_COLS * CHIP_W + (STRIP_MIN_COLS - 1) * GROUP_GAP);
+  let y = GROUP_HEADER;
+  if (strip.length) {
+    const cols = Math.max(1, Math.floor((stripWidth + GROUP_GAP) / (CHIP_W + GROUP_GAP)));
+    strip.forEach((n, i) => {
+      const box = measure(n);
+      n.parentNode = vpc.id;
+      n.extent = 'parent';
+      n.position = { x: GROUP_PAD + (i % cols) * (CHIP_W + GROUP_GAP), y: y + Math.floor(i / cols) * (box.h + GROUP_GAP) };
+    });
+    const rows = Math.ceil(strip.length / cols);
+    y += rows * (measure(strip[0]).h + GROUP_GAP) + 8;
+  }
+
   let cx = GROUP_PAD;
   subnets.forEach((subnet, i) => {
     subnet.parentNode = vpc.id;
@@ -297,7 +314,7 @@ export function layoutVpc(vpc: Node, childrenOf: Map<string, Node[]>, measure: (
     subnet.style = { ...(subnet.style || {}), width: boxes[i].w, height: columnHeight };
     cx += boxes[i].w + GROUP_GAP;
   });
-  width = Math.max(width, cx + ADD_COLUMN_W);
+  const width = Math.max(GROUP_PAD + stripWidth, cx) + ADD_COLUMN_W;
   const bottom = subnets.length ? y + columnHeight : y + ADD_COLUMN_MIN_H;
   return { w: Math.max(width + GROUP_PAD, CELL_W + GROUP_PAD * 2), h: Math.max(bottom + GROUP_PAD, GROUP_HEADER + CELL_H) };
 }

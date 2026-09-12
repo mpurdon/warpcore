@@ -15,6 +15,7 @@ import {
 import { AccountInventory, cancelScan, isCancellation, shortType, useScanProgress } from '../utils/accountExplorer';
 import { generateYAMLFromCanvas } from '../utils/configSync';
 import { joinPath } from '../utils/host';
+import { layersToReveal } from '../utils/layers';
 import {
   AccountProject, baselineExcludes, buildCanvas, createProjectFromAccount, hasOwnNode, selectResources, slug,
 } from '../utils/projectFromAccount';
@@ -193,6 +194,10 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
       await invoke('write_config_file', { path, content: yaml });
       await openProjectFile(path);
       setCurrentEnvironment(envKey);
+      // An account whose relationships all sit on layers that are off would
+      // open with no lines drawn; switch on what it has.
+      const { layers, setLayer } = useStore.getState();
+      for (const layer of layersToReveal(built.edges.map((e) => e.data?.meta?.layer), layers)) setLayer(layer, true);
 
       setResult({ project, path, dropped: built.droppedConnections });
       setPhase('done');

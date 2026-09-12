@@ -345,6 +345,9 @@ export function enclosureFor(node: Node): EnclosureKind {
   return ENCLOSURE_OF_TYPE[node.type || ''] ?? 'other';
 }
 
+/** The VPC and what it is made of: these belong to whatever runs in them, and are never an application by themselves. */
+const NETWORK_PLUMBING: ReadonlySet<string> = new Set(['vpc', 'subnet', 'security-group', 'internet-gateway', 'nat-gateway', 'route-table', 'vpc-endpoint', 'elastic-ip']);
+
 /** Which layout band a node belongs to; global services join the busiest region. */
 export function regionBand(node: Node): string {
   const raw = (node.data?.region as string | undefined) || '';
@@ -480,9 +483,13 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
       }
     }
   }
-  // Security-group members and the default-group warning.
+  // Security-group members and the default-group warning. A group is a
+  // policy its members are in, not a box they connect to (DESIGN_GUIDANCE
+  // §9.3): it stays in the store for the badges and the inspector, and is
+  // never a card on the canvas.
   for (const node of nodes) {
     if (node.type !== 'security-group') continue;
+    node.hidden = true;
     const members = sgMembers.get(node.id) || new Set();
     node.data.config = { ...node.data.config, memberCount: members.size };
     const cfg = node.data.config as Record<string, unknown>;
@@ -516,7 +523,7 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
     name: String(n.data?.label ?? n.id),
     type: n.type || '',
     tags: tagsByNodeId.get(n.id),
-    platform: bandFor(n) === 'platform' || n.type === 'vpc' || n.type === 'subnet' || n.type === 'security-group',
+    platform: bandFor(n) === 'platform' || NETWORK_PLUMBING.has(n.type || ''),
     parent: parentOf.get(n.id),
   }));
   const clusterLinks = project.connections.flatMap((c) => {
@@ -560,7 +567,17 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
       && (metaOf(topLevelOf(n)).application?.id ?? SHARED_ID) === app.id).length;
     const byBand = new Map<BandKind, Node[]>();
     for (const m of members) pushTo(byBand, bandFor(m), m);
-    for (const kind of BAND_ORDER) {
+    // One band is no band: a tile that is only a VPC, or only chips, holds
+    // its members directly rather than under a heading that repeats the tile.
+    if (byBand.size === 1) {
+      const [kind, list] = [...byBand.entries()][0];
+      tile.data.meta.band = kind;
+      for (const m of list) {
+        parentOf.set(m.id, tile.id);
+        if (kind === 'platform') metaOf(m).compact = true;
+      }
+    }
+    for (const kind of byBand.size === 1 ? [] : BAND_ORDER) {
       const list = byBand.get(kind);
       if (!list?.length) continue;
       const band: Node = {
@@ -595,9 +612,16 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
   for (const parent of childrenOf.keys()) metaOf(nodeById.get(parent)!).isGroup = true;
   for (const n of nodes) {
     if (n.type === 'subnet' && parentOf.has(n.id)) metaOf(n).isGroup = true;
+    // Gateways, route tables and endpoints: the VPC's own plumbing, one line each.
+    if (n.type !== 'subnet' && nodeById.get(parentOf.get(n.id) || '')?.type === 'vpc') metaOf(n).compact = true;
   }
 
   // ---- edges
+  const isInside = (id: string, ancestor: string): boolean => {
+    let p = parentOf.get(id);
+    for (let hops = 0; p && hops < 8; hops++) { if (p === ancestor) return true; p = parentOf.get(p); }
+    return false;
+  };
   const edges: Edge[] = [];
   const seen = new Set<string>();
   let dropped = 0;
@@ -610,8 +634,27 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
     const target = drawn(c.to_arn);
     if (!source || !target) { dropped++; continue; }
     if (source.id === target.id) continue;
-    // Containment is drawn as nesting, not as an arrow.
-    if (c.kind === 'vpc' && (c.detail === 'in subnet' || c.detail === 'in VPC' || c.detail === 'attached to VPC') && parentOf.get(source.id) === target.id) continue;
+    // Containment is drawn as nesting, not as an arrow: an instance in a
+    // subnet of the VPC is inside the VPC.
+    if (c.kind === 'vpc' && (c.detail === 'in subnet' || c.detail === 'in VPC' || c.detail === 'attached to VPC') && isInside(source.id, target.id)) continue;
+    // Membership is the badge on the member.
+    if (c.kind === 'vpc' && c.detail === 'security group' && target.type === 'security-group') continue;
+    // Trust between groups is drawn between their members: "the bastion may
+    // reach the hosts", on the network layer.
+    if (c.kind === 'vpc' && source.type === 'security-group' && target.type === 'security-group') {
+      const via = String(source.data.config?.groupName || source.data.label);
+      for (const a of sgMembers.get(source.id) || []) {
+        for (const b of sgMembers.get(target.id) || []) {
+          if (a === b) continue;
+          const pairKey = `${a}->${b}:other`;
+          if (seen.has(pairKey)) continue;
+          seen.add(pairKey);
+          const meta: EdgeMeta = { layer: layerFor(c.kind, c.detail), discovered: { kind: c.kind, detail: `${c.detail} via ${via}` } };
+          edges.push({ id: `edge-${pairKey}`, source: a, target: b, type: 'permission', data: { isResourceBased: true, config: {}, meta } });
+        }
+      }
+      continue;
+    }
     // Folded sub-resources are not edges from their own parent.
     if ((folded.has(c.from_arn) && folded.get(c.from_arn)!.arn === c.to_arn) || (folded.has(c.to_arn) && folded.get(c.to_arn)!.arn === c.from_arn)) continue;
 

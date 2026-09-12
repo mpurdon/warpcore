@@ -17,6 +17,15 @@ describe('namePrefix', () => {
     expect(namePrefix('i-0123456789')).toBeNull();
     expect(namePrefix('shop')).toBeNull();
   });
+  it('looks past the environment, and sees through AWS ids', () => {
+    expect(namePrefix('dev-talend-vpc')).toBe('talend');
+    expect(namePrefix('prod-shop-orders')).toBe('shop');
+    expect(namePrefix('dev-talend')).toBe('talend');
+    expect(namePrefix('dev-sg-talend-bastion')).toBeNull();
+    expect(namePrefix('vpce-07656bf32158c7829')).toBeNull();
+    expect(namePrefix('subnet-01cfb23b1a7f8eaff')).toBeNull();
+    expect(namePrefix('rtb-047e87a4fab853999')).toBeNull();
+  });
 });
 
 describe('clusterApplications', () => {
@@ -90,6 +99,19 @@ describe('clusterApplications', () => {
     const { assignments, applications } = clusterApplications(items, [], 'acct');
     expect(assignments.get('loner-alarm')?.id).toBe('shop');
     expect(applications.map((a) => a.id)).toEqual(['shop']);
+  });
+
+  it('does not make an application out of a VPC with nothing running in it', () => {
+    const items = [
+      item('shop-api', 'lambda'), item('shop-orders', 'dynamodb'), item('shop-uploads', 's3'),
+      item('vpc-1', 'vpc', { platform: true, name: 'vpc-0abc12345678' }),
+      item('subnet-1', 'subnet', { platform: true, parent: 'vpc-1', name: 'subnet-0abc12345678' }),
+      item('igw-1', 'internet-gateway', { platform: true, name: 'igw-0abc12345678' }),
+    ];
+    const { assignments, applications } = clusterApplications(items, [{ source: 'igw-1', target: 'vpc-1' }], 'acct');
+    // The one application takes the shared bits, with the reason kept.
+    expect(applications.map((a) => a.id)).toEqual(['shop']);
+    expect(assignments.get('vpc-1')?.reason).toBe('platform with nothing running on it');
   });
 
   it('names an unlabelled connected account after the project', () => {

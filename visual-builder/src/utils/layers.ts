@@ -40,3 +40,16 @@ export function layerFor(kind: string, detail: string): Layer {
       return 'plumbing';
   }
 }
+
+/**
+ * The layers to switch on so a canvas shows something: when no edge sits on
+ * a layer that is on, every layer that carries an edge. A network-only
+ * account opened with the default layers would otherwise draw no lines at
+ * all, and "0 of 21" is not a picture.
+ */
+export function layersToReveal(edgeLayers: (Layer | undefined)[], layers: Record<Layer, boolean>): Layer[] {
+  const carrying = new Set<Layer>();
+  for (const l of edgeLayers) if (l) carrying.add(l);
+  if ([...carrying].some((l) => layers[l])) return [];
+  return [...carrying].filter((l) => !layers[l]);
+}

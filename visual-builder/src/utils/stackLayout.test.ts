@@ -74,6 +74,27 @@ describe('layoutStackCanvas', () => {
     expect(perRow).toBeGreaterThan(TILE_COLS);
   });
 
+  it('wraps the VPC plumbing strip as chips to the width of the subnets', () => {
+    const nodes = [
+      node('app', 'application', undefined, { isGroup: true, band: 'compute' }),
+      node('vpc', 'vpc', 'app', { isGroup: true }),
+      node('sn-a', 'subnet', 'vpc', { isGroup: true }), node('sn-b', 'subnet', 'vpc', { isGroup: true }),
+      node('web', 'ec2-instance', 'sn-a'),
+    ];
+    for (let i = 0; i < 8; i++) nodes.push(node(`rtb-${i}`, 'route-table', 'vpc', { compact: true }));
+    layoutStackCanvas(nodes);
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    // A one-band tile holds the VPC directly.
+    expect(byId.get('vpc')!.parentNode).toBe('app');
+    const strip = nodes.filter((n) => n.id.startsWith('rtb-'));
+    const rows = new Set(strip.map((n) => n.position.y));
+    expect(rows.size).toBeGreaterThan(1);
+    const vpcW = Number(byId.get('vpc')!.style!.width);
+    expect(Math.max(...strip.map((n) => n.position.x + CHIP_W))).toBeLessThan(vpcW);
+    // Subnets sit below the strip.
+    expect(byId.get('sn-a')!.position.y).toBeGreaterThan(Math.max(...rows));
+  });
+
   it('places tiles side by side', () => {
     const nodes = [...tile(), node('app2', 'application', undefined, { isGroup: true }), node('b2', 'band', 'app2', { isGroup: true, band: 'data' }), node('t', 'dynamodb', 'b2')];
     layoutStackCanvas(nodes);

@@ -194,21 +194,29 @@ to bottom the way a request does:
 | **Platform** | Roles, instance profiles, secrets, keys, parameters, log groups, alarms, as compact chips |
 
 Width is bounded (four cells, or the widest VPC); bands wrap their contents
-and only appear when they have members. A monorepo account gives one tile
-per application plus a *Shared platform* tile for what more than one
-application uses.
+and only appear when they have members. A tile with a single band holds its
+members directly, so an application that is one VPC is drawn as that VPC.
+A monorepo account gives one tile per application plus a *Shared platform*
+tile for what more than one application uses.
 
 - **Which application a resource belongs to** is decided by tags
   (`Application`, `Service`, `Project`, `app`, ...), then by a name prefix
-  shared by three or more resources or matching the project name, then by
-  the wiring: an untagged resource joins the application it is connected
-  to. The inspector's *Application* section says which rule placed it.
+  shared by three or more resources or matching the project name (past an
+  environment token, so `dev-talend-vpc` is talend's), then by the wiring:
+  an untagged resource joins the application it is connected to. A VPC with
+  nothing running in it is platform, not an application. The inspector's
+  *Application* section says which rule placed it.
 - **VPCs and subnets are containers.** What runs in a subnet sits inside it;
-  VPC-level things (gateways, route tables, endpoints, security groups) sit
-  in a strip along the top of the VPC.
-- **Security groups are badges** on their members. Click a badge to inspect
-  the group: its inbound rules and members. A default group that admits
-  traffic from anywhere and has members is flagged, and the inspector says why.
+  the VPC's own plumbing (gateways, route tables, endpoints) is a strip of
+  chips along the top, wrapped to the width of the subnets.
+- **Security groups are badges** on their members, never cards. Click a
+  badge to inspect the group: its inbound rules and members. Trust between
+  groups is drawn between their members on the network layer ("allowed
+  inbound via bastion-sg"). A default group that admits traffic from
+  anywhere and has members is flagged, and the inspector says why.
+- **Layers** default to traffic and access. An account whose relationships
+  are all on other layers (a plain VPC) opens with those layers switched on,
+  so there is always a picture.
 - **Lenses** (top left of the canvas, or keys `1`-`5`) view the tile through
   one question. On an imported account a lens *removes* what it is not
   about: the nodes go, a band with nothing left goes with them, and the
@@ -258,8 +266,9 @@ scenarios:
   marked *detached* in the inspector. Editing respects the lock; playing
   does not.
 - **Play** puts a transport bar over the canvas: play, pause, step, jump to
-  a step, speed. The request travels each hop as a pulse, the resource it
-  is at glows, what the scenario does not touch steps back, and every
+  a step, speed. The request travels each hop as a comet (a bright bead
+  with a fading tail, on a hop lit end to end), the resource it lands on
+  flashes a ring and glows, what the scenario does not touch steps back, and every
   compute step's log group lights and ticks with synthetic lines in the
   inspector. The lines show data moving; they are not what the code logs.
   `Space` plays and pauses, `[` and `]` step, `Esc` stops.
