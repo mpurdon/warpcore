@@ -113,7 +113,7 @@ class TestInitialization:
 
     @pytest.mark.parametrize("provider,expected", [
         (LLMProvider.OPENAI, "gpt-4"),
-        (LLMProvider.ANTHROPIC, "claude-3-sonnet-20240229"),
+        (LLMProvider.ANTHROPIC, "claude-opus-5"),
         (LLMProvider.LOCAL, "llama2"),
     ])
     def test_default_model_per_provider(self, provider, expected):
