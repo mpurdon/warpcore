@@ -746,11 +746,68 @@ class AWSScanner:
         return addresses[0] if addresses else {}
 
     def _get_load_balancer_details(self, lb_arn: str) -> Dict:
-        """Get ALB/NLB details."""
+        """Get ALB/NLB details, with what it listens on and where it sends traffic.
+
+        The load balancer alone says nothing about the path a request takes;
+        listeners, target groups and target health are what draw the edges
+        from it to the instances, functions or IPs behind it.
+        """
         elb_client = discovery_client(self.session, 'elbv2', self.region)
         response = elb_client.describe_load_balancers(LoadBalancerArns=[lb_arn])
         balancers = response.get('LoadBalancers', [])
-        return balancers[0] if balancers else {}
+        if not balancers:
+            return {}
+        lb = balancers[0]
+        try:
+            listeners = elb_client.describe_listeners(LoadBalancerArn=lb_arn).get('Listeners', [])
+        except ClientError:
+            listeners = []
+        lb['Listeners'] = [
+            {
+                'ListenerArn': l.get('ListenerArn'), 'Port': l.get('Port'), 'Protocol': l.get('Protocol'),
+                'TargetGroupArns': sorted({
+                    a.get('TargetGroupArn') for a in l.get('DefaultActions') or [] if a.get('TargetGroupArn')
+                } | {
+                    tg.get('TargetGroupArn')
+                    for a in l.get('DefaultActions') or []
+                    for tg in ((a.get('ForwardConfig') or {}).get('TargetGroups') or [])
+                    if tg.get('TargetGroupArn')
+                }),
+            }
+            for l in listeners
+        ]
+        try:
+            groups = elb_client.describe_target_groups(LoadBalancerArn=lb_arn).get('TargetGroups', [])
+        except ClientError:
+            groups = []
+        lb['TargetGroups'] = []
+        for tg in groups:
+            entry = {
+                'TargetGroupArn': tg.get('TargetGroupArn'), 'TargetGroupName': tg.get('TargetGroupName'),
+                'TargetType': tg.get('TargetType'), 'Protocol': tg.get('Protocol'), 'Port': tg.get('Port'),
+                'Targets': [],
+            }
+            try:
+                health = elb_client.describe_target_health(TargetGroupArn=tg['TargetGroupArn']).get('TargetHealthDescriptions', [])
+            except ClientError:
+                health = []
+            for h in health:
+                target = h.get('Target') or {}
+                entry['Targets'].append({
+                    'Id': target.get('Id'), 'Port': target.get('Port'),
+                    'State': (h.get('TargetHealth') or {}).get('State'),
+                    'Reason': (h.get('TargetHealth') or {}).get('Reason'),
+                })
+            lb['TargetGroups'].append(entry)
+        return lb
+
+    def _get_key_pair_details(self, key_pair_id: str) -> Dict:
+        """Get key pair details, by id or by name."""
+        ec2_client = discovery_client(self.session, 'ec2', self.region)
+        kwargs = {'KeyPairIds': [key_pair_id]} if key_pair_id.startswith('key-') else {'KeyNames': [key_pair_id]}
+        response = ec2_client.describe_key_pairs(**kwargs)
+        pairs = response.get('KeyPairs', [])
+        return pairs[0] if pairs else {}
 
     def _get_cloudfront_details(self, distribution_id: str) -> Dict:
         """Get CloudFront distribution details. Global; any region's client works."""
@@ -847,6 +904,7 @@ class AWSScanner:
         'AWS::EC2::Snapshot': _get_snapshot_details,
         'AWS::EC2::InternetGateway': _get_internet_gateway_details,
         'AWS::EC2::EIP': _get_address_details,
+        'AWS::EC2::KeyPair': _get_key_pair_details,
         'AWS::ElasticLoadBalancingV2::LoadBalancer': _get_load_balancer_details,
         'AWS::CloudFront::Distribution': _get_cloudfront_details,
         'AWS::Cloudfront::Distribution': _get_cloudfront_details,

@@ -707,6 +707,7 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
 
 function describeAttachment(item: ProjectItem): string {
   const c = item.config as Record<string, unknown>;
+  if (item.type === 'elastic-ip') return String(c.publicIp || c.name || '');
   if (item.type === 'ebs-volume') return [c.size ? `${c.size} GiB` : '', c.volumeType, c.encrypted ? 'encrypted' : ''].filter(Boolean).join(' · ');
   if (item.type === 'ebs-snapshot') return [c.size ? `${c.size} GiB` : '', c.description].filter(Boolean).join(' · ');
   if (item.type === 'log-group') {

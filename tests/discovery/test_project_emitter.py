@@ -379,3 +379,92 @@ class TestEdgeFlow:
         assert any(c["kind"] == "reference" and c["detail"] == "TLS certificate" for c in payload["connections"])
         assert next(r for r in payload["resources"] if r["type"] == "cloudfront")["config"]["name"] == "example.com"
 
+
+
+class TestPlumbingEdges:
+    """Relationships the hydrated properties already carry."""
+
+    def _vpc_bits(self):
+        vpc = _res("AWS::EC2::VPC", "vpc-1", f"arn:aws:ec2:{REGION}:{ACCOUNT}:vpc/vpc-1", VpcId="vpc-1", CidrBlock="10.0.0.0/16")
+        subnet = _res("AWS::EC2::Subnet", "subnet-1", f"arn:aws:ec2:{REGION}:{ACCOUNT}:subnet/subnet-1",
+                      SubnetId="subnet-1", VpcId="vpc-1", CidrBlock="10.0.1.0/24", AvailabilityZone="us-east-1a")
+        rt = _res("AWS::EC2::RouteTable", "rtb-1", f"arn:aws:ec2:{REGION}:{ACCOUNT}:route-table/rtb-1", RouteTableId="rtb-1", VpcId="vpc-1")
+        return vpc, subnet, rt
+
+    def test_elastic_ips_fold_into_the_instance_or_nat_gateway_that_holds_them(self):
+        vpc, subnet, _ = self._vpc_bits()
+        inst = _res("AWS::EC2::Instance", "web", f"arn:aws:ec2:{REGION}:{ACCOUNT}:instance/i-1",
+                    InstanceId="i-1", State={"Name": "running"}, SubnetId="subnet-1", VpcId="vpc-1")
+        nat = _res("AWS::EC2::NatGateway", "nat-1", f"arn:aws:ec2:{REGION}:{ACCOUNT}:natgateway/nat-1",
+                   NatGatewayId="nat-1", State="available", VpcId="vpc-1", SubnetId="subnet-1",
+                   NatGatewayAddresses=[{"AllocationId": "eipalloc-nat", "PublicIp": "3.3.3.3"}])
+        eip_inst = _res("AWS::EC2::EIP", "1.1.1.1", f"arn:aws:ec2:{REGION}:{ACCOUNT}:elastic-ip/eipalloc-inst",
+                        AllocationId="eipalloc-inst", PublicIp="1.1.1.1", InstanceId="i-1")
+        eip_nat = _res("AWS::EC2::EIP", "3.3.3.3", f"arn:aws:ec2:{REGION}:{ACCOUNT}:elastic-ip/eipalloc-nat",
+                       AllocationId="eipalloc-nat", PublicIp="3.3.3.3")
+        eip_loose = _res("AWS::EC2::EIP", "9.9.9.9", f"arn:aws:ec2:{REGION}:{ACCOUNT}:elastic-ip/eipalloc-loose",
+                         AllocationId="eipalloc-loose", PublicIp="9.9.9.9")
+        payload = _emit(vpc, subnet, inst, nat, eip_inst, eip_nat, eip_loose)
+        folded = {r["name"]: r.get("folded_into", "").rsplit("/", 1)[-1] for r in payload["resources"] if r["type"] == "elastic-ip"}
+        assert folded == {"1.1.1.1": "i-1", "3.3.3.3": "nat-1", "9.9.9.9": ""}
+
+    def test_an_endpoint_reaches_its_subnets_and_route_tables_without_being_inside_them(self):
+        vpc, subnet, rt = self._vpc_bits()
+        sg = _res("AWS::EC2::SecurityGroup", "sg-ep", f"arn:aws:ec2:{REGION}:{ACCOUNT}:security-group/sg-1", GroupId="sg-1", GroupName="ep", VpcId="vpc-1")
+        ep = _res("AWS::EC2::VPCEndpoint", "vpce-1", f"arn:aws:ec2:{REGION}:{ACCOUNT}:vpc-endpoint/vpce-1",
+                  VpcEndpointId="vpce-1", VpcId="vpc-1", ServiceName="com.amazonaws.us-east-1.s3", VpcEndpointType="Gateway",
+                  SubnetIds=["subnet-1"], RouteTableIds=["rtb-1"], Groups=[{"GroupId": "sg-1"}])
+        payload = _emit(vpc, subnet, rt, sg, ep)
+        edges = {(c["from_arn"].rsplit("/", 1)[-1], c["to_arn"].rsplit("/", 1)[-1], c["detail"]) for c in payload["connections"]}
+        assert ("vpce-1", "subnet-1", "interface in subnet") in edges
+        assert ("rtb-1", "vpce-1", "route to endpoint") in edges
+        assert ("vpce-1", "sg-1", "security group") in edges
+        assert ("vpce-1", "subnet-1", "in subnet") not in edges
+
+    def test_instances_reach_their_key_pair_by_name(self):
+        vpc, subnet, _ = self._vpc_bits()
+        key = _res("AWS::EC2::KeyPair", "key-abc", f"arn:aws:ec2:{REGION}:{ACCOUNT}:key-pair/key-abc", KeyPairId="key-abc", KeyName="ops", KeyType="rsa")
+        inst = _res("AWS::EC2::Instance", "web", f"arn:aws:ec2:{REGION}:{ACCOUNT}:instance/i-1",
+                    InstanceId="i-1", State={"Name": "running"}, SubnetId="subnet-1", VpcId="vpc-1", KeyName="ops")
+        payload = _emit(vpc, subnet, key, inst)
+        edges = {(c["from_arn"].rsplit("/", 1)[-1], c["to_arn"].rsplit("/", 1)[-1], c["kind"], c["detail"]) for c in payload["connections"]}
+        assert ("i-1", "key-abc", "reference", "key pair") in edges
+        key_cfg = next(r for r in payload["resources"] if r["config"].get("awsType") == "AWS::EC2::KeyPair")["config"]
+        assert key_cfg["name"] == "ops" and key_cfg["keyType"] == "rsa"
+
+    def test_a_load_balancer_forwards_to_its_targets(self):
+        vpc, subnet, _ = self._vpc_bits()
+        web = _res("AWS::EC2::Instance", "web", f"arn:aws:ec2:{REGION}:{ACCOUNT}:instance/i-web",
+                   InstanceId="i-web", State={"Name": "running"}, SubnetId="subnet-1", VpcId="vpc-1")
+        sick = _res("AWS::EC2::Instance", "sick", f"arn:aws:ec2:{REGION}:{ACCOUNT}:instance/i-sick",
+                    InstanceId="i-sick", State={"Name": "running"}, SubnetId="subnet-1", VpcId="vpc-1")
+        fn = _lambda("api")
+        tg_arn = f"arn:aws:elasticloadbalancing:{REGION}:{ACCOUNT}:targetgroup/web/abc"
+        tg_fn = f"arn:aws:elasticloadbalancing:{REGION}:{ACCOUNT}:targetgroup/fn/def"
+        lb = _res("AWS::ElasticLoadBalancingV2::LoadBalancer", "front", f"arn:aws:elasticloadbalancing:{REGION}:{ACCOUNT}:loadbalancer/app/front/123",
+                  LoadBalancerName="front", Type="application", Scheme="internet-facing", VpcId="vpc-1", State={"Code": "active"},
+                  Listeners=[{"Port": 443, "Protocol": "HTTPS", "TargetGroupArns": [tg_arn, tg_fn]}],
+                  TargetGroups=[
+                      {"TargetGroupArn": tg_arn, "TargetGroupName": "web", "TargetType": "instance",
+                       "Targets": [{"Id": "i-web", "Port": 80, "State": "healthy"}, {"Id": "i-sick", "Port": 80, "State": "unhealthy"}]},
+                      {"TargetGroupArn": tg_fn, "TargetGroupName": "fn", "TargetType": "lambda",
+                       "Targets": [{"Id": fn.physical_id, "State": "healthy"}]},
+                  ])
+        payload = _emit(vpc, subnet, web, sick, fn, lb, _role("api-role"))
+        edges = {(c["from_arn"].rsplit("/", 1)[-1], c["to_arn"].rsplit("/", 1)[-1].rsplit(":", 1)[-1], c["kind"], c["detail"]) for c in payload["connections"]}
+        assert ("123", "i-web", "invokes", "HTTPS 443 -> web") in edges
+        assert ("123", "i-sick", "invokes", "HTTPS 443 -> web (unhealthy)") in edges
+        assert ("123", "api", "invokes", "HTTPS 443 -> fn") in edges
+        lb_cfg = next(r for r in payload["resources"] if r["type"] == "load-balancer")["config"]
+        assert lb_cfg["listeners"] == "HTTPS 443"
+        assert lb_cfg["targets"] == "2/3 healthy across 2 target groups"
+
+    def test_an_rds_instance_reaches_its_subnet_group_members(self):
+        vpc, subnet, _ = self._vpc_bits()
+        db = _res("AWS::RDS::DBInstance", "orders", f"arn:aws:rds:{REGION}:{ACCOUNT}:db:orders",
+                  DBInstanceIdentifier="orders", DBInstanceArn=f"arn:aws:rds:{REGION}:{ACCOUNT}:db:orders", Engine="postgres",
+                  DBInstanceStatus="available", DBSubnetGroup={"VpcId": "vpc-1", "Subnets": [{"SubnetIdentifier": "subnet-1"}]})
+        payload = _emit(vpc, subnet, db)
+        edges = {(c["from_arn"].rsplit(":", 1)[-1], c["to_arn"].rsplit("/", 1)[-1], c["detail"]) for c in payload["connections"]}
+        assert ("orders", "subnet-1", "in subnet group") in edges
+        assert ("orders", "vpc-1", "in VPC") in edges

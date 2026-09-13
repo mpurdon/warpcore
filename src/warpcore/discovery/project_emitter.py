@@ -586,6 +586,12 @@ class ProjectEmitter:
             by_type_name[(item["type"], item["name"])] = arn
             if item.get("aws_name"):
                 by_type_name[(item["type"], item["aws_name"])] = arn
+        nat_by_allocation: Dict[str, str] = {}
+        for item in emitted:
+            if item["type"] == "nat-gateway":
+                for addr in (item.get("_props") or {}).get("NatGatewayAddresses") or []:
+                    if addr.get("AllocationId"):
+                        nat_by_allocation[addr["AllocationId"]] = item["arn"]
         for item in emitted:
             props = item.get("_props") or {}
             parent: Optional[str] = None
@@ -596,6 +602,14 @@ class ProjectEmitter:
             elif item["type"] == "ebs-snapshot":
                 vol = props.get("VolumeId")
                 parent = by_id.get(vol) if vol else None
+            elif item["type"] == "elastic-ip":
+                # Attached to an instance, or held by a NAT gateway: the
+                # address is a property of that thing. Unattached, it stays
+                # a chip of its own, and a finding.
+                inst = props.get("InstanceId")
+                parent = by_id.get(inst) if inst else None
+                if not parent:
+                    parent = nat_by_allocation.get(props.get("AllocationId") or "")
             elif item["type"] == "log-group":
                 parent = self._log_group_owner(item["config"].get("logGroupPath") or item["name"], by_id, by_type_name)
             elif item["type"] == GENERIC_TYPE:
@@ -1014,6 +1028,14 @@ class ProjectEmitter:
             for src, dst in (("Scheme", "scheme"), ("Type", "lbType"), ("DNSName", "dnsName")):
                 if p.get(src):
                     cfg[dst] = p[src]
+            listeners = [f"{l.get('Protocol') or ''} {l.get('Port') or ''}".strip() for l in p.get("Listeners") or []]
+            if listeners:
+                cfg["listeners"] = ", ".join(listeners)
+            groups = p.get("TargetGroups") or []
+            if groups:
+                healthy = sum(1 for g in groups for t in g.get("Targets") or [] if t.get("State") == "healthy")
+                total = sum(len(g.get("Targets") or []) for g in groups)
+                cfg["targets"] = f"{healthy}/{total} healthy across {len(groups)} target group{'s' if len(groups) != 1 else ''}"
             return cfg
 
         if canvas_type == "ebs-volume":
@@ -1099,7 +1121,14 @@ class ProjectEmitter:
             return cfg
 
         if canvas_type == GENERIC_TYPE:
-            return {"name": tag_name or name, "awsType": r.type}
+            cfg = {"name": tag_name or name, "awsType": r.type}
+            if r.type == "AWS::EC2::KeyPair" and p.get("KeyName"):
+                # Instances name their key pair, not its id.
+                cfg["name"] = p["KeyName"]
+                cfg["keyName"] = p["KeyName"]
+                if p.get("KeyType"):
+                    cfg["keyType"] = p["KeyType"]
+            return cfg
 
         return {"name": tag_name or name}
 
@@ -1159,6 +1188,9 @@ class ProjectEmitter:
             profile = (p.get("IamInstanceProfile") or {}).get("Arn")
             if profile:
                 out.append(Connection(arn, profile, "role", "instance profile"))
+            key = self._resolve(p.get("KeyName") or "", identifiers)
+            if key:
+                out.append(Connection(arn, key, "reference", "key pair"))
             for mapping in p.get("BlockDeviceMappings") or []:
                 vol = (mapping.get("Ebs") or {}).get("VolumeId")
                 target = self._resolve(vol or "", identifiers)
@@ -1173,6 +1205,22 @@ class ProjectEmitter:
                 subnet = self._resolve(p.get("SubnetId") or "", identifiers)
                 if subnet:
                     out.append(Connection(arn, subnet, "vpc", "in subnet"))
+            if r.type == "AWS::EC2::VPCEndpoint":
+                # An interface endpoint has a foot in each subnet and a
+                # security group; a gateway endpoint is a route. Neither is
+                # containment, so the details stay clear of "in subnet".
+                for subnet_id in p.get("SubnetIds") or []:
+                    subnet = self._resolve(subnet_id, identifiers)
+                    if subnet:
+                        out.append(Connection(arn, subnet, "vpc", "interface in subnet"))
+                for rt_id in p.get("RouteTableIds") or []:
+                    rt = self._resolve(rt_id, identifiers)
+                    if rt:
+                        out.append(Connection(rt, arn, "vpc", "route to endpoint"))
+                for group in p.get("Groups") or []:
+                    sg = self._resolve(group.get("GroupId") or "", identifiers)
+                    if sg:
+                        out.append(Connection(arn, sg, "vpc", "security group"))
             if r.type == "AWS::EC2::SecurityGroup":
                 # Rules that admit another group draw the trust between them.
                 for perm in (p.get("IpPermissions") or []):
@@ -1223,6 +1271,25 @@ class ProjectEmitter:
                 target = self._resolve(sg, identifiers)
                 if target:
                     out.append(Connection(arn, target, "vpc", "security group"))
+            # Traffic: each listener forwards to target groups, each target
+            # group to instances, functions or addresses. The edge goes to
+            # the target, labelled with the port and the group, so the path
+            # a request takes is one line per hop.
+            ports_by_group: Dict[str, List[str]] = {}
+            for listener in p.get("Listeners") or []:
+                label = f"{listener.get('Protocol') or ''} {listener.get('Port') or ''}".strip()
+                for tg_arn in listener.get("TargetGroupArns") or []:
+                    ports_by_group.setdefault(tg_arn, []).append(label)
+            for tg in p.get("TargetGroups") or []:
+                listens = ", ".join(ports_by_group.get(tg.get("TargetGroupArn") or "", [])) or "no listener"
+                for target in tg.get("Targets") or []:
+                    hit = self._resolve(target.get("Id") or "", identifiers)
+                    if hit:
+                        state = target.get("State")
+                        detail = f"{listens} -> {tg.get('TargetGroupName') or 'target group'}"
+                        if state and state != "healthy":
+                            detail += f" ({state})"
+                        out.append(Connection(arn, hit, "invokes", detail))
 
         elif r.type in ("AWS::CloudFront::Distribution", "AWS::Cloudfront::Distribution"):
             dist = p.get("DistributionConfig") or {}
@@ -1248,6 +1315,10 @@ class ProjectEmitter:
                     out.append(Connection(arn, role["Arn"], "role", "profile role"))
 
         elif r.type == "AWS::RDS::DBInstance":
+            for sn in (p.get("DBSubnetGroup") or {}).get("Subnets") or []:
+                subnet = self._resolve(sn.get("SubnetIdentifier") or "", identifiers)
+                if subnet:
+                    out.append(Connection(arn, subnet, "vpc", "in subnet group"))
             for sg in p.get("VpcSecurityGroups") or []:
                 target = self._resolve(sg.get("VpcSecurityGroupId") or "", identifiers)
                 if target:
@@ -1284,7 +1355,7 @@ class ProjectEmitter:
             "AWS::EC2::NatGateway": {"VpcId", "SubnetId"},
             "AWS::EC2::RouteTable": {"VpcId"},
             "AWS::EC2::VPCEndpoint": {"VpcId"},
-            "AWS::EC2::Instance": {"VpcId", "SubnetId"},
+            "AWS::EC2::Instance": {"VpcId", "SubnetId", "KeyName"},
             "AWS::EC2::Snapshot": {"VolumeId"},
             "AWS::EC2::EIP": {"InstanceId"},
             "AWS::RDS::DBInstance": {"KmsKeyId"},
@@ -1294,7 +1365,7 @@ class ProjectEmitter:
                     "logGroupName", "Name", "stateMachineArn", "VpcId", "GroupId", "ARN",
                     "InstanceId", "SubnetId", "InternetGatewayId", "NatGatewayId", "RouteTableId",
                     "VpcEndpointId", "VolumeId", "SnapshotId", "AllocationId", "KeyId", "Arn",
-                    "LoadBalancerArn", "CertificateArn", "DBInstanceArn", "Id",
+                    "LoadBalancerArn", "CertificateArn", "DBInstanceArn", "Id", "KeyPairId", "KeyName",
                     # DNS names and addresses, so records and origins resolve.
                     "DomainName", "DNSName", "PublicDnsName", "PublicIpAddress", "PublicIp"):
             if p.get(key):
