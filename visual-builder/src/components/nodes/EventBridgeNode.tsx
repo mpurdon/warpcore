@@ -4,6 +4,8 @@ import NodeWrapper from './NodeWrapper';
 import BidirectionalHandles from './BidirectionalHandles';
 
 interface EventBridgeNodeData {
+  /** Set on a discovered resource. */
+  arn?: string;
   meta?: { note?: string };
   label: string;
   status?: NodeStatus;
@@ -26,7 +28,7 @@ export default function EventBridgeNode({ id, data, selected }: Props) {
   const hasCustomName = !!data.config?.name;
 
   return (
-    <NodeWrapper nodeId={id} selected={selected} status={data.status} note={data.meta?.note}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status} note={data.meta?.note} arn={data.arn}>
       <div className={`node-inner px-4 py-3 min-w-[160px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

@@ -971,6 +971,13 @@ class ProjectEmitter:
                     cfg[dst] = p[src]
             if (p.get("State") or {}).get("Name"):
                 cfg["state"] = p["State"]["Name"]
+            if p.get("KeyName"):
+                cfg["keyName"] = p["KeyName"]
+            profile_arn = (p.get("IamInstanceProfile") or {}).get("Arn")
+            if profile_arn:
+                cfg["instanceProfile"] = profile_arn.rsplit("/", 1)[-1]
+            if (p.get("MetadataOptions") or {}).get("HttpTokens"):
+                cfg["imdsv2"] = p["MetadataOptions"]["HttpTokens"] == "required"
             return cfg
 
         if canvas_type == "subnet":

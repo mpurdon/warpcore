@@ -6,6 +6,15 @@ import { clearDir, joinPath } from '../../utils/host';
 import { useAppPaths } from '../../utils/useAppPaths';
 import { Field, PathRow, SectionHeader, Select, SmallButton, SubHeader, useDirUsage } from './primitives';
 
+const ASSISTANT_OPTIONS: { label: string; value: '' | 'anthropic' | 'openai' | 'bedrock' | 'local' }[] = [
+  { label: 'None - rules only', value: '' },
+  { label: 'Anthropic', value: 'anthropic' },
+  { label: 'OpenAI', value: 'openai' },
+  { label: 'Amazon Bedrock', value: 'bedrock' },
+  { label: 'Local', value: 'local' },
+];
+const ASSISTANT_DEFAULTS: Record<string, string> = { anthropic: 'claude-opus-5', openai: 'gpt-4', bedrock: 'anthropic.claude-opus-5', local: 'llama2' };
+
 const CACHE_OPTIONS = [
   { label: 'Off - always rescan', value: 0 },
   { label: '15 minutes', value: 15 },
@@ -68,6 +77,26 @@ export default function ExplorationSection() {
         <Select value={prefs.scanCacheMinutes} onChange={(v) => setPref('scanCacheMinutes', v)} options={CACHE_OPTIONS} />
       </Field>
 
+      <SubHeader title="Assistant" hint="optional" />
+      <Field
+        label="Model provider"
+        description="Ranks the findings of a review for this account and says why each matters here. The rules run without it. Credentials come from the environment the CLI runs in; nothing is stored here."
+      >
+        <Select value={prefs.assistantProvider} onChange={(v) => setPref('assistantProvider', v)} options={ASSISTANT_OPTIONS} />
+      </Field>
+      {prefs.assistantProvider && (
+        <Field label="Model" description="Leave empty for the provider's default.">
+          <input
+            type="text"
+            value={prefs.assistantModel}
+            onChange={(e) => setPref('assistantModel', e.target.value)}
+            placeholder={ASSISTANT_DEFAULTS[prefs.assistantProvider] || ''}
+            className="w-56 px-2 py-1 text-sm border border-gray-300 rounded font-mono"
+          />
+        </Field>
+      )}
+
+      <SubHeader title="Scanning" />
       <Field
         label="Regions scanned at once"
         description="Higher is faster until AWS starts throttling. The CLI backs off on throttling either way; this is the ceiling."

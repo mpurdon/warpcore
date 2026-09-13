@@ -49,6 +49,15 @@ export interface Preferences {
   lens: Lens;
   /** Whether the Activity drawer stays open between runs. */
   activityOpen: boolean;
+  /**
+   * The model that ranks findings and writes the sentence a rule cannot.
+   * Empty means none: the rules run on their own. Credentials come from the
+   * environment the CLI runs in (ANTHROPIC_API_KEY, OPENAI_API_KEY, AWS for
+   * Bedrock); the app never stores a key.
+   */
+  assistantProvider: '' | 'anthropic' | 'openai' | 'bedrock' | 'local';
+  /** Model name for the provider; empty means the provider's default. */
+  assistantModel: string;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -62,6 +71,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   layers: { ...DEFAULT_LAYERS },
   lens: DEFAULT_LENS,
   activityOpen: false,
+  assistantProvider: '',
+  assistantModel: '',
 };
 
 export function getPreferences(): Preferences {

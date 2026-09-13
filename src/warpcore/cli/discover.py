@@ -19,6 +19,7 @@ from warpcore.discovery.config_emitter import NAME_RE, ConfigEmitter
 from warpcore.discovery.project_emitter import ProjectEmitter, select_resources
 from warpcore.discovery.detail import ResourceDetailReader
 from warpcore.discovery.connect import ConnectAdvisor
+from warpcore.discovery.findings import ProjectReviewer
 from warpcore.discovery.inventory import enabled_regions, scan_account
 from warpcore.utils.progress import PHASE, RESULT, ProgressEmitter, ndjson_writer
 from warpcore.state.manager import StateManager
@@ -439,6 +440,70 @@ def connect(ctx, arn, region, no_ip_check, as_json):
         console.print("\n[yellow]No way in from here.[/yellow]")
     for note in plan.notes:
         console.print(f"[dim]{note}[/dim]")
+
+
+@discover.command("findings")
+@click.option("--config", "config_path", default="warpcore.yaml", show_default=True,
+              help="The project whose canvas to review")
+@click.option("--hours", type=int, default=24, show_default=True, help="Metric window")
+@click.option("--llm-provider", type=click.Choice(["anthropic", "openai", "bedrock", "local"]),
+              help="Ask a model to rank the findings and say why each matters here")
+@click.option("--llm-model", help="Model name for the provider")
+@click.option("--parallelism", type=int, default=6, show_default=True, help="Resources read at once")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a list")
+@click.pass_context
+def findings(ctx, config_path, hours, llm_provider, llm_model, parallelism, as_json):
+    """What is wrong, wasteful or fragile, judged from what the resources are doing.
+
+    Reads the canvas in warpcore.yaml, pulls each metered resource's metrics,
+    runs the rules, and (with --llm-provider) has a model rank the result.
+    """
+    path = Path(config_path)
+    if not path.exists():
+        console.print(f"[red]No such file:[/red] {config_path}")
+        sys.exit(1)
+    data = yaml.safe_load(path.read_text()) or {}
+    nodes = ((data.get("canvas") or {}).get("nodes")) or []
+    if not nodes:
+        console.print("[yellow]The project has no canvas to review.[/yellow]")
+        sys.exit(1)
+
+    # The environment block knows the profile and region when the operator gave none.
+    envs = data.get("environments") or {}
+    first_env = next(iter(envs.values()), {}) if isinstance(envs, dict) else {}
+    if not ctx.obj.get("profile") and first_env.get("profile"):
+        ctx.obj["profile"] = first_env["profile"]
+    region = ctx.obj.get("region") or first_env.get("region") or (data.get("project") or {}).get("region")
+    scanner, _credentials, resolved_region = _scanner(ctx, region, "discovered", "dev")
+
+    llm = None
+    if llm_provider:
+        from warpcore.agentic.llm_client import LLMClient, LLMProvider
+        llm = LLMClient(provider=LLMProvider(llm_provider), model=llm_model)
+        if llm.client is None:
+            console.print(f"[yellow]The {llm_provider} client could not be initialised; reviewing without a model.[/yellow]")
+            llm = None
+
+    review = ProjectReviewer(scanner.session, resolved_region, llm=llm, parallelism=parallelism).review(nodes, hours=hours)
+
+    if as_json:
+        click.echo(json.dumps(review.to_dict(), indent=2, default=str))
+        return
+
+    if review.summary:
+        console.print(f"[bold]{review.summary}[/bold]\n")
+    for f in review.findings:
+        colour = {"high": "red", "medium": "yellow", "low": "dim"}.get(f.severity, "white")
+        console.print(f"[{colour}]{f.severity:6}[/{colour}] [bold]{f.title}[/bold] [dim]({f.kind})[/dim]")
+        console.print(f"       {f.detail}")
+        if f.why:
+            console.print(f"       [italic]{f.why}[/italic]")
+        if f.suggestion:
+            console.print(f"       [dim]-> {f.suggestion}[/dim]")
+    for note in review.notes:
+        console.print(f"[dim]{note}[/dim]")
+    for section, err in review.errors.items():
+        console.print(f"[yellow]{section}: {err}[/yellow]")
 
 
 @discover.command("detail")

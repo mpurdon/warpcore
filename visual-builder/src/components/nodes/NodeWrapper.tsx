@@ -10,6 +10,7 @@ import { NodeStatus, useReadOnly, useStore } from '../../store/useStore';
 import { badgeLabel, badgeTone } from '../../utils/scenarios';
 import { useScenarioMarks } from '../../hooks/useCanvasView';
 import { estimateCost, formatCost } from '../../utils/costEstimation';
+import { SEVERITY_COLOR, worst } from '../../utils/findings';
 
 interface Props {
   nodeId: string;
@@ -21,6 +22,8 @@ interface Props {
   costNode?: { type?: string; data: any };
   /** A note on the resource (meta.note): a marker on the card, the text in the inspector. */
   note?: string;
+  /** The AWS ARN, for a discovered resource: findings from the last review are keyed by it. */
+  arn?: string;
 }
 
 export const STATUS_DOT: Record<NodeStatus, { color: string; label: string; pulse?: boolean }> = {
@@ -33,12 +36,15 @@ export const STATUS_DOT: Record<NodeStatus, { color: string; label: string; puls
   present: { color: '#d1d5db', label: 'Exists in the account; health unknown' },
 };
 
-export default function NodeWrapper({ nodeId, selected, children, className = '', status, costNode, note }: Props) {
+export default function NodeWrapper({ nodeId, selected, children, className = '', status, costNode, note, arn }: Props) {
   const [isHovered, setIsHovered] = useState(false);
   const setSelectedNode = useStore((s) => s.setSelectedNode);
   const lens = useStore((s) => s.lens);
   const executionsPerMonth = useStore((s) => s.executionsPerMonth);
   const readOnly = useReadOnly();
+  // Findings from the last review that name this resource.
+  const findings = useStore((s) => (arn ? s.reviewByArn.get(arn) : undefined));
+  const worstSeverity = worst(findings);
   // The scenario on show, if any: step numbers, the node's state at the
   // playhead, and whether it is a log group being written to.
   const marks = useScenarioMarks();
@@ -84,6 +90,15 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
       {logging && (
         <span className="scn-writing" title="Receiving log lines (synthetic)">
           <span /><span /><span />
+        </span>
+      )}
+      {findings && findings.length > 0 && worstSeverity && (
+        <span
+          className="node-finding-marker"
+          style={{ backgroundColor: SEVERITY_COLOR[worstSeverity] }}
+          title={findings.map((f) => `${f.severity}: ${f.title}`).join('\n')}
+        >
+          {findings.length}
         </span>
       )}
       {note && (

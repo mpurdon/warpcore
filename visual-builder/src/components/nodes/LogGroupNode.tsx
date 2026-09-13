@@ -5,6 +5,8 @@ import BidirectionalHandles from './BidirectionalHandles';
 import ResourceNode from './ResourceNode';
 
 interface LogGroupNodeData {
+  /** Set on a discovered resource. */
+  arn?: string;
   label: string;
   status?: NodeStatus;
   meta?: { compact?: boolean; note?: string; [key: string]: unknown };
@@ -62,7 +64,7 @@ export default function LogGroupNode({ id, data, selected }: Props) {
   const hasPath = !!logPath;
 
   return (
-    <NodeWrapper nodeId={id} selected={selected} status={data.status} note={data.meta?.note}>
+    <NodeWrapper nodeId={id} selected={selected} status={data.status} note={data.meta?.note} arn={data.arn}>
       <div className={`node-inner px-4 py-3 min-w-[180px] ${statusClass}`}>
         <BidirectionalHandles nodeId={id} />
 

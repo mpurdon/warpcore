@@ -505,6 +505,23 @@ code {
 .scn-badge.active { background: #2563eb; }
 .scn-badge.pending { background: #9ca3af; }
 .scn-badge.failed { background: #dc2626; }
+/* Findings from the last review: a count, coloured by the worst of them. */
+.node-finding-marker {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  z-index: 12;
+  box-shadow: 0 0 0 2px #fff;
+}
 /* A resource carrying a note. */
 .node-note-marker {
   position: absolute;

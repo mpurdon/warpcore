@@ -5,11 +5,12 @@
 // §5.3 and UX_PLAN.md §3.6: one light chrome, colour only for state and for
 // the two actions that change AWS.
 
-import { Play, Trash2, LibraryBig, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon, Box } from 'lucide-react';
+import { Play, Trash2, LibraryBig, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon, Box, ClipboardCheck } from 'lucide-react';
 import { useCurrentEnvName, useStore } from '../store/useStore';
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import HolodeckDrawer from './HolodeckDrawer';
+import FindingsDrawer from './FindingsDrawer';
 import FileMenu from './FileMenu';
 import EnvironmentSelector from './EnvironmentSelector';
 import ProjectDiscoveryPanel from './ProjectDiscoveryPanel';
@@ -58,7 +59,9 @@ export default function Toolbar() {
     openDialog,
     closeDialog,
     setPaletteOpen,
+    review,
   } = useStore();
+  const reviewCount = review?.findings.filter((f) => f.severity !== 'low').length ?? 0;
 
   const { paths: appInfo } = useAppPaths();
   const envName = useCurrentEnvName();
@@ -166,6 +169,14 @@ export default function Toolbar() {
           <span className="hidden 2xl:inline">Explore</span>
         </button>
 
+        {configPath && (
+          <button onClick={() => openDialog('findings')} className={quiet} title="Review: what the resources are doing, and what is wrong, wasteful or fragile">
+            <ClipboardCheck size={15} />
+            <span className="hidden 2xl:inline">Review</span>
+            {reviewCount > 0 && <span className="ml-0.5 px-1.5 rounded-full bg-red-100 text-red-800 text-[10px] font-semibold">{reviewCount}</span>}
+          </button>
+        )}
+
         <button onClick={() => openDialog('holodeck')} className={quiet} title="The Holodeck: systems to walk through with scenarios, and copy to work from">
           <LibraryBig size={15} />
           <span className="hidden 2xl:inline">Holodeck</span>
@@ -228,6 +239,7 @@ export default function Toolbar() {
       </div>
 
       {dialog === 'holodeck' && <HolodeckDrawer onClose={closeDialog} />}
+      {dialog === 'findings' && <FindingsDrawer onClose={closeDialog} />}
       {dialog === 'shortcuts' && <ShortcutsHelp onClose={closeDialog} />}
 
       <AccountExplorerPanel isOpen={dialog === 'explorer'} onClose={closeDialog} />

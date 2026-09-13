@@ -68,8 +68,8 @@ class LLMClient:
         """Get default model for provider."""
         defaults = {
             LLMProvider.OPENAI: "gpt-4",
-            LLMProvider.ANTHROPIC: "claude-3-sonnet-20240229",
-            LLMProvider.BEDROCK: "anthropic.claude-3-sonnet-20240229-v1:0",
+            LLMProvider.ANTHROPIC: "claude-opus-5",
+            LLMProvider.BEDROCK: "anthropic.claude-opus-5",
             LLMProvider.LOCAL: "llama2"
         }
         return defaults.get(self.provider, "gpt-4")
@@ -85,12 +85,11 @@ class LLMClient:
                 import openai
                 return openai.OpenAI(api_key=self.api_key)
             elif self.provider == LLMProvider.ANTHROPIC:
-                # Only initialize if API key is available
-                if not self.api_key:
-                    self.logger.warning("Anthropic API key not found - using fallback analysis")
-                    return None
+                # The SDK resolves credentials itself: ANTHROPIC_API_KEY, an
+                # auth token, or an `ant auth login` profile. An explicit key
+                # is only injected when one was given.
                 import anthropic
-                return anthropic.Anthropic(api_key=self.api_key)
+                return anthropic.Anthropic(api_key=self.api_key) if self.api_key else anthropic.Anthropic()
             elif self.provider == LLMProvider.BEDROCK:
                 import boto3
                 return boto3.client('bedrock-runtime')
@@ -239,12 +238,14 @@ class LLMClient:
         elif self.provider == LLMProvider.ANTHROPIC:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=2000,
+                max_tokens=16000,
+                system="You are an AWS infrastructure expert helping an operator understand and fix their account.",
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
             )
-            return response.content[0].text
+            # Content is a list of blocks; thinking blocks come before text.
+            return "".join(block.text for block in response.content if block.type == "text")
         
         elif self.provider == LLMProvider.BEDROCK:
             import json

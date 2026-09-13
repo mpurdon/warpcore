@@ -16,6 +16,7 @@ import ScenarioRow from './ScenarioRow';
 import ExpertView from './ExpertView';
 import LiveSection from './LiveSection';
 import ConnectSection from './ConnectSection';
+import FindingsSection from './FindingsSection';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot, Tone } from './InspectorHeader';
 
 type Tab = 'overview' | 'execution' | 'raw';
@@ -232,6 +233,7 @@ export default function NodeInspector({ node }: { node: Node }) {
             </Section>
           )}
 
+          {node.data?.arn && <FindingsSection node={node} />}
           {node.data?.arn && <LiveSection node={node} />}
           {node.data?.arn && node.type === 'ec2-instance' && <ConnectSection node={node} />}
 

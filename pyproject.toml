@@ -37,6 +37,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The model behind `discover findings --llm-provider anthropic` and the
+# agentic commands. Optional: without it the rules run on their own.
+ai = [
+    "anthropic>=1.0.0,<2",
+]
 dev = [
     "pytest>=7.4.0,<10",
     # moto 5 renamed the decorators to a single mock_aws; the tests use it.

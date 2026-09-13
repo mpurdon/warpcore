@@ -1086,6 +1086,32 @@ async fn resource_detail(profile: String, arn: String, hours: u32) -> Result<Str
     .await
 }
 
+/// What is wrong, wasteful or fragile in the open project, judged from what
+/// its resources are doing. Returns the CLI's JSON verbatim.
+#[tauri::command]
+async fn project_findings(
+    profile: String,
+    config_path: String,
+    hours: u32,
+    llm_provider: Option<String>,
+    llm_model: Option<String>,
+) -> Result<String, String> {
+    let hours = hours.to_string();
+    let mut args: Vec<&str> = vec![
+        "--profile", &profile,
+        "discover", "findings", "--config", &config_path, "--hours", &hours, "--json",
+    ];
+    if let Some(provider) = llm_provider.as_deref().filter(|p| !p.is_empty()) {
+        args.push("--llm-provider");
+        args.push(provider);
+    }
+    if let Some(model) = llm_model.as_deref().filter(|m| !m.is_empty()) {
+        args.push("--llm-model");
+        args.push(model);
+    }
+    run_warpcore_json(&args).await
+}
+
 /// How to reach an instance from this machine: the checks and the command,
 /// by ARN. Advice only; nothing is opened.
 #[tauri::command]
@@ -1545,6 +1571,7 @@ fn main() {
             resource_detail,
             instance_connect,
             open_connect_session,
+            project_findings,
             cancel_scan,
             list_regions,
             app_paths,

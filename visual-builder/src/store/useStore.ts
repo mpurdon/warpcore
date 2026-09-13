@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Node, Edge } from 'reactflow';
 import { getPreferences, setPreference, Preferences } from '../utils/preferences';
 import { Layer } from '../utils/layers';
+import { Finding, findingsByArn, Review } from '../utils/findings';
 import { Lens, LENS_LAYERS } from '../utils/lenses';
 import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
 import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
@@ -16,7 +17,7 @@ export const SETTINGS_SECTIONS = [
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Task dialogs. One at a time; they are modal because they run a job. */
-export type Dialog = 'holodeck' | 'explorer' | 'discovery' | 'shortcuts';
+export type Dialog = 'holodeck' | 'explorer' | 'discovery' | 'shortcuts' | 'findings';
 
 /**
  * A project as the store holds it: what `loadProject` puts on the canvas
@@ -466,6 +467,15 @@ interface StoreState {
   // open the same thing.
   dialog: Dialog | null;
   openDialog: (dialog: Dialog) => void;
+
+  // The last review of the open project (utils/findings.ts): the drawer
+  // lists it, cards and the inspector wear it. Session-only; a new project
+  // clears it.
+  review: Review | null;
+  reviewByArn: Map<string, Finding[]>;
+  reviewBusy: boolean;
+  setReview: (review: Review | null) => void;
+  setReviewBusy: (busy: boolean) => void;
   closeDialog: () => void;
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
@@ -823,7 +833,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ holodeck: null, holodeckPreview: false, previewStash: null });
     return stash;
   },
-  loadProject: (project) => set({ ...projectPatch(project), holodeckPreview: false, previewStash: null }),
+  loadProject: (project) => set({ ...projectPatch(project), holodeckPreview: false, previewStash: null, review: null, reviewByArn: new Map() }),
   snapshotProject: () => snapshotOf(get()),
   fitPending: false,
   clearFitPending: () => set({ fitPending: false }),
@@ -845,6 +855,11 @@ export const useStore = create<StoreState>((set, get) => ({
   // Dialogs and the palette
   dialog: null,
   openDialog: (dialog) => set({ dialog, paletteOpen: false }),
+  review: null,
+  reviewByArn: new Map(),
+  reviewBusy: false,
+  setReview: (review) => set({ review, reviewByArn: findingsByArn(review) }),
+  setReviewBusy: (reviewBusy) => set({ reviewBusy }),
   closeDialog: () => set({ dialog: null }),
   paletteOpen: false,
   setPaletteOpen: (open) => set({ paletteOpen: open }),
