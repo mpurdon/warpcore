@@ -188,7 +188,9 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
       // file, then open it through the one loading path everything else uses.
       const built = buildCanvas(project);
       const envConfig: EnvironmentConfig = environmentFromTemplate(template, envName.trim());
-      const extras = { [envKey]: { account: project.environment.account, region: project.environment.region } };
+      // Account, region and the profile that reaches them: what any later
+      // live call (detail, metrics, findings) needs to find this environment.
+      const extras = { [envKey]: { account: project.environment.account, region: project.environment.region, profile } };
       const yaml = generateYAMLFromCanvas(built.nodes, built.edges, 100000, { [envKey]: envConfig }, extras, name);
       const path = joinPath(projectDir, 'warpcore.yaml');
       await invoke('write_config_file', { path, content: yaml });

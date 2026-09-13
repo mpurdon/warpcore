@@ -99,3 +99,23 @@ def test_unsupported_type_reports_a_note_rather_than_failing():
     )
     assert usage.metrics == []
     assert any("no usage metrics" in n.lower() for n in usage.notes)
+
+
+class TestSeriesPoints:
+    def test_points_are_kept_oldest_first(self):
+        series = _reader()._read_metric(
+            cloudwatch=_cloudwatch([{"Average": 3.0}, {"Average": 1.0}, {"Average": 2.0}]),
+            namespace="AWS/EC2", metric_name="CPUUtilization", statistic="Average",
+            unit="Percent", dimensions=[], start=datetime.utcnow(),
+            end=datetime.utcnow(), period=300,
+        )
+        # _cloudwatch stamps the first value as now, the next as an hour ago...
+        assert [v for _, v in series.points] == [2.0, 1.0, 3.0]
+        assert all(isinstance(t, str) and "T" in t for t, _ in series.points)
+        assert series.latest == 3.0
+
+
+class TestDimensions:
+    def test_alb_metrics_key_on_the_arn_tail(self):
+        arn = "arn:aws:elasticloadbalancing:us-east-1:1:loadbalancer/app/web/50dc6c495c0c9188"
+        assert _reader()._dimension_value("AWS::ElasticLoadBalancingV2::LoadBalancer", "web", arn) == "app/web/50dc6c495c0c9188"

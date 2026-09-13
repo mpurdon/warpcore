@@ -192,3 +192,30 @@ class TestEnvironmentVariableRedaction:
         path = tmp_path / "warpcore.yaml"
         path.write_text(_yaml.safe_dump(result.config, sort_keys=False))
         Config(str(path)).load()
+
+
+def test_a_project_with_resources_but_no_agents_is_valid(tmp_path):
+    """An imported account may run no agents; the CLI must still load it."""
+    path = tmp_path / "warpcore.yaml"
+    path.write_text(yaml.safe_dump({
+        "project": {"name": "imported", "region": "us-east-1"},
+        "agents": [],
+        "resources": [{"name": "web", "type": "ec2-instance", "config": {}}],
+        "environments": {"dev": {"name": "dev", "account": "123456789012", "region": "us-east-1", "profile": "team"}},
+    }))
+    config = Config(str(path))
+    config.load()
+    assert config.agents == []
+    assert config.get_environment("dev").profile == "team"
+
+
+def test_a_project_with_neither_agents_nor_resources_is_rejected(tmp_path):
+    from warpcore.config.parser import ConfigValidationError
+    path = tmp_path / "warpcore.yaml"
+    path.write_text(yaml.safe_dump({
+        "project": {"name": "empty", "region": "us-east-1"},
+        "agents": [],
+        "environments": {"dev": {"name": "dev", "account": "123456789012", "region": "us-east-1"}},
+    }))
+    with pytest.raises(ConfigValidationError):
+        Config(str(path)).load()

@@ -14,6 +14,8 @@ import ExecutionLogPanel from '../ExecutionLogPanel';
 import { canBeStep } from '../../utils/scenarios';
 import ScenarioRow from './ScenarioRow';
 import ExpertView from './ExpertView';
+import LiveSection from './LiveSection';
+import ConnectSection from './ConnectSection';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot, Tone } from './InspectorHeader';
 
 type Tab = 'overview' | 'execution' | 'raw';
@@ -230,11 +232,13 @@ export default function NodeInspector({ node }: { node: Node }) {
             </Section>
           )}
 
+          {node.data?.arn && <LiveSection node={node} />}
+          {node.data?.arn && node.type === 'ec2-instance' && <ConnectSection node={node} />}
+
           {node.data?.arn && (
             <Section title="In AWS" hint={node.data?.region || 'global'}>
               <Fact label="ARN" value={node.data.arn} mono />
               {node.data?.region && <Fact label="Region" value={node.data.region} mono />}
-              <p className="text-[11px] text-gray-500 mt-1">Discovered from the account; the Explorer has its full detail, metrics and logs.</p>
             </Section>
           )}
 

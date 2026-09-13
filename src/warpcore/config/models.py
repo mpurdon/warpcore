@@ -190,6 +190,9 @@ class EnvironmentConfig(BaseModel):
     name: str = Field(..., min_length=1)
     account: str = Field(..., pattern="^[0-9]{12}$")
     region: str = Field(..., min_length=1)
+    # The AWS profile that reaches this environment. Written by the Visual
+    # Builder's account import; used when a command is given no --profile.
+    profile: Optional[str] = None
     vpc: Optional[VPCConfig] = None
     tags: Dict[str, str] = Field(default_factory=dict)
 

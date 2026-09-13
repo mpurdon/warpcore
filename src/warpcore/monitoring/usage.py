@@ -8,7 +8,7 @@ not working".
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
@@ -34,6 +34,9 @@ class MetricSeries:
     latest: Optional[float] = None
     datapoints: int = 0
     error: Optional[str] = None
+    # The series itself, oldest first, as (ISO timestamp, value): what a
+    # sparkline needs, which the summary numbers cannot give back.
+    points: List[Tuple[str, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -120,6 +123,25 @@ _METRIC_SPECS: Dict[str, List[tuple]] = {
         ("AWS/EBS", "VolumeWriteOps", "Sum", "Count"),
         ("AWS/EBS", "VolumeQueueLength", "Average", "Count"),
     ],
+    "AWS::RDS::DBInstance": [
+        ("AWS/RDS", "CPUUtilization", "Average", "Percent"),
+        ("AWS/RDS", "DatabaseConnections", "Maximum", "Count"),
+        ("AWS/RDS", "FreeableMemory", "Minimum", "Bytes"),
+        ("AWS/RDS", "FreeStorageSpace", "Minimum", "Bytes"),
+        ("AWS/RDS", "ReadIOPS", "Average", "Count/Second"),
+        ("AWS/RDS", "WriteIOPS", "Average", "Count/Second"),
+        ("AWS/RDS", "ReadLatency", "Average", "Seconds"),
+        ("AWS/RDS", "WriteLatency", "Average", "Seconds"),
+    ],
+    "AWS::ElasticLoadBalancingV2::LoadBalancer": [
+        ("AWS/ApplicationELB", "RequestCount", "Sum", "Count"),
+        ("AWS/ApplicationELB", "TargetResponseTime", "Average", "Seconds"),
+        ("AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "Sum", "Count"),
+        ("AWS/ApplicationELB", "HTTPCode_ELB_5XX_Count", "Sum", "Count"),
+        ("AWS/ApplicationELB", "HealthyHostCount", "Minimum", "Count"),
+        ("AWS/ApplicationELB", "UnHealthyHostCount", "Maximum", "Count"),
+        ("AWS/ApplicationELB", "ActiveConnectionCount", "Sum", "Count"),
+    ],
     "AWS::S3::Bucket": [
         # Storage metrics are daily; the reader widens the period for them.
         ("AWS/S3", "BucketSizeBytes", "Average", "Bytes"),
@@ -149,6 +171,9 @@ _DIMENSION_NAMES = {
     "AWS::EC2::Volume": "VolumeId",
     "AWS::S3::Bucket": "BucketName",
     "AWS::Logs::LogGroup": "LogGroupName",
+    "AWS::RDS::DBInstance": "DBInstanceIdentifier",
+    # ALB metrics key on the ARN's tail: app/<name>/<id>.
+    "AWS::ElasticLoadBalancingV2::LoadBalancer": "LoadBalancer",
 }
 
 
@@ -233,6 +258,10 @@ class ResourceUsageReader:
             # SQS metrics use the bare queue name, not the URL that the SQS
             # API itself wants.
             return parsed.resource_id
+        if resource_type == "AWS::ElasticLoadBalancingV2::LoadBalancer":
+            # arn:...:loadbalancer/app/<name>/<id> -> app/<name>/<id>
+            tail = physical_id.split(":loadbalancer/", 1)
+            return tail[1] if len(tail) == 2 else physical_id
         return service_identifier(physical_id)
 
     def _read_metric(
@@ -280,6 +309,10 @@ class ResourceUsageReader:
         series.average = sum(values) / len(values)
         series.maximum = max(values)
         series.latest = values[-1]
+        series.points = [
+            (d["Timestamp"].isoformat() if hasattr(d["Timestamp"], "isoformat") else str(d["Timestamp"]), float(d[statistic]))
+            for d in datapoints
+        ]
         return series
 
     def _read_recent_errors(

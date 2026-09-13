@@ -240,7 +240,7 @@ def debug_resource(ctx, resource_id, environment, config_path, hours,
         "state_properties": resource.properties,
     }
 
-    manager = AWSClientManager(profile=ctx.obj.get("profile"), region=region)
+    manager = AWSClientManager(profile=ctx.obj.get("profile") or env_config.profile, region=region)
     session = get_dev_mode().attach_session(manager.session)
 
     live: Optional[Dict[str, Any]] = None
@@ -270,7 +270,8 @@ def debug_resource(ctx, resource_id, environment, config_path, hours,
             "metrics": [
                 {"name": m.name, "statistic": m.statistic, "unit": m.unit,
                  "total": m.total, "average": m.average, "maximum": m.maximum,
-                 "datapoints": m.datapoints, "error": m.error}
+                 "datapoints": m.datapoints, "error": m.error,
+                 "points": [{"t": t, "v": v} for t, v in m.points]}
                 for m in usage.metrics
             ],
             "recent_errors": [

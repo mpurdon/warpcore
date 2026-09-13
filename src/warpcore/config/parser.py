@@ -107,8 +107,12 @@ class Config:
 
         if "agents" not in self.data:
             errors.append({"loc": ["agents"], "msg": "Required field 'agents' is missing"})
-        elif not isinstance(self.data["agents"], list) or len(self.data["agents"]) == 0:
-            errors.append({"loc": ["agents"], "msg": "At least one agent must be defined"})
+        elif not isinstance(self.data["agents"], list):
+            errors.append({"loc": ["agents"], "msg": "'agents' must be a list"})
+        elif len(self.data["agents"]) == 0 and not self.data.get("resources"):
+            # An imported account may run no agents at all; it still has
+            # resources to inspect, debug and plan against.
+            errors.append({"loc": ["agents"], "msg": "At least one agent or resource must be defined"})
 
         # Validate project configuration
         if "project" in self.data:

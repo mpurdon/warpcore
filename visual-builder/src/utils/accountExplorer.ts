@@ -83,6 +83,8 @@ export interface MetricSeries {
   latest: number | null;
   datapoints: number;
   error: string | null;
+  /** The series itself, oldest first: what a sparkline draws. */
+  points?: { t: string; v: number }[];
 }
 
 export interface LogEvent {
@@ -111,6 +113,8 @@ export interface ResourceDetail {
   network: NetworkDetail | null;
   related: RelatedResource[];
   cost_hint: string | null;
+  /** What the service says right now, in the import's terms. */
+  health?: { level: 'ok' | 'warn' | 'unknown'; reason: string } | null;
   notes: string[];
   errors: Record<string, string>;
 }
@@ -492,4 +496,22 @@ export function formatMetric(value: number | null | undefined, unit: string): st
   if (unit === 'Percent') return `${value.toFixed(1)}%`;
   if (unit === 'Milliseconds') return `${value.toFixed(0)} ms`;
   return value >= 1000 ? value.toLocaleString(undefined, { maximumFractionDigits: 0 }) : value.toFixed(2);
+}
+
+/**
+ * The profile that reaches the open project's current environment: what the
+ * account import recorded on the environment block, else the preferred
+ * profile. Null when nothing is known, so a caller can ask rather than guess.
+ */
+export function projectProfile(
+  environmentExtras: Record<string, Record<string, unknown>>,
+  environment: string,
+): string | null {
+  const recorded = environmentExtras[environment]?.profile;
+  if (typeof recorded === 'string' && recorded) return recorded;
+  try {
+    return getPreferences().defaultProfile || localStorage.getItem(LAST_PROFILE_KEY) || null;
+  } catch {
+    return null;
+  }
 }

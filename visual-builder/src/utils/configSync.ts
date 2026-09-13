@@ -298,12 +298,14 @@ export function generateYAMLFromCanvas(
     }
   }
 
-  // Check for VPC nodes
-  const hasVPC = nodes.some(node => node.type === 'vpc');
-  if (hasVPC) {
+  // The VPC block: a discovered VPC keeps its real CIDR; a drawn one gets
+  // the default until it is configured.
+  const vpcNode = nodes.find(node => node.type === 'vpc');
+  if (vpcNode) {
+    const cidr = vpcNode.data?.config?.cidrBlock || vpcNode.data?.config?.cidr;
     config.shared!.vpc = {
       enabled: true,
-      cidr: '10.0.0.0/16',
+      cidr: typeof cidr === 'string' && cidr ? cidr : '10.0.0.0/16',
     };
   }
 

@@ -91,6 +91,9 @@ class ResourceDetail:
     network: Optional[NetworkDetail] = None
     related: List[Related] = field(default_factory=list)
     cost_hint: Optional[str] = None
+    # What the service says about the resource's state right now, in the
+    # same terms the import used, so the canvas can compare then and now.
+    health: Optional[Dict[str, str]] = None
     notes: List[str] = field(default_factory=list)
     errors: Dict[str, str] = field(default_factory=dict)   # section -> why
 
@@ -105,7 +108,8 @@ class ResourceDetail:
                 "series": [
                     {"name": m.name, "statistic": m.statistic, "unit": m.unit,
                      "total": m.total, "average": m.average, "maximum": m.maximum,
-                     "latest": m.latest, "datapoints": m.datapoints, "error": m.error}
+                     "latest": m.latest, "datapoints": m.datapoints, "error": m.error,
+                     "points": [{"t": t, "v": v} for t, v in m.points]}
                     for m in self.metrics.metrics
                 ],
                 "notes": self.metrics.notes,
@@ -142,6 +146,9 @@ class ResourceDetailReader:
         )
 
         self._section(detail, "configuration", lambda: self._configuration(detail, resource_type, arn))
+        if detail.configuration:
+            from warpcore.discovery.project_emitter import resource_health
+            detail.health = resource_health(resource_type, detail.configuration)
         if not detail.tags:
             self._section(detail, "tags", lambda: self._tags(detail))
 
