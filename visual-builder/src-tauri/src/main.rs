@@ -1086,6 +1086,69 @@ async fn resource_detail(profile: String, arn: String, hours: u32) -> Result<Str
     .await
 }
 
+/// How to reach an instance from this machine: the checks and the command,
+/// by ARN. Advice only; nothing is opened.
+#[tauri::command]
+async fn instance_connect(profile: String, arn: String) -> Result<String, String> {
+    run_warpcore_json(&["--profile", &profile, "discover", "connect", &arn, "--json"]).await
+}
+
+/// Open the composed connect command in the user's terminal. The command is
+/// recomputed here from the ARN rather than accepted from the webview, so
+/// the only strings that reach a shell are the ones the advisor composed.
+#[tauri::command]
+async fn open_connect_session(profile: String, arn: String) -> Result<String, String> {
+    let raw = run_warpcore_json(&["--profile", &profile, "discover", "connect", &arn, "--json"]).await?;
+    let plan: serde_json::Value = serde_json::from_str(&raw).map_err(|e| format!("connect plan was not JSON: {e}"))?;
+    let command = plan["command"]
+        .as_str()
+        .filter(|c| !c.is_empty())
+        .ok_or_else(|| "No way in from here; see the checks.".to_string())?;
+    open_in_terminal(command)?;
+    Ok(command.to_string())
+}
+
+/// Run a command in a fresh terminal window, the platform's own way.
+fn open_in_terminal(command: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // AppleScript string: escape backslashes and double quotes.
+        let escaped = command.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!("tell application \"Terminal\"\nactivate\ndo script \"{escaped}\"\nend tell");
+        let status = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .status()
+            .map_err(|e| format!("could not run osascript: {e}"))?;
+        return if status.success() { Ok(()) } else { Err("Terminal did not accept the command".to_string()) };
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let shell = format!("{command}; exec $SHELL");
+        for (bin, args) in [
+            ("x-terminal-emulator", vec!["-e", "bash", "-c", shell.as_str()]),
+            ("gnome-terminal", vec!["--", "bash", "-c", shell.as_str()]),
+            ("konsole", vec!["-e", "bash", "-c", shell.as_str()]),
+            ("xterm", vec!["-e", "bash", "-c", shell.as_str()]),
+        ] {
+            if std::process::Command::new(bin).args(&args).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        return Err("No terminal emulator found (tried x-terminal-emulator, gnome-terminal, konsole, xterm)".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "cmd", "/K", command])
+            .spawn()
+            .map_err(|e| format!("could not open a terminal: {e}"))?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err("Opening a terminal is not supported on this platform".to_string())
+}
+
 // ------------------------------------------------------------- workstation
 //
 // Commands about this machine rather than about AWS: where the app keeps its
@@ -1480,6 +1543,8 @@ fn main() {
             list_aws_profiles,
             discover_account,
             resource_detail,
+            instance_connect,
+            open_connect_session,
             cancel_scan,
             list_regions,
             app_paths,

@@ -18,6 +18,7 @@ from warpcore.discovery.adopt import ResourceAdopter
 from warpcore.discovery.config_emitter import NAME_RE, ConfigEmitter
 from warpcore.discovery.project_emitter import ProjectEmitter, select_resources
 from warpcore.discovery.detail import ResourceDetailReader
+from warpcore.discovery.connect import ConnectAdvisor
 from warpcore.discovery.inventory import enabled_regions, scan_account
 from warpcore.utils.progress import PHASE, RESULT, ProgressEmitter, ndjson_writer
 from warpcore.state.manager import StateManager
@@ -398,6 +399,46 @@ def adopt(ctx, environment, config_path, region, scope, stack,
         "\nRun [cyan]warpcore diff --env "
         f"{environment}[/cyan] to see how they compare to your config."
     )
+
+
+@discover.command("connect")
+@click.argument("arn")
+@click.option("--region", help="Region; inferred from the ARN when it carries one")
+@click.option("--no-ip-check", is_flag=True, help="Do not look up this machine's public address")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a checklist")
+@click.pass_context
+def connect(ctx, arn, region, no_ip_check, as_json):
+    """How to reach an instance from here: the checks, and the command that would work.
+
+    Advises only; never opens a session.
+    """
+    from warpcore.utils.arn import parse_arn
+
+    parsed = parse_arn(arn)
+    if parsed is None or parsed.service != "ec2" or "instance/" not in arn:
+        console.print(f"[red]Not an EC2 instance ARN:[/red] {arn}")
+        sys.exit(1)
+
+    resolved_region = region or ctx.obj.get("region") or (parsed.region or None)
+    scanner, _credentials, resolved_region = _scanner(ctx, resolved_region, "discovered", "dev")
+    plan = ConnectAdvisor(
+        scanner.session, resolved_region, profile=ctx.obj.get("profile"), lookup_my_ip=not no_ip_check,
+    ).plan(arn)
+
+    if as_json:
+        click.echo(json.dumps(plan.to_dict(), indent=2, default=str))
+        return
+
+    console.print(f"[bold]{plan.name}[/bold] [dim]{plan.instance_id} · {plan.state or 'unknown'}[/dim]")
+    for check in plan.checks:
+        mark = "[green]✓[/green]" if check.ok else "[red]✗[/red]" if check.ok is False else "[yellow]?[/yellow]"
+        console.print(f"  {mark} {check.label}[dim] · {check.detail}[/dim]")
+    if plan.command:
+        console.print(f"\n[cyan]{plan.command}[/cyan]")
+    else:
+        console.print("\n[yellow]No way in from here.[/yellow]")
+    for note in plan.notes:
+        console.print(f"[dim]{note}[/dim]")
 
 
 @discover.command("detail")
