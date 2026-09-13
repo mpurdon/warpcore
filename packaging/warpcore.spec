@@ -12,7 +12,7 @@ machine needs no Python. This exists mainly for two reasons:
 Build with: pyinstaller packaging/warpcore.spec --noconfirm
 """
 
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 # SPECPATH is injected by PyInstaller; deriving the root from it means the
 # spec works regardless of the directory the build is invoked from.
@@ -20,6 +20,16 @@ import os
 ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 
 datas = []
+
+
+def optional_submodules(package):
+    """Every submodule of an optional dependency, or nothing when it is absent."""
+    try:
+        __import__(package)
+    except ImportError:
+        return []
+    return collect_submodules(package)
+
 
 # devmode._warpcore_version() calls importlib.metadata.version("warpcore").
 # Without the dist-info the lookup raises and the version silently degrades to
@@ -34,9 +44,11 @@ a = Analysis(
     hiddenimports=[
         # Click subcommands are imported eagerly by cli.main, but the agentic
         # LLM providers are imported lazily inside _initialize_client and would
-        # otherwise be missed. They are optional at runtime; listing them here
-        # is harmless when absent.
+        # otherwise be missed. They are optional at runtime; when the SDK is
+        # installed in the build environment it ships, otherwise the provider
+        # reports itself unavailable.
         "warpcore.cli.main",
+        *optional_submodules("anthropic"),
     ],
     hookspath=[],
     hooksconfig={},

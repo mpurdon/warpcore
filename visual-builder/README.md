@@ -234,6 +234,80 @@ tile for what more than one application uses.
   parent: a paperclip count on the node, and an "Attached" section in the
   inspector.
 
+### Live: what a resource is doing right now
+
+Every imported card has a **Live** section in the inspector. It reads on
+request, not on selection, because each read is a handful of AWS calls
+(`warpcore discover detail`), and is cached per window once read.
+
+- **Now beside then.** The service's current state next to the state the
+  import recorded, so a host that has stopped since shows as drift without
+  a re-import.
+- **Headline metrics.** A strip of sparkline tiles for the two to four
+  metrics that say how busy the thing is: CPU and network for an instance,
+  bytes and connections for a NAT gateway, invocations, errors and duration
+  for a function, connections and free storage for a database.
+- **The Explorer's tabs.** Overview, network (placement, rules with the
+  world-open ones in red, routes, flow logs), metrics with sparklines, logs,
+  related. The same component the Account Explorer's drawer uses.
+
+The profile these calls use is the one recorded on the environment block by
+the import; a project imported before that was recorded falls back to the
+default profile in Settings.
+
+### Connect: how to reach an instance
+
+An instance's inspector has a **Connect** section. *How do I reach this?*
+runs `warpcore discover connect`, which checks what reaching the instance
+from this machine needs and shows each check with a tick or a cross:
+running; Session Manager (an instance profile, and the agent online); the
+key pair on this machine, with the places it looked; the port open to this
+machine's address; and, when there is no public address, a jump host among
+the instances the security groups admit.
+
+It then composes the command that would work: Session Manager first, then
+SSH, then SSH through the bastion as a `ProxyCommand`. **Copy** puts it on
+the clipboard; **Open in Terminal** recomputes it in the backend from the
+ARN and opens it in a terminal window, so the page never hands a shell
+string across. When a check fails, the notes say what would fix it.
+
+### Review: what is wrong, wasteful or fragile
+
+**Review** in the toolbar runs `warpcore discover findings` over the open
+project: every metered resource's CloudWatch metrics over a window, then
+the rules. Idle hosts (CPU under 5% peak and 2% average), NAT gateways that
+carried almost nothing, ports open to the world weighed against the traffic
+that actually arrived, stopped instances still billing their volumes, no
+instance profile for Session Manager, IMDSv1, old snapshots, log groups that
+never expire, failing or throttled functions, databases nobody connects to.
+
+Every finding carries its evidence and a suggestion. The drawer lists them
+by severity and kind; click one and the canvas selects the resource. Cards
+the review names wear a count badge coloured by their worst finding, and
+the inspector's **Findings** section shows each one with its evidence.
+
+### The assistant
+
+A model is optional and never in the path that builds the picture. Choose a
+provider in Settings › Exploration › Assistant (Anthropic, OpenAI, Bedrock
+or a local model); credentials come from the environment the CLI runs in
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, AWS for Bedrock) and the app stores
+none. The Anthropic SDK is an optional extra: `pip install "warpcore[ai]"`.
+
+With one configured, three things happen, each checked by the deterministic
+side:
+
+- **Review** hands the findings and the canvas to the model, which ranks
+  them for this account and writes one or two sentences on why each matters
+  here. It cannot add or drop a finding; if it fails, the rules' order stands.
+- **Import** asks the model to name application tiles whose every member was
+  placed by a guess (a component named after its busiest member or an AWS
+  id). The inspector says *named by the assistant* and why.
+- **Draft with assistant**, in a project's Scenarios section or an empty
+  scenario, asks for a scenario over the graph and the hops the checker
+  allows. The draft is added like any other scenario and every hop the
+  wiring cannot ground shows as a problem.
+
 ### Scenarios: play a request through the system
 
 A **scenario** is a named event played step by step through the resources
