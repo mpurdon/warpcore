@@ -20,6 +20,7 @@ from warpcore.discovery.project_emitter import ProjectEmitter, select_resources
 from warpcore.discovery.detail import ResourceDetailReader
 from warpcore.discovery.connect import ConnectAdvisor
 from warpcore.discovery.findings import ProjectReviewer
+from warpcore.discovery.suggest import draft_scenario, suggest_names
 from warpcore.discovery.inventory import enabled_regions, scan_account
 from warpcore.utils.progress import PHASE, RESULT, ProgressEmitter, ndjson_writer
 from warpcore.state.manager import StateManager
@@ -504,6 +505,37 @@ def findings(ctx, config_path, hours, llm_provider, llm_model, parallelism, as_j
         console.print(f"[dim]{note}[/dim]")
     for section, err in review.errors.items():
         console.print(f"[yellow]{section}: {err}[/yellow]")
+
+
+@discover.command("suggest")
+@click.argument("kind", type=click.Choice(["names", "scenario"]))
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="JSON describing the clusters or the graph")
+@click.option("--llm-provider", type=click.Choice(["anthropic", "openai", "bedrock", "local"]), required=True)
+@click.option("--llm-model", help="Model name for the provider")
+@click.option("--ask", default="", help="What the operator asked for, for a scenario")
+@click.pass_context
+def suggest(ctx, kind, input_path, llm_provider, llm_model, ask):
+    """Ask the configured model for names or a scenario draft over the canvas's facts. JSON in, JSON out.
+
+    Makes no AWS calls; the input carries everything the model sees.
+    """
+    from warpcore.agentic.llm_client import LLMClient, LLMProvider
+
+    data = json.loads(Path(input_path).read_text())
+    llm = LLMClient(provider=LLMProvider(llm_provider), model=llm_model)
+    if llm.client is None:
+        console.print(f"[red]The {llm_provider} client could not be initialised.[/red] Is its SDK installed and a credential set?")
+        sys.exit(1)
+    try:
+        if kind == "names":
+            result = suggest_names(llm, data.get("clusters") or [], str(data.get("project_name") or "project"))
+        else:
+            result = draft_scenario(llm, data, ask)
+    except Exception as e:  # noqa: BLE001 - the app shows the message
+        console.print(f"[red]The model's answer could not be used:[/red] {e}")
+        sys.exit(1)
+    click.echo(json.dumps(result, indent=2, default=str))
 
 
 @discover.command("detail")

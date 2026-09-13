@@ -16,6 +16,7 @@ import { AccountInventory, cancelScan, isCancellation, shortType, useScanProgres
 import { generateYAMLFromCanvas } from '../utils/configSync';
 import { joinPath } from '../utils/host';
 import { layersToReveal } from '../utils/layers';
+import { applyNames, assistantConfig, suggestNames, unnamedClusters } from '../utils/assistant';
 import {
   AccountProject, baselineExcludes, buildCanvas, createProjectFromAccount, hasOwnNode, selectResources, slug,
 } from '../utils/projectFromAccount';
@@ -118,7 +119,7 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
   const [phase, setPhase] = useState<Phase>('form');
   const scan = useScanProgress(phase === 'running');
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ project: AccountProject; path: string; dropped: number } | null>(null);
+  const [result, setResult] = useState<{ project: AccountProject; path: string; dropped: number; named: number; namingError: string | null } | null>(null);
 
   // ---- live preview over the inventory already in hand
   const baseExclude = useMemo(() => [...exclude, ...(hideBaseline ? baselineExcludes() : [])], [exclude, hideBaseline]);
@@ -187,6 +188,23 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
       // Build the canvas, attach the environment this account is, write the
       // file, then open it through the one loading path everything else uses.
       const built = buildCanvas(project);
+      // Clusters the rules could not name get a name from the assistant,
+      // when one is configured; a failure there keeps the rules' names.
+      let named = 0;
+      let namingError: string | null = null;
+      const assistant = assistantConfig();
+      if (assistant) {
+        const unnamed = unnamedClusters(built.nodes);
+        if (unnamed.length) {
+          try {
+            const names = await suggestNames(unnamed, name, assistant);
+            built.nodes = applyNames(built.nodes, names);
+            named = names.length;
+          } catch (e) {
+            namingError = String(e);
+          }
+        }
+      }
       const envConfig: EnvironmentConfig = environmentFromTemplate(template, envName.trim());
       // Account, region and the profile that reaches them: what any later
       // live call (detail, metrics, findings) needs to find this environment.
@@ -201,7 +219,7 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
       const { layers, setLayer } = useStore.getState();
       for (const layer of layersToReveal(built.edges.map((e) => e.data?.meta?.layer), layers)) setLayer(layer, true);
 
-      setResult({ project, path, dropped: built.droppedConnections });
+      setResult({ project, path, dropped: built.droppedConnections, named, namingError });
       setPhase('done');
     } catch (e) {
       if (isCancellation(e)) { setPhase('form'); return; }
@@ -460,6 +478,8 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
                     : 'Not registered in deployment state: a Deploy would create new copies.'}
                   {result.project.counts.excluded > 0 && ` ${result.project.counts.excluded} excluded by your patterns.`}
                   {result.project.counts.skipped > 0 && ` ${result.project.counts.skipped} left out.`}
+                  {result.named > 0 && ` ${result.named} application${result.named === 1 ? '' : 's'} named by the assistant.`}
+                  {result.namingError && ` The assistant could not name the applications: ${result.namingError}`}
                 </div>
               </div>
             </div>

@@ -1112,6 +1112,44 @@ async fn project_findings(
     run_warpcore_json(&args).await
 }
 
+/// Ask the configured model for names or a scenario draft over the canvas's
+/// facts. The input is written to a file under ~/.warpcore/cache/assistant
+/// for the CLI to read, so a large graph never rides the command line.
+#[tauri::command]
+async fn assistant_suggest(
+    kind: String,
+    input: String,
+    llm_provider: String,
+    llm_model: Option<String>,
+    ask: Option<String>,
+) -> Result<String, String> {
+    if kind != "names" && kind != "scenario" {
+        return Err(format!("unknown suggestion kind: {kind}"));
+    }
+    let dir = home_dir()?.join(".warpcore").join("cache").join("assistant");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("{kind}-{stamp}.json"));
+    std::fs::write(&path, input).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    let path_str = path.to_string_lossy().into_owned();
+    let mut args: Vec<&str> = vec!["discover", "suggest", &kind, "--input", &path_str, "--llm-provider", &llm_provider];
+    if let Some(model) = llm_model.as_deref().filter(|m| !m.is_empty()) {
+        args.push("--llm-model");
+        args.push(model);
+    }
+    let ask_text = ask.unwrap_or_default();
+    if !ask_text.is_empty() {
+        args.push("--ask");
+        args.push(&ask_text);
+    }
+    let result = run_warpcore_json(&args).await;
+    let _ = std::fs::remove_file(&path);
+    result
+}
+
 /// How to reach an instance from this machine: the checks and the command,
 /// by ARN. Advice only; nothing is opened.
 #[tauri::command]
@@ -1572,6 +1610,7 @@ fn main() {
             instance_connect,
             open_connect_session,
             project_findings,
+            assistant_suggest,
             cancel_scan,
             list_regions,
             app_paths,

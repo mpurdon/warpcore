@@ -12,6 +12,7 @@ import {
   canBeStep, checkScenario, clockFor, formatTakes, hopIndex, logLinesUpTo, modelledTimeMs, parseTakes, outcomeLabel, Scenario, ScenarioStep, StepOutcome, stepFails, suggestPath,
 } from '../../utils/scenarios';
 import InspectorHeader, { Fact, Section, StatusDot } from './InspectorHeader';
+import DraftScenarioButton from './DraftScenarioButton';
 
 const LEVEL_CLASS: Record<string, string> = {
   START: 'text-gray-400', END: 'text-gray-400', REPORT: 'text-gray-400', INFO: 'text-emerald-300', WARN: 'text-amber-300', ERROR: 'text-red-300',
@@ -165,10 +166,15 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
           {scenario.steps.length === 0 && (
             <div className="text-xs text-gray-600 space-y-2">
               <p>No steps yet. {readOnly ? 'Unlock the project to record or draft them.' : 'Press Record and click resources in order, or let the graph propose a path.'}</p>
-              {!readOnly && suggested && (
-                <button onClick={suggest} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-200 text-gray-800 hover:bg-gray-50">
-                  <Wand2 size={12} /> Suggest a path from {name(scenario.trigger.at)}
-                </button>
+              {!readOnly && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {suggested && (
+                    <button onClick={suggest} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-200 text-gray-800 hover:bg-gray-50">
+                      <Wand2 size={12} /> Suggest a path from {name(scenario.trigger.at)}
+                    </button>
+                  )}
+                  <DraftScenarioButton scenarioId={scenario.id} />
+                </div>
               )}
             </div>
           )}

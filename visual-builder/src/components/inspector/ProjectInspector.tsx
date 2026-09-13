@@ -12,6 +12,7 @@ import { useReadOnly, useStore } from '../../store/useStore';
 import { EXECUTION_STEPS, estimateCost, formatCost, formatExecutions } from '../../utils/costEstimation';
 import RolesPanel from '../RolesPanel';
 import ScenarioRow from './ScenarioRow';
+import DraftScenarioButton from './DraftScenarioButton';
 import { checkScenario, hopIndex } from '../../utils/scenarios';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot } from './InspectorHeader';
 
@@ -128,14 +129,17 @@ export default function ProjectInspector() {
                 trailing={<>{sc.steps.length} {sc.steps.length === 1 ? 'step' : 'steps'} <StatusDot tone={scenarioTones.get(sc.id) ?? 'muted'} label="" /></>}
               />
             ))}
-            <button
-              onClick={() => newScenario()}
-              disabled={readOnly || nodes.length === 0}
-              className="mt-1 inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-200 text-gray-800 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-              title={readOnly ? 'Unlock the project to add scenarios' : 'New scenario'}
-            >
-              <Plus size={12} /> New scenario
-            </button>
+            <div className="mt-1 flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => newScenario()}
+                disabled={readOnly || nodes.length === 0}
+                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-200 text-gray-800 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={readOnly ? 'Unlock the project to add scenarios' : 'New scenario'}
+              >
+                <Plus size={12} /> New scenario
+              </button>
+              <DraftScenarioButton />
+            </div>
           </Section>
 
           <Section title="Cost" hint="estimate">
