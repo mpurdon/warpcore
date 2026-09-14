@@ -14,12 +14,12 @@ import ExecutionLogPanel from '../ExecutionLogPanel';
 import { canBeStep } from '../../utils/scenarios';
 import ScenarioRow from './ScenarioRow';
 import ExpertView from './ExpertView';
-import LiveSection from './LiveSection';
+import LiveTab from './LiveTab';
 import ConnectSection from './ConnectSection';
 import FindingsSection from './FindingsSection';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot, Tone } from './InspectorHeader';
 
-type Tab = 'overview' | 'execution' | 'raw';
+type Tab = 'overview' | 'live' | 'execution' | 'raw';
 
 const STATUS: Record<NodeStatus, { tone: Tone; label: string; pulse?: boolean }> = {
   draft: { tone: 'muted', label: 'not configured' },
@@ -35,7 +35,9 @@ export default function NodeInspector({ node }: { node: Node }) {
   const { nodes, edges, executionsPerMonth, setEditingNode, selectNode, executionLogs, scenarios, newScenario, setNodes } = useStore();
   const through = useMemo(() => scenarios.filter((sc) => sc.trigger.at === node.id || sc.steps.some((st) => st.at === node.id)), [scenarios, node.id]);
   const readOnly = useReadOnly();
-  const [tab, setTab] = useState<Tab>('overview');
+  const [chosenTab, setTab] = useState<Tab>('overview');
+  // Live exists only for a discovered resource; a drawn one shows Overview.
+  const tab: Tab = chosenTab === 'live' && !node.data?.arn ? 'overview' : chosenTab;
   const status = (node.data?.status as NodeStatus | undefined) ?? 'draft';
   const s = STATUS[status] ?? STATUS.draft;
   const log = executionLogs.get(node.id);
@@ -114,6 +116,7 @@ export default function NodeInspector({ node }: { node: Node }) {
       <InspectorTabs<Tab>
         tabs={[
           { id: 'overview', label: 'Overview' },
+          ...(node.data?.arn ? [{ id: 'live' as Tab, label: 'Live' }] : []),
           { id: 'execution', label: log ? 'Execution' : 'Execution · none' },
           { id: 'raw', label: 'Raw' },
         ]}
@@ -234,13 +237,13 @@ export default function NodeInspector({ node }: { node: Node }) {
           )}
 
           {node.data?.arn && <FindingsSection node={node} />}
-          {node.data?.arn && <LiveSection node={node} />}
           {node.data?.arn && node.type === 'ec2-instance' && <ConnectSection node={node} />}
 
           {node.data?.arn && (
             <Section title="In AWS" hint={node.data?.region || 'global'}>
               <Fact label="ARN" value={node.data.arn} mono />
               {node.data?.region && <Fact label="Region" value={node.data.region} mono />}
+              <button onClick={() => setTab('live')} className="text-xs text-blue-700 hover:underline mt-1">State, metrics, network and logs in the Live tab</button>
             </Section>
           )}
 
@@ -297,6 +300,8 @@ export default function NodeInspector({ node }: { node: Node }) {
           )}
         </div>
       )}
+
+      {tab === 'live' && <LiveTab node={node} />}
 
       {tab === 'execution' && (
         <div className="flex-1 min-h-0 flex flex-col">

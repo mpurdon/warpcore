@@ -236,9 +236,10 @@ tile for what more than one application uses.
 
 ### Live: what a resource is doing right now
 
-Every imported card has a **Live** section in the inspector. It reads on
-request, not on selection, because each read is a handful of AWS calls
-(`warpcore discover detail`), and is cached per window once read.
+Every imported card has a **Live** tab in the inspector, beside Overview,
+Execution and Raw. Opening the tab is the request: it reads then, not on
+selection, because each read is a handful of AWS calls (`warpcore discover
+detail`), and is cached per window once read.
 
 - **Now beside then.** The service's current state next to the state the
   import recorded, so a host that has stopped since shows as drift without
