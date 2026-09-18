@@ -106,3 +106,38 @@ def test_a_broken_model_reply_leaves_the_rules_output_standing():
 
 def test_parse_json_tolerates_prose_around_the_object():
     assert _parse_json('Sure: {"a": 1} hope that helps') == {"a": 1}
+
+
+def test_mutes_take_findings_out_of_the_counts_but_not_the_list(tmp_path):
+    from warpcore.discovery.findings import apply_mutes, group_by_resource, read_mutes, remove_mute, write_mute, Review
+    host = _node("host", "ec2-instance", config={"state": "stopped", "instanceType": "t2.large"}, meta={"attachments": [{"type": "ebs-volume", "detail": "8 GiB · gp2"}]})
+    nat = _node("nat", "nat-gateway", config={"name": "nat-1"})
+    usage = {nat["arn"]: _usage(nat["arn"], BytesOutToDestination_Sum=100)}
+    review = Review(window_hours=24, findings=review_nodes([host, nat], usage, 24))
+    write_mute(tmp_path, "stopped:host", "decommission scheduled for October")
+    assert read_mutes(tmp_path)["stopped:host"]["reason"] == "decommission scheduled for October"
+    apply_mutes(review, read_mutes(tmp_path))
+    by_id = {f.id: f for f in review.findings}
+    assert by_id["stopped:host"].status == "muted" and by_id["stopped:host"].mute_reason == "decommission scheduled for October"
+    assert [f.id for f in review.open()] == ["quiet-nat:nat"]
+    groups = group_by_resource(review.findings, [host, nat])
+    assert [g.arn for g in groups] == [nat["arn"]]
+    assert groups[0].savings_usd_month == 32.0 and groups[0].effort == "config"
+    assert remove_mute(tmp_path, "stopped:host") is True and read_mutes(tmp_path) == {}
+    # The mute file is something a team can commit.
+    assert (tmp_path / ".warpcore" / "findings-mutes.yaml").exists()
+
+
+def test_a_resource_with_several_findings_is_one_group_with_the_worst_severity_and_least_effort():
+    sg = _node("sg-1", "security-group", config={"inboundRules": ["tcp 9005 from 0.0.0.0/0"], "openToWorld": True, "memberCount": 1})
+    host = _node("host", "ec2-instance", config={"state": "running", "instanceType": "t2.large", "publicIp": "3.1.1.1"},
+                 meta={"securityGroups": [{"id": "sg-1", "name": "web"}]})
+    usage = {host["arn"]: _usage(host["arn"], CPUUtilization_Average=0.2, CPUUtilization_Maximum=1.1, NetworkIn_Sum=2000, StatusCheckFailed_Maximum=0)}
+    findings = review_nodes([sg, host], usage, 24)
+    from warpcore.discovery.findings import group_by_resource
+    groups = group_by_resource(findings, [sg, host])
+    assert len(groups) == 1
+    g = groups[0]
+    assert g.node_id == "host" and g.severity == "high" and g.effort == "none"
+    assert set(g.finding_ids) == {"exposed:host", "idle:host", "no-ssm:host"}
+    assert {f.id: f.effort for f in findings}["idle:host"] == "restart"

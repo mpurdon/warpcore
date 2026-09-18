@@ -1165,6 +1165,21 @@ async fn run_warpcore_json_in(dir: &Path, args: &[&str]) -> Result<String, Strin
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Accept a finding with a reason, or put it back. Written to the project's
+/// .warpcore/findings-mutes.yaml, which the team can commit.
+#[tauri::command]
+async fn mute_finding(config_path: String, finding_id: String, reason: Option<String>, unmute: bool) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&config_path);
+    let dir = path.parent().ok_or_else(|| format!("{config_path} has no directory"))?.to_path_buf();
+    let why = reason.unwrap_or_default();
+    let args: Vec<&str> = if unmute {
+        vec!["discover", "unmute", &finding_id, "--config", &config_path]
+    } else {
+        vec!["discover", "mute", &finding_id, "--reason", &why, "--config", &config_path]
+    };
+    run_warpcore_json_in(&dir, &args).await
+}
+
 /// Take over adopted resources: from then on the canvas config is what a
 /// deploy enforces. Returns the CLI's JSON (items and release steps).
 #[tauri::command]
@@ -1643,6 +1658,7 @@ fn main() {
             project_findings,
             assistant_suggest,
             takeover_resources,
+            mute_finding,
             cancel_scan,
             list_regions,
             app_paths,

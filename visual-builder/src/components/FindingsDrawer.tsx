@@ -27,7 +27,7 @@ export async function runReview(hours = 24): Promise<void> {
     const llm = s.prefs.assistantProvider ? { provider: s.prefs.assistantProvider, model: s.prefs.assistantModel } : undefined;
     s.setReview(await fetchFindings(profile, s.configPath, hours, llm));
   } catch (e) {
-    s.setReview({ window_hours: hours, findings: [], summary: null, model: null, notes: [], errors: { review: String(e) }, at: new Date().toISOString() });
+    s.setReview({ window_hours: hours, findings: [], groups: [], summary: null, model: null, notes: [], errors: { review: String(e) }, at: new Date().toISOString() });
   } finally {
     useStore.getState().setReviewBusy(false);
   }

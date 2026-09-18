@@ -283,6 +283,12 @@ def _summarise_access(classes: set) -> str:
 # state that means running, and the reason is carried so the inspector can
 # say where the colour came from.
 
+def _provenance_of(r: Resource) -> Dict[str, Any]:
+    """The provenance attached before emit (discovery/provenance.py), if any."""
+    prov = (r.metadata or {}).get("provenance")
+    return {"provenance": prov} if prov else {}
+
+
 def resource_health(aws_type: str, p: Dict[str, Any]) -> Dict[str, str]:
     def ok(reason: str) -> Dict[str, str]:
         return {"level": "ok", "reason": reason}
@@ -691,6 +697,7 @@ class ProjectEmitter:
             return {
                 "name": aws_name, "type": "lambda", "arn": arn, "region": _region_of(r),
                 "config": config, "tags": user_tags(r), "role_arn": role_arn, "health": health,
+                **_provenance_of(r),
             }
 
         name = sanitize_agent_name(aws_name)
@@ -721,6 +728,7 @@ class ProjectEmitter:
             "name": name, "type": "agent", "arn": arn, "region": _region_of(r),
             "config": config, "tags": user_tags(r), "role_arn": role_arn, "health": health,
             "aws_name": aws_name,
+            **_provenance_of(r),
         }
 
     def _lambda_connections(self, r: Resource, arn: str, identifiers: Dict[str, str]) -> List[Connection]:
@@ -782,6 +790,7 @@ class ProjectEmitter:
         return {
             "name": config["roleName"], "type": "iam-role", "arn": r.physical_id or r.id,
             "region": None, "config": config, "tags": user_tags(r),
+            **_provenance_of(r),
             "inline_policies": props.get("InlinePolicyNames") or [],
             "policy_documents": [d for d in (props.get("PolicyDocuments") or []) if isinstance(d, dict)],
         }
@@ -796,6 +805,7 @@ class ProjectEmitter:
             "config": self._resource_config(r, canvas_type),
             "tags": user_tags(r),
             "health": resource_health(r.type, props),
+            **_provenance_of(r),
             "_props": props,
         }
         policy = props.get("ResourcePolicy") or props.get("KeyPolicy")

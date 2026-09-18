@@ -452,9 +452,10 @@ def connect(ctx, arn, region, no_ip_check, as_json):
               help="Ask a model to rank the findings and say why each matters here")
 @click.option("--llm-model", help="Model name for the provider")
 @click.option("--parallelism", type=int, default=6, show_default=True, help="Resources read at once")
+@click.option("--include-muted", is_flag=True, help="List muted findings too")
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a list")
 @click.pass_context
-def findings(ctx, config_path, hours, llm_provider, llm_model, parallelism, as_json):
+def findings(ctx, config_path, hours, llm_provider, llm_model, parallelism, include_muted, as_json):
     """What is wrong, wasteful or fragile, judged from what the resources are doing.
 
     Reads the canvas in warpcore.yaml, pulls each metered resource's metrics,
@@ -486,7 +487,8 @@ def findings(ctx, config_path, hours, llm_provider, llm_model, parallelism, as_j
             console.print(f"[yellow]The {llm_provider} client could not be initialised; reviewing without a model.[/yellow]")
             llm = None
 
-    review = ProjectReviewer(scanner.session, resolved_region, llm=llm, parallelism=parallelism).review(nodes, hours=hours)
+    review = ProjectReviewer(scanner.session, resolved_region, llm=llm, parallelism=parallelism,
+                             project_dir=path.resolve().parent).review(nodes, hours=hours)
 
     if as_json:
         click.echo(json.dumps(review.to_dict(), indent=2, default=str))
@@ -494,9 +496,14 @@ def findings(ctx, config_path, hours, llm_provider, llm_model, parallelism, as_j
 
     if review.summary:
         console.print(f"[bold]{review.summary}[/bold]\n")
+    muted = [f for f in review.findings if f.status == "muted"]
     for f in review.findings:
+        if f.status == "muted" and not include_muted:
+            continue
         colour = {"high": "red", "medium": "yellow", "low": "dim"}.get(f.severity, "white")
-        console.print(f"[{colour}]{f.severity:6}[/{colour}] [bold]{f.title}[/bold] [dim]({f.kind})[/dim]")
+        extra = f" [dim]· {f.effort}[/dim]" + (f" [green]· saves ~${f.savings_usd_month:.0f}/mo[/green]" if f.savings_usd_month else "")
+        muted_tag = f" [dim](muted: {f.mute_reason})[/dim]" if f.status == "muted" else ""
+        console.print(f"[{colour}]{f.severity:6}[/{colour}] [bold]{f.title}[/bold] [dim]({f.kind})[/dim]{extra}{muted_tag}  [dim]{f.id}[/dim]")
         console.print(f"       {f.detail}")
         if f.why:
             console.print(f"       [italic]{f.why}[/italic]")
@@ -504,8 +511,33 @@ def findings(ctx, config_path, hours, llm_provider, llm_model, parallelism, as_j
             console.print(f"       [dim]-> {f.suggestion}[/dim]")
     for note in review.notes:
         console.print(f"[dim]{note}[/dim]")
+    if muted and not include_muted:
+        console.print(f"[dim]{len(muted)} muted finding(s) not shown; --include-muted lists them.[/dim]")
     for section, err in review.errors.items():
         console.print(f"[yellow]{section}: {err}[/yellow]")
+
+
+@discover.command("mute")
+@click.argument("finding_id")
+@click.option("--reason", required=True, help="Why this finding is accepted; kept with the mute")
+@click.option("--config", "config_path", default="warpcore.yaml", show_default=True)
+def mute(finding_id, reason, config_path):
+    """Accept a finding: it stays in the review, out of the counts, with the reason on record."""
+    from warpcore.discovery.findings import write_mute
+    write_mute(Path(config_path).resolve().parent, finding_id, reason)
+    console.print(f"[green]Muted[/green] {finding_id}: {reason}")
+
+
+@discover.command("unmute")
+@click.argument("finding_id")
+@click.option("--config", "config_path", default="warpcore.yaml", show_default=True)
+def unmute(finding_id, config_path):
+    """Put a muted finding back in the counts."""
+    from warpcore.discovery.findings import remove_mute
+    if remove_mute(Path(config_path).resolve().parent, finding_id):
+        console.print(f"[green]Unmuted[/green] {finding_id}")
+    else:
+        console.print(f"[yellow]{finding_id} was not muted.[/yellow]")
 
 
 @discover.command("suggest")
@@ -537,6 +569,88 @@ def suggest(ctx, kind, input_path, llm_provider, llm_model, ask):
         console.print(f"[red]The model's answer could not be used:[/red] {e}")
         sys.exit(1)
     click.echo(json.dumps(result, indent=2, default=str))
+
+
+def _attach_provenance(session, region, resources, terraform_states, pulumi_states, emitter=None) -> dict:
+    """Provenance for scanned resources: tags and stacks always, state files when given."""
+    from warpcore.discovery.provenance import (
+        StackClassifier, attach_provenance, pulumi_index, read_state_file, sst_apps, sst_v3_index, terraform_index,
+    )
+    indexes = []
+    notes = []
+    for loc in terraform_states or ():
+        try:
+            indexes.append(terraform_index(read_state_file(session, loc)))
+        except Exception as e:  # noqa: BLE001 - a bad path is reported, not fatal
+            notes.append(f"Terraform state {loc}: {e}")
+    for loc in pulumi_states or ():
+        try:
+            indexes.append(pulumi_index(read_state_file(session, loc)))
+        except Exception as e:  # noqa: BLE001
+            notes.append(f"Pulumi state {loc}: {e}")
+    apps = sst_apps(resources)
+    if apps:
+        sst_index, sst_notes = sst_v3_index(session, region, apps)
+        if sst_index:
+            indexes.append(sst_index)
+        notes.extend(sst_notes)
+    counts = attach_provenance(list(resources), classifier=StackClassifier(session, region), indexes=indexes)
+    for n in notes:
+        logger.info("provenance: %s", n)
+        if emitter is not None:
+            emitter.emit(PHASE, phase="provenance", status="note", message=n)
+    counts["_notes"] = notes
+    return counts
+
+
+@discover.command("provenance")
+@click.option("--env", "environment", required=True, help="Environment whose state to annotate")
+@click.option("--config", "config_path", default="warpcore.yaml", show_default=True)
+@click.option("--terraform-state", "terraform_states", multiple=True, help="Terraform/OpenTofu state (path or s3://bucket/key); repeatable")
+@click.option("--pulumi-state", "pulumi_states", multiple=True, help="Pulumi checkpoint or stack export (path or s3://bucket/key); repeatable")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def provenance(ctx, environment, config_path, terraform_states, pulumi_states, as_json):
+    """Work out who deployed the resources in the state: tags, stacks, and any state files given.
+
+    Writes the answer onto each state entry, and lists what nothing manages.
+    """
+    from warpcore.cli.main import get_state_path, load_config
+
+    config = load_config(config_path)
+    env = config.get_environment(environment)
+    if not ctx.obj.get("profile") and env.profile:
+        ctx.obj["profile"] = env.profile
+    state_path = get_state_path(environment, config.project.name)
+    if not state_path.exists():
+        console.print(f"[red]No deployment state for '{environment}'.[/red]")
+        sys.exit(1)
+    scanner, _credentials, region = _scanner(ctx, ctx.obj.get("region") or env.region, config.project.name, environment)
+    manager = StateManager(str(state_path))
+    state = manager.load()
+    resources = [r for _stack, r in state.all_resources()]
+    counts = _attach_provenance(scanner.session, region, resources, terraform_states, pulumi_states)
+    notes = counts.pop("_notes", [])
+    manager.save(state)
+    unmanaged = [r for r in resources if not (r.metadata or {}).get("provenance") and (r.metadata or {}).get("adopted")]
+
+    if as_json:
+        click.echo(json.dumps({
+            "counts": counts, "notes": notes,
+            "unmanaged": [{"id": r.id, "type": r.type, "physical_id": r.physical_id} for r in unmanaged],
+            "resources": [{"id": r.id, "type": r.type, "provenance": (r.metadata or {}).get("provenance")} for r in resources],
+        }, indent=2, default=str))
+        return
+    for m, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        console.print(f"  {n:4}  {m}")
+    if unmanaged:
+        console.print(f"\n[yellow]{len(unmanaged)} resource(s) nothing manages[/yellow] (made by hand, or by a tool whose state was not given):")
+        for r in unmanaged[:40]:
+            console.print(f"    {r.id} [dim]{r.type}[/dim]")
+        if len(unmanaged) > 40:
+            console.print(f"    [dim]... {len(unmanaged) - 40} more[/dim]")
+    for n in notes:
+        console.print(f"[dim]{n}[/dim]")
 
 
 @discover.command("takeover")
@@ -739,10 +853,14 @@ def _fmt_metric(value) -> str:
 @click.option("--parallelism", type=int, default=6, show_default=True, help="Regions scanned at once")
 @click.option("--progress", "stream_progress", is_flag=True,
               help="Stream NDJSON progress to stdout, then a final result event")
+@click.option("--terraform-state", "terraform_states", multiple=True,
+              help="A Terraform/OpenTofu state file (path or s3://bucket/key) whose resources are marked as Terraform's; repeatable")
+@click.option("--pulumi-state", "pulumi_states", multiple=True,
+              help="A Pulumi checkpoint or stack export (path or s3://bucket/key); repeatable")
 @click.option("--json", "as_json", is_flag=True, help="Emit the project as JSON")
 @click.pass_context
 def project(ctx, regions, all_regions, project_name, environment, include, exclude, lambda_as,
-            include_env_values, adopt, max_resources, parallelism, stream_progress, as_json):
+            include_env_values, adopt, max_resources, parallelism, stream_progress, terraform_states, pulumi_states, as_json):
     """Turn an account into a Visual Builder project: resources, relationships, canvas fields."""
     from warpcore.cli.main import get_state_path
 
@@ -823,6 +941,13 @@ def project(ctx, regions, all_regions, project_name, environment, include, exclu
         pulled = {id(r) for r in role_pass}
         dropped = [r for r in dropped if id(r) not in pulled]
 
+    # Who deployed each resource: tags, then the stack that built it, then any
+    # state files the operator pointed at. Recorded on the resource, so it
+    # reaches the canvas and, with --adopt, the deployment state.
+    provenance_counts = _attach_provenance(
+        scanner.session, target_regions[0], selected.get_all_resources(), terraform_states, pulumi_states, emitter,
+    )
+
     result = ProjectEmitter(
         scanned_state=selected,
         project_name=project_name,
@@ -836,6 +961,7 @@ def project(ctx, regions, all_regions, project_name, environment, include, exclu
     payload = result.payload
     payload["counts"]["excluded"] = len(dropped)
     payload["adopted"] = None
+    payload["provenance"] = provenance_counts
 
     if adopt:
         # Local state only; never touches AWS. Keyed by the same path deploy
