@@ -91,6 +91,17 @@ this pass; step 0 is the backend work that turns Deploy from honest into useful.
 
 ### 0. Build the config → resources compiler (backend, next)
 
+[Shipped 2026-09-18: `src/warpcore/orchestrator/compiler.py`. The canvas is
+the source of truth; a hand-written project is lifted into the same shape.
+Discovered resources are observed, never created, updated or deleted; a
+destroy leaves adopted resources alone unless `--include-adopted`. A
+function without code gets a stub. References between resources
+(`orchestrator/refs.py`) resolve against the state and at provision time.
+Deletes run after the waves; a partial failure rolls back by default.
+`diff` shows property changes, whether code redeploys, and IAM actions
+gained or lost. Verified end to end under moto in
+`tests/orchestrator/test_deploy_moto.py`.]
+
 `DeploymentOrchestrator._build_agent_resources` and `_build_shared_resources`:
 
 - Per agent: `AWS::IAM::Role` (`RoleName`, `AssumeRolePolicyDocument`, `InlinePolicies` from

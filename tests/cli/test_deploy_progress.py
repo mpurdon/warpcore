@@ -133,7 +133,10 @@ def test_rich_callback_is_instantiable_and_callable():
 def test_describe_plan_lists_every_change_in_wave_order():
     described = describe_plan(_plan())
     assert [d["id"] for d in described] == ["exec-role", "api-agent"]
-    assert described[0] == {"id": "exec-role", "type": "AWS::IAM::Role", "change": "create", "wave": 0, "reason": None}
+    first = {k: v for k, v in described[0].items() if k in ("id", "type", "change", "wave", "reason")}
+    assert first == {"id": "exec-role", "type": "AWS::IAM::Role", "change": "create", "wave": 0, "reason": None}
+    # The plan carries what each change does, for the Activity drawer.
+    assert set(described[0]) >= {"properties", "code", "iam"}
     assert described[1]["change"] == "update"
     assert described[1]["reason"] == "code changed"
 

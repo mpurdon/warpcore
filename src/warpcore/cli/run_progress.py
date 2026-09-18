@@ -172,11 +172,30 @@ def describe_plan(plan: Any) -> List[Dict[str, Any]]:
             for resource_id in wave.resource_ids:
                 change = wave.get_change(resource_id) or plan.all_changes.get(resource_id)
                 desired = getattr(change, "desired_resource", None) or getattr(change, "current_resource", None)
-                out.append({
+                entry = {
                     "id": resource_id,
                     "type": getattr(desired, "type", None),
                     "change": _status_value(getattr(change, "change_type", None)),
                     "wave": wave.wave_number,
+                    "reason": getattr(change, "reason", None),
+                }
+                if change is not None:
+                    from warpcore.orchestrator.plan_detail import detail_change
+                    d = detail_change(change).to_dict()
+                    entry["properties"] = d["properties"]
+                    entry["code"] = d["code"]
+                    entry["iam"] = d["iam"]
+                out.append(entry)
+        # Deletes run after the waves, so they follow them here.
+        for resource_id, change in plan.all_changes.items():
+            if _status_value(getattr(change, "change_type", None)) == "delete":
+                current = getattr(change, "current_resource", None)
+                out.append({
+                    "id": resource_id,
+                    "type": getattr(current, "type", None),
+                    "physical_id": getattr(current, "physical_id", None),
+                    "change": "delete",
+                    "wave": len(plan.waves) + 1,
                     "reason": getattr(change, "reason", None),
                 })
     elif isinstance(plan, DestructionPlan):

@@ -436,8 +436,9 @@ class AutoRollbackExecutor:
             progress_callback=progress_callback
         )
         
-        # Check if rollback is needed
-        if deployment_result.is_failed():
+        # Check if rollback is needed. A partial run, some resources made
+        # and one failed, is exactly the case a rollback exists for.
+        if deployment_result.is_failed() or getattr(deployment_result, "failed_resources", 0) > 0:
             self.logger.warning("Deployment failed, initiating automatic rollback...")
             
             # Create rollback plan

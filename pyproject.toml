@@ -46,6 +46,8 @@ dev = [
     "pytest>=7.4.0,<10",
     # moto 5 renamed the decorators to a single mock_aws; the tests use it.
     "moto>=5.0.0,<6",
+    # moto's API Gateway v2 backend imports it; the deploy tests create an API.
+    "openapi-spec-validator>=0.7,<1",
     # moto's resourcegroupstaggingapi backend imports its glue backend,
     # which needs pyparsing; moto does not declare it.
     "pyparsing>=3.0.0,<4",

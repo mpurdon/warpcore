@@ -1,5 +1,6 @@
 """Diff command for showing deployment changes without executing."""
 
+import json
 import sys
 
 import click
@@ -9,6 +10,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..orchestrator.planner import DeploymentPlan, ResourceChange
+from ..orchestrator.plan_detail import detail_plan
 from ..provisioners.base import ChangeType
 from ..utils.logging import get_logger
 
@@ -50,9 +52,9 @@ def diff(ctx, env: str, agent: str, config_path: str, json_output: bool):
         plan = orchestrator.plan_deployment(agent_filter=agent)
 
         if json_output:
-            _output_json(plan)
+            _output_json(plan, orchestrator)
         else:
-            _output_rich(plan, env, agent)
+            _output_rich(plan, env, agent, orchestrator)
 
     except SystemExit:
         raise
@@ -75,7 +77,7 @@ def _resource_of(change: ResourceChange):
     return change.desired_resource or change.current_resource
 
 
-def _output_json(plan: DeploymentPlan):
+def _output_json(plan: DeploymentPlan, orchestrator=None):
     """Output diff in JSON format."""
     buckets = {ct: _changes(plan, ct) for ct in _STYLES}
 
@@ -95,6 +97,9 @@ def _output_json(plan: DeploymentPlan):
         ],
         'estimated_duration_seconds': plan.estimated_duration,
         'resources': [],
+        'detail': [d.to_dict() for d in detail_plan(plan)],
+        'notes': list(getattr(orchestrator, 'compile_notes', []) or []),
+        'skipped': list(getattr(orchestrator, 'compile_skipped', []) or []),
     }
 
     for change_type, changes in buckets.items():
@@ -111,7 +116,7 @@ def _output_json(plan: DeploymentPlan):
     console.print_json(data=output)
 
 
-def _output_rich(plan: DeploymentPlan, env: str, agent: str):
+def _output_rich(plan: DeploymentPlan, env: str, agent: str, orchestrator=None):
     """Output diff in rich formatted text."""
     title = f"Deployment Diff for Environment: {env}"
     if agent:
@@ -119,6 +124,18 @@ def _output_rich(plan: DeploymentPlan, env: str, agent: str):
 
     console.print(Panel(title, style="bold blue"))
     console.print()
+
+    for note in getattr(orchestrator, 'compile_notes', []) or []:
+        console.print(f"[yellow]note:[/yellow] {note}")
+    skipped = getattr(orchestrator, 'compile_skipped', []) or []
+    discovered = sum(1 for x in skipped if 'discovered' in x.get('reason', ''))
+    if discovered:
+        console.print(f"[dim]{discovered} discovered resource(s) are observed, not managed.[/dim]")
+    for x in skipped:
+        if 'discovered' not in x.get('reason', ''):
+            console.print(f"[yellow]left out:[/yellow] {x['id']} ({x['type']}): {x['reason']}")
+    if skipped or getattr(orchestrator, 'compile_notes', None):
+        console.print()
 
     buckets = {ct: _changes(plan, ct) for ct in _STYLES}
     counts = [
@@ -162,6 +179,33 @@ def _output_rich(plan: DeploymentPlan, env: str, agent: str):
         console.print(table)
         console.print()
 
+    # Property by property, and what it means for code and permissions.
+    details = [d for d in detail_plan(plan) if d.properties or d.code or (d.iam and (d.iam.added or d.iam.removed))]
+    if details:
+        console.print("[bold]What changes:[/bold]")
+        for d in details:
+            style, marker, _ = _STYLES.get(ChangeType(d.action), ("white", " ", d.action))
+            console.print(f"[{style}]{marker} {d.resource_id}[/{style}] [dim]{d.resource_type or ''}[/dim]")
+            if d.code:
+                word = {"redeploys": "[yellow]code redeploys[/yellow] (package hash differs from the deployed one)",
+                        "unchanged": "[dim]code unchanged[/dim]",
+                        "stub": "[yellow]stub handler[/yellow] (no code path set)"}[d.code]
+                console.print(f"    {word}")
+            for pc in d.properties[:12]:
+                after = _short(pc.after)
+                if d.action == "create":
+                    console.print(f"    [dim]{pc.key}[/dim] = {after}")
+                else:
+                    console.print(f"    [dim]{pc.key}[/dim]: {_short(pc.before)} [dim]->[/dim] {after}")
+            if len(d.properties) > 12:
+                console.print(f"    [dim]... {len(d.properties) - 12} more[/dim]")
+            if d.iam:
+                for actions, resources in d.iam.added:
+                    console.print(f"    [green]+ allow[/green] {', '.join(actions)} [dim]on[/dim] {', '.join(resources)}")
+                for actions, resources in d.iam.removed:
+                    console.print(f"    [red]- allow[/red] {', '.join(actions)} [dim]on[/dim] {', '.join(resources)}")
+        console.print()
+
     if plan.waves:
         console.print(f"[bold]Deployment will execute in {len(plan.waves)} wave(s):[/bold]")
         for wave in plan.waves:
@@ -173,6 +217,11 @@ def _output_rich(plan: DeploymentPlan, env: str, agent: str):
     if plan.estimated_duration:
         minutes, seconds = divmod(plan.estimated_duration, 60)
         console.print(f"[dim]Estimated duration: {minutes}m {seconds}s[/dim]")
+
+
+def _short(value) -> str:
+    text = json.dumps(value, default=str, separators=(",", ":")) if isinstance(value, (dict, list)) else str(value)
+    return text if len(text) <= 80 else text[:77] + "..."
 
 
 def _detail(change: ResourceChange) -> str:

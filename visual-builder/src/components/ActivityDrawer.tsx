@@ -127,6 +127,17 @@ export default function ActivityDrawer() {
                   {run.message}
                 </div>
               )}
+              {run.planned && (run.notes.length > 0 || run.skipped.length > 0) && (
+                <div className="mx-3 mt-2 text-xs rounded border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 space-y-0.5">
+                  {run.notes.map((n) => <div key={n}>{n}</div>)}
+                  {run.skipped.filter((x) => !x.reason.includes('discovered')).map((x) => (
+                    <div key={x.id}><span className="font-mono">{x.id}</span> left out: {x.reason}</div>
+                  ))}
+                  {run.skipped.some((x) => x.reason.includes('discovered')) && (
+                    <div className="text-amber-800/80">{run.skipped.filter((x) => x.reason.includes('discovered')).length} discovered resource(s) are observed, not managed.</div>
+                  )}
+                </div>
+              )}
               {run.planned && run.resources.length === 0 && (
                 <div className="px-4 py-6 text-sm text-gray-600 max-w-2xl">
                   <p className="font-medium text-gray-800">The CLI planned no changes for {run.environment}.</p>
@@ -162,6 +173,7 @@ export default function ActivityDrawer() {
                               {r.id}
                             </button>
                             <span className="block text-[10px] text-gray-400 truncate">{[r.change, r.type?.replace(/^AWS::/, ''), r.reason].filter(Boolean).join(' · ')}</span>
+                            <PlanDetail r={r} />
                           </td>
                           <td className="py-1 pr-3">
                             <div className="relative h-3 bg-gray-100 rounded">
@@ -193,5 +205,33 @@ export default function ActivityDrawer() {
         </div>
       )}
     </div>
+  );
+}
+
+/** What a planned change does: properties, code, permissions. Folded by default. */
+function PlanDetail({ r }: { r: RunResource }) {
+  const props = r.properties ?? [];
+  const iam = r.iam;
+  const has = props.length > 0 || r.code || (iam && (iam.added.length || iam.removed.length));
+  if (!has) return null;
+  const codeWord = r.code === 'redeploys' ? 'code redeploys' : r.code === 'unchanged' ? 'code unchanged' : r.code === 'stub' ? 'stub handler' : null;
+  const short = (v: unknown) => { const t = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v); return t.length > 60 ? t.slice(0, 57) + '…' : t; };
+  return (
+    <details className="mt-0.5">
+      <summary className="text-[10px] text-gray-500 cursor-pointer select-none">
+        {[props.length ? `${props.length} propert${props.length === 1 ? 'y' : 'ies'}` : null, codeWord, iam && iam.added.length ? `+${iam.added.length} allow` : null, iam && iam.removed.length ? `-${iam.removed.length} allow` : null].filter(Boolean).join(' · ')}
+      </summary>
+      <div className="mt-0.5 space-y-0.5 text-[10px] font-mono text-gray-600 max-w-[16rem]">
+        {codeWord && <div className={r.code === 'unchanged' ? 'text-gray-400' : 'text-amber-700'}>{codeWord}</div>}
+        {props.slice(0, 10).map((p) => (
+          <div key={p.key} className="truncate" title={`${p.key}: ${short(p.before)} -> ${short(p.after)}`}>
+            <span className="text-gray-400">{p.key}</span> {r.change === 'create' ? `= ${short(p.after)}` : `${short(p.before)} → ${short(p.after)}`}
+          </div>
+        ))}
+        {props.length > 10 && <div className="text-gray-400">… {props.length - 10} more</div>}
+        {iam?.added.map((a, i) => <div key={`a${i}`} className="text-emerald-700 truncate" title={`${a.actions.join(', ')} on ${a.resources.join(', ')}`}>+ allow {a.actions.join(', ')}</div>)}
+        {iam?.removed.map((a, i) => <div key={`r${i}`} className="text-red-700 truncate" title={`${a.actions.join(', ')} on ${a.resources.join(', ')}`}>- allow {a.actions.join(', ')}</div>)}
+      </div>
+    </details>
   );
 }

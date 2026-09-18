@@ -29,6 +29,12 @@ export interface RunResource {
   /** Seconds, measured by the CLI. */
   duration?: number | null;
   error?: string | null;
+  /** What changes, from the plan (orchestrator/plan_detail.py). */
+  properties?: { key: string; before: unknown; after: unknown }[];
+  /** For a function: whether its code redeploys, is unchanged, or is a stub. */
+  code?: 'redeploys' | 'unchanged' | 'stub' | null;
+  /** For a role: actions gained and lost. */
+  iam?: { added: { actions: string[]; resources: string[] }[]; removed: { actions: string[]; resources: string[] }[] } | null;
 }
 
 export interface RunLine {
@@ -54,6 +60,10 @@ export interface RunState {
   /** A fatal message: the CLI could not start, or died before completing. */
   message?: string;
   output: RunLine[];
+  /** What the compiler said beyond the resources: stubs, unwired triggers. */
+  notes: string[];
+  /** Canvas nodes the deploy left out, and why. */
+  skipped: { id: string; type: string; reason: string }[];
 }
 
 const MAX_OUTPUT_LINES = 2000;
@@ -67,6 +77,8 @@ export function newRun(kind: RunKind, environment: string, now = Date.now()): Ru
     planned: false,
     resources: [],
     counts: { total: 0, successful: 0, failed: 0, skipped: 0 },
+    notes: [],
+    skipped: [],
     output: [],
   };
 }
@@ -103,12 +115,20 @@ export function applyRunEvent(run: RunState, ev: RunEvent, now = Date.now()): Ru
         wave: asNumber(c.wave),
         reason: asString(c.reason) ?? null,
         status: 'planned',
+        properties: Array.isArray(c.properties) ? (c.properties as RunResource['properties']) : undefined,
+        code: (asString(c.code) as RunResource['code']) ?? null,
+        iam: c.iam && typeof c.iam === 'object' ? (c.iam as RunResource['iam']) : null,
       }));
+      const skipped = Array.isArray(ev.skipped)
+        ? (ev.skipped as Record<string, unknown>[]).map((x) => ({ id: String(x.id ?? ''), type: String(x.type ?? ''), reason: String(x.reason ?? '') }))
+        : [];
       return {
         ...run,
         phase: 'running',
         planned: true,
         resources,
+        notes: Array.isArray(ev.notes) ? (ev.notes as unknown[]).map(String) : [],
+        skipped,
         counts: { ...run.counts, total: asNumber(ev.total) ?? resources.length },
       };
     }

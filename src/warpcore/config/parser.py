@@ -109,10 +109,11 @@ class Config:
             errors.append({"loc": ["agents"], "msg": "Required field 'agents' is missing"})
         elif not isinstance(self.data["agents"], list):
             errors.append({"loc": ["agents"], "msg": "'agents' must be a list"})
-        elif len(self.data["agents"]) == 0 and not self.data.get("resources"):
+        elif len(self.data["agents"]) == 0 and not self.data.get("resources") and not (self.data.get("canvas") or {}).get("nodes"):
             # An imported account may run no agents at all; it still has
-            # resources to inspect, debug and plan against.
-            errors.append({"loc": ["agents"], "msg": "At least one agent or resource must be defined"})
+            # resources to inspect, debug and plan against. A canvas alone
+            # is a project too: the compiler reads it directly.
+            errors.append({"loc": ["agents"], "msg": "At least one agent, resource or canvas node must be defined"})
 
         # Validate project configuration
         if "project" in self.data:

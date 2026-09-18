@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from enum import Enum
 
+from warpcore.orchestrator.refs import resolve
 from warpcore.orchestrator.planner import DeploymentPlan, DestructionPlan, ResourceChange
 from warpcore.provisioners.base import BaseProvisioner, ChangeType
 from warpcore.state.models import Resource
@@ -595,11 +596,22 @@ class DeploymentExecutor:
                     tags=change.current_resource.tags
                 )
             
+            # References to other resources (a role's ARN, a queue's ARN)
+            # are filled in from the state now that the dependencies have
+            # been provisioned. One still missing is a real error: the
+            # provisioner would send a placeholder dict to AWS.
+            state_now = self.state_manager.load()
+            properties, unresolved = resolve(resource.properties, state_now.get_resource)
+            if unresolved:
+                raise ProvisioningError(
+                    f"{resource_id} refers to {', '.join(sorted(set(unresolved)))}, which has not been provisioned",
+                    context=ErrorContext(resource_id=resource_id, resource_type=resource.type)
+                )
             desired_prov_resource = ProvisionerResource(
                 id=resource.id,
                 type=resource.type,
                 physical_id=resource.physical_id,
-                properties=resource.properties,
+                properties=properties,
                 dependencies=resource.dependencies,
                 tags=resource.tags
             )
@@ -620,14 +632,16 @@ class DeploymentExecutor:
             ) as audit_record:
                 result_resource = provisioner.provision(plan)
                 
-                # Convert back to state Resource format
+                # Convert back to state Resource format. What warpcore
+                # created is managed: the planner may update or delete it.
                 state_resource = StateResource(
                     id=result_resource.id,
                     type=result_resource.type,
                     physical_id=result_resource.physical_id,
                     properties=result_resource.properties,
                     dependencies=result_resource.dependencies,
-                    tags=result_resource.tags
+                    tags=result_resource.tags,
+                    metadata={**(resource.metadata or {}), "managed": True},
                 )
                 
                 if audit_record is not None:

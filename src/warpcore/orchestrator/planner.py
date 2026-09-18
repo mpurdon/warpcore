@@ -6,10 +6,20 @@ from datetime import datetime
 
 from warpcore.state.models import Resource, State
 from warpcore.orchestrator.dependency_graph import DependencyGraph
+from warpcore.orchestrator.refs import is_ref
 from warpcore.provisioners.base import ChangeType
 from warpcore.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Tags every deploy rewrites; a difference in them is not a change.
+VOLATILE_TAGS = {'warpcore:deployed-at', 'warpcore:deployed-by', 'warpcore:version'}
+
+
+def is_adopted(resource: Resource) -> bool:
+    """Found in the account and registered, but not created by warpcore and not taken over."""
+    meta = resource.metadata or {}
+    return bool(meta.get('adopted')) and not bool(meta.get('managed'))
 
 
 @dataclass
@@ -66,8 +76,9 @@ class DeploymentPlan:
         ]
     
     def has_changes(self) -> bool:
-        """Check if the plan has any changes."""
-        return len(self.all_changes) > 0
+        """Whether anything is created, updated or deleted. Resources that
+        are already as configured are in the plan too, as no-change."""
+        return any(c.change_type is not ChangeType.NO_CHANGE for c in self.all_changes.values())
     
     def get_summary(self) -> Dict[str, int]:
         """Get a summary of changes by type."""
@@ -166,7 +177,8 @@ class DeploymentPlanner:
     def create_destruction_plan(
         self,
         current_state: State,
-        agent_filter: Optional[str] = None
+        agent_filter: Optional[str] = None,
+        include_adopted: bool = False,
     ) -> DestructionPlan:
         """Create a destruction plan for all resources in current state.
         
@@ -179,9 +191,12 @@ class DeploymentPlanner:
         """
         self.logger.info("Creating destruction plan...")
         
-        # Get all resources from state
+        # Get all resources from state. Adopted ones are observed, not
+        # owned: a destroy never touches them unless told to.
         all_resources = {}
         for stack_name, resource in current_state.all_resources():
+            if is_adopted(resource) and not include_adopted:
+                continue
             # Apply agent filter if specified
             if agent_filter:
                 # Check if resource belongs to the filtered agent
@@ -292,6 +307,11 @@ class DeploymentPlanner:
                     agent_tag = current_resource.tags.get('warpcore:agent')
                     if agent_tag != agent_filter:
                         continue
+                # A resource adopted from an account is observed, not owned:
+                # its absence from the configuration is not an instruction
+                # to delete it. Only what warpcore created is.
+                if is_adopted(current_resource):
+                    continue
                 
                 # Resource exists in current state but not in desired - DELETE
                 changes[resource_id] = ResourceChange(
@@ -318,17 +338,23 @@ class DeploymentPlanner:
         if current.type != desired.type:
             return True
         
-        # Compare properties (excluding metadata and timestamps)
-        if current.properties != desired.properties:
-            return True
+        # Compare the properties the configuration sets. The provisioner
+        # records more after provisioning (an ARN, a code hash, an endpoint)
+        # and those are not a change; an unresolved reference is not one
+        # either, since it stands for the value the state already holds.
+        for key, wanted in desired.properties.items():
+            if is_ref(wanted):
+                continue
+            if current.properties.get(key) != wanted:
+                return True
         
         # Compare dependencies
         if set(current.dependencies) != set(desired.dependencies):
             return True
         
-        # Compare tags (excluding auto-generated tags like deployed-at)
-        current_tags = {k: v for k, v in current.tags.items() if k != 'warpcore:deployed-at'}
-        desired_tags = {k: v for k, v in desired.tags.items() if k != 'warpcore:deployed-at'}
+        # Compare tags, ignoring the ones every deploy rewrites.
+        current_tags = {k: v for k, v in current.tags.items() if k not in VOLATILE_TAGS}
+        desired_tags = {k: v for k, v in desired.tags.items() if k not in VOLATILE_TAGS}
         if current_tags != desired_tags:
             return True
         
@@ -350,11 +376,14 @@ class DeploymentPlanner:
         """
         graph = DependencyGraph()
         
-        # Add all resources that need to be deployed (CREATE or UPDATE)
-        for resource_id, change in changes.items():
-            if change.change_type in (ChangeType.CREATE, ChangeType.UPDATE):
-                resource = desired_resources[resource_id]
-                graph.add_resource(resource)
+        # Add all resources that need to be deployed (CREATE or UPDATE). A
+        # dependency that is not changing is already satisfied, so the graph
+        # only orders the resources in this plan; the resource itself keeps
+        # its full dependency list.
+        changing = {rid for rid, c in changes.items() if c.change_type in (ChangeType.CREATE, ChangeType.UPDATE)}
+        for resource_id in changing:
+            resource = desired_resources[resource_id]
+            graph.add_resource(resource.model_copy(update={"dependencies": [d for d in resource.dependencies if d in changing]}))
         
         # Validate graph
         graph.validate()

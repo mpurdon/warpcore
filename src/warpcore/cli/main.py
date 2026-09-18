@@ -47,7 +47,8 @@ from warpcore.provisioners import (
     S3Provisioner,
     DynamoDBProvisioner,
     SQSProvisioner,
-    SNSProvisioner
+    SNSProvisioner,
+    CloudWatchProvisioner,
 )
 
 console = Console()
@@ -190,6 +191,9 @@ def build_provisioners(
         "AWS::DynamoDB::Table": DynamoDBProvisioner(boto_session),
         "AWS::SQS::Queue": SQSProvisioner(boto_session),
         "AWS::SNS::Topic": SNSProvisioner(boto_session),
+        # One provisioner, two types: it dispatches on the ResourceType property.
+        "AWS::Logs::LogGroup": CloudWatchProvisioner(boto_session),
+        "AWS::CloudWatch::Alarm": CloudWatchProvisioner(boto_session),
     }
     return provisioners, boto_session
 
@@ -233,8 +237,10 @@ def create_orchestrator(
     # Get environment configuration
     env_config = config.get_environment(environment)
     
-    # Use environment region if not overridden
+    # Use environment region if not overridden; the same for the profile the
+    # import recorded on the environment.
     aws_region = region or env_config.region
+    profile = profile or env_config.profile
     
     provisioners, boto_session = build_provisioners(profile=profile, region=aws_region)
     
@@ -274,6 +280,19 @@ def create_orchestrator(
     return orchestrator
 
 
+def _print_compile_notes(orchestrator) -> None:
+    """What the compiler left out or made up, before anything is applied."""
+    for note in getattr(orchestrator, "compile_notes", []) or []:
+        console.print(f"[yellow]note:[/yellow] {note}")
+    skipped = getattr(orchestrator, "compile_skipped", []) or []
+    discovered = [x for x in skipped if "discovered" in x.get("reason", "")]
+    other = [x for x in skipped if x not in discovered]
+    if discovered:
+        console.print(f"[dim]{len(discovered)} discovered resource(s) are observed, not managed; the deploy leaves them alone.[/dim]")
+    for x in other:
+        console.print(f"[yellow]left out:[/yellow] {x['id']} ({x['type']}): {x['reason']}")
+
+
 # Kept under its old name so anything importing it keeps working; the real
 # classes live in run_progress.py, where they are also callable, which the
 # executor requires. The previous version subclassed a typing.Callable alias
@@ -301,7 +320,8 @@ def _failure_lines(result) -> list:
 @click.option('--env', required=True, help='Environment name')
 @click.option('--agent', help='Specific agent to deploy')
 @click.option('--parallel/--sequential', default=True, help='Execute in parallel or sequential mode')
-@click.option('--auto-rollback/--no-auto-rollback', default=False, help='Automatically rollback on failure')
+@click.option('--auto-rollback/--no-auto-rollback', default=True, show_default=True,
+              help='Roll back what this run created when a resource fails')
 @click.option('--config', default='warpcore.yaml', help='Path to configuration file')
 @click.option('--progress', 'stream_progress', is_flag=True,
               help='Stream NDJSON progress to stdout: a plan event, one event per resource, '
@@ -342,7 +362,9 @@ def deploy(ctx, env, agent, parallel, auto_rollback, config, stream_progress):
 
         if stream_progress:
             reporter.on_plan("deploy", plan, environment=env, project=cfg.project.name,
-                             parallel=parallel, auto_rollback=auto_rollback)
+                             parallel=parallel, auto_rollback=auto_rollback,
+                             notes=getattr(orchestrator, "compile_notes", []),
+                             skipped=getattr(orchestrator, "compile_skipped", []))
             if not plan.has_changes():
                 result = DeploymentResult(status=ExecutionStatus.SUCCESS)
                 reporter.on_complete("deploy", result)
@@ -357,6 +379,8 @@ def deploy(ctx, env, agent, parallel, auto_rollback, config, stream_progress):
             if result.status != ExecutionStatus.SUCCESS:
                 sys.exit(1)
             return
+
+        _print_compile_notes(orchestrator)
 
         if not plan.has_changes():
             console.print(Panel.fit(
@@ -467,8 +491,11 @@ def deploy(ctx, env, agent, parallel, auto_rollback, config, stream_progress):
 @click.option('--progress', 'stream_progress', is_flag=True,
               help='Stream NDJSON progress to stdout (plan, one event per resource, complete). '
                    'Implies --yes: a program driving the CLI confirms on its own side.')
+@click.option('--include-adopted', is_flag=True,
+              help='Also destroy resources adopted from the account. Without this, a destroy only '
+                   'removes what warpcore created.')
 @click.pass_context
-def destroy(ctx, env, agent, yes, config, stream_progress):
+def destroy(ctx, env, agent, yes, config, stream_progress, include_adopted):
     """Remove deployed infrastructure."""
     reporter = JsonRunProgress() if stream_progress else None
     try:
@@ -513,7 +540,7 @@ def destroy(ctx, env, agent, yes, config, stream_progress):
             region=ctx.obj.get('region')
         )
 
-        plan = orchestrator.plan_destruction(agent_filter=agent)
+        plan = orchestrator.plan_destruction(agent_filter=agent, **({"include_adopted": True} if include_adopted else {}))
 
         if stream_progress:
             reporter.on_plan("destroy", plan, environment=env, project=cfg.project.name)

@@ -344,52 +344,8 @@ class LambdaProvisioner(BaseProvisioner):
         return False
 
     def _package_code(self, code_path: str) -> bytes:
-        """Package Lambda function code into a zip file.
-        
-        Args:
-            code_path: Path to the code directory or file
-            
-        Returns:
-            Zip file contents as bytes
-        """
-        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
-            zip_path = tmp_file.name
-        
-        try:
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                if os.path.isfile(code_path):
-                    # Single file
-                    zipf.write(code_path, os.path.basename(code_path))
-                elif os.path.isdir(code_path):
-                    # Directory - recursively add all files
-                    for root, dirs, files in os.walk(code_path):
-                        # Skip common directories
-                        dirs[:] = [d for d in dirs if d not in [
-                            '__pycache__', '.git', '.venv', 'venv', 'node_modules',
-                            '.pytest_cache', '.mypy_cache', 'dist', 'build'
-                        ]]
-                        
-                        for file in files:
-                            # Skip common files
-                            if file.endswith(('.pyc', '.pyo', '.DS_Store')):
-                                continue
-                            
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, code_path)
-                            zipf.write(file_path, arcname)
-                else:
-                    raise ValueError(f"Code path does not exist: {code_path}")
-            
-            # Read zip file contents
-            with open(zip_path, 'rb') as f:
-                zip_contents = f.read()
-            
-            return zip_contents
-            
-        finally:
-            # Clean up temp file
-            if os.path.exists(zip_path):
-                os.unlink(zip_path)
+        """Package Lambda function code into a zip file."""
+        return package_code(code_path)
 
     @staticmethod
     def build_vpc_config(subnet_ids: list[str], security_group_ids: list[str]) -> Dict[str, Any]:
@@ -472,3 +428,45 @@ class LambdaProvisioner(BaseProvisioner):
         }
         
         return timeout_recommendations.get(workload_type, 30)
+
+
+def package_code(code_path: str) -> bytes:
+    """Zip a directory or file the way the provisioner ships it.
+
+    Entries are written with a fixed timestamp so the same tree hashes the
+    same on every machine: the hash is what decides whether a function
+    redeploys.
+    """
+    with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
+        zip_path = tmp_file.name
+    fixed_time = (1980, 1, 1, 0, 0, 0)
+    try:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            if os.path.isfile(code_path):
+                info = zipfile.ZipInfo(os.path.basename(code_path), date_time=fixed_time)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                with open(code_path, 'rb') as fh:
+                    zipf.writestr(info, fh.read())
+            elif os.path.isdir(code_path):
+                for root, dirs, files in os.walk(code_path):
+                    dirs[:] = sorted(d for d in dirs if d not in [
+                        '__pycache__', '.git', '.venv', 'venv', 'node_modules',
+                        '.pytest_cache', '.mypy_cache', 'dist', 'build'
+                    ])
+                    for file in sorted(files):
+                        if file.endswith(('.pyc', '.pyo', '.DS_Store')):
+                            continue
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, code_path)
+                        info = zipfile.ZipInfo(arcname, date_time=fixed_time)
+                        info.compress_type = zipfile.ZIP_DEFLATED
+                        info.external_attr = 0o644 << 16
+                        with open(file_path, 'rb') as fh:
+                            zipf.writestr(info, fh.read())
+            else:
+                raise ValueError(f"Code path does not exist: {code_path}")
+        with open(zip_path, 'rb') as f:
+            return f.read()
+    finally:
+        if os.path.exists(zip_path):
+            os.unlink(zip_path)

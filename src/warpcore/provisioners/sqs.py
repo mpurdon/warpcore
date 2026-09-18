@@ -1,5 +1,6 @@
 """SQS queue provisioner."""
 
+import json
 from typing import Optional
 from botocore.exceptions import ClientError
 
@@ -169,7 +170,7 @@ class SQSProvisioner(BaseProvisioner):
             attributes['ContentBasedDeduplication'] = 'true'
         
         if 'RedrivePolicy' in resource.properties:
-            attributes['RedrivePolicy'] = resource.properties['RedrivePolicy']
+            attributes['RedrivePolicy'] = _as_json(resource.properties['RedrivePolicy'])
         
         if 'KmsMasterKeyId' in resource.properties:
             attributes['KmsMasterKeyId'] = resource.properties['KmsMasterKeyId']
@@ -228,7 +229,7 @@ class SQSProvisioner(BaseProvisioner):
             attributes['ReceiveMessageWaitTimeSeconds'] = str(resource.properties['ReceiveMessageWaitTimeSeconds'])
         
         if 'RedrivePolicy' in resource.properties:
-            attributes['RedrivePolicy'] = resource.properties['RedrivePolicy']
+            attributes['RedrivePolicy'] = _as_json(resource.properties['RedrivePolicy'])
         
         if 'KmsMasterKeyId' in resource.properties:
             attributes['KmsMasterKeyId'] = resource.properties['KmsMasterKeyId']
@@ -314,3 +315,8 @@ class SQSProvisioner(BaseProvisioner):
         if not base_name.endswith('.fifo'):
             return f"{base_name}.fifo"
         return base_name
+
+
+def _as_json(value):
+    """SQS wants the redrive policy as a JSON string; the compiler hands it a dict."""
+    return value if isinstance(value, str) else json.dumps(value)

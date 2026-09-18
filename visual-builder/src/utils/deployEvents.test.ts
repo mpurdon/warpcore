@@ -62,6 +62,18 @@ describe('applyRunEvent', () => {
     expect(run.counts.skipped).toBe(1);
   });
 
+  it('carries the plan detail, notes and what was left out', () => {
+    const run = play([{
+      event: 'plan', kind: 'deploy', total: 1, notes: ['indexer: no code path; a stub handler is deployed'],
+      skipped: [{ id: 'step-functions-1', type: 'step-functions', reason: 'a type no provisioner builds yet' }],
+      changes: [{ id: 'fn', type: 'AWS::Lambda::Function', change: 'update', wave: 1, properties: [{ key: 'MemorySize', before: 256, after: 512 }], code: 'redeploys', iam: null }],
+    }]);
+    expect(run.notes).toEqual(['indexer: no code path; a stub handler is deployed']);
+    expect(run.skipped[0].id).toBe('step-functions-1');
+    expect(run.resources[0].properties).toEqual([{ key: 'MemorySize', before: 256, after: 512 }]);
+    expect(run.resources[0].code).toBe('redeploys');
+  });
+
   it('treats an empty plan as a finished run with nothing in it', () => {
     const run = play([
       { event: 'plan', total: 0, changes: [] },

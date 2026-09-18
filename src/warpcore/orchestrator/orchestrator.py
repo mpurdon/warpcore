@@ -23,6 +23,8 @@ from warpcore.orchestrator.rollback import (
     RollbackPlan,
     RollbackResult
 )
+from warpcore.orchestrator.compiler import compile_project
+from warpcore.orchestrator.refs import resolve
 from warpcore.provisioners.base import BaseProvisioner
 from warpcore.tagging.manager import TagManager
 from warpcore.utils.logging import get_logger
@@ -85,6 +87,12 @@ class DeploymentOrchestrator:
         # orchestrator at all - and therefore deploy, destroy and diff -
         # failed before doing any work.
         self.tag_manager = TagManager(config.project)
+        # The environment the state was initialised for; the compiler names
+        # resources by it. Falls back to the first environment in the file.
+        state = state_manager.load() if state_manager.exists() else None
+        self.environment = (state.environment if state and state.environment else None) or next(iter(config.environments), "dev")
+        self.compile_notes: list = []
+        self.compile_skipped: list = []
         
         self.logger = get_logger(__name__)
     
@@ -142,12 +150,15 @@ class DeploymentOrchestrator:
         
         # Execute based on rollback strategy
         if rollback_strategy == RollbackStrategy.AUTOMATIC:
-            return self.auto_rollback_executor.execute_with_auto_rollback(
+            result, rollback = self.auto_rollback_executor.execute_with_auto_rollback(
                 plan=plan,
                 state_before=state_before,
                 parallel=parallel,
                 progress_callback=progress_callback
             )
+            if rollback is None and result.is_success():
+                self._apply_deletes(plan, progress_callback, result)
+            return result, rollback
         else:
             # Execute without auto-rollback
             result = self.executor.execute_deployment(
@@ -155,6 +166,8 @@ class DeploymentOrchestrator:
                 parallel=parallel,
                 progress_callback=progress_callback
             )
+            if result.is_success():
+                self._apply_deletes(plan, progress_callback, result)
             return result, None
     
     def deploy(
@@ -199,7 +212,8 @@ class DeploymentOrchestrator:
     
     def plan_destruction(
         self,
-        agent_filter: Optional[str] = None
+        agent_filter: Optional[str] = None,
+        include_adopted: bool = False,
     ) -> DestructionPlan:
         """Create a destruction plan.
         
@@ -217,7 +231,8 @@ class DeploymentOrchestrator:
         # Create destruction plan
         plan = self.planner.create_destruction_plan(
             current_state=current_state,
-            agent_filter=agent_filter
+            agent_filter=agent_filter,
+            include_adopted=include_adopted,
         )
         
         return plan
@@ -319,77 +334,51 @@ class DeploymentOrchestrator:
             progress_callback=progress_callback
         )
     
+    def _apply_deletes(self, plan: DeploymentPlan, progress_callback, result) -> None:
+        """Resources the configuration no longer has are removed, after
+        everything else succeeded, in reverse dependency order. Adopted
+        resources are never in the plan's deletes (planner.is_adopted)."""
+        from warpcore.provisioners.base import ChangeType
+        deletes = [c for c in plan.all_changes.values() if c.change_type == ChangeType.DELETE and c.current_resource]
+        if not deletes:
+            return
+        current = self.state_manager.load()
+        subset = State(version=current.version, environment=current.environment, region=current.region,
+                       account=current.account, project_name=current.project_name)
+        for c in deletes:
+            located = current.get_resource_with_stack(c.resource_id)
+            if located:
+                subset.add_resource(located[0], located[1])
+        destruction = self.planner.create_destruction_plan(current_state=subset)
+        if destruction.get_total_resources() == 0:
+            return
+        outcome = self.executor.execute_destruction(plan=destruction, progress_callback=progress_callback)
+        result.total_resources += outcome.total_resources
+        result.successful_resources += outcome.successful_resources
+        result.failed_resources += outcome.failed_resources
+        if outcome.failed_resources:
+            from warpcore.orchestrator.executor import ExecutionStatus
+            result.status = ExecutionStatus.PARTIAL
+
     def _build_desired_resources(
         self,
         agent_filter: Optional[str] = None
     ) -> Dict[str, Resource]:
-        """Build desired resources from configuration.
-        
-        Args:
-            agent_filter: Optional agent name to filter
-            
-        Returns:
-            Dictionary of desired resources (resource_id -> Resource)
+        """What the configuration asks for, compiled (orchestrator/compiler.py).
+
+        References to resources already in the state are filled in here so
+        the planner compares like with like; ones to resources not yet
+        created stay as references and are filled in at provision time.
         """
-        desired_resources = {}
-        
-        # Get agents from configuration
-        agents = self.config.get_agents()
-        
-        # Filter agents if specified
-        if agent_filter:
-            agents = [a for a in agents if a.name == agent_filter]
-        
-        # Build resources for each agent
-        for agent in agents:
-            agent_resources = self._build_agent_resources(agent)
-            desired_resources.update(agent_resources)
-        
-        # Build shared resources
-        shared_resources = self._build_shared_resources()
-        desired_resources.update(shared_resources)
-        
-        return desired_resources
-    
-    def _build_agent_resources(self, agent: AgentConfig) -> Dict[str, Resource]:
-        """Build resources for a single agent.
-        
-        Args:
-            agent: Agent configuration
-            
-        Returns:
-            Dictionary of resources for the agent
-        """
-        resources = {}
-        
-        # This is a placeholder - actual implementation would:
-        # 1. Create Lambda function resource
-        # 2. Create API Gateway resource
-        # 3. Create IAM role resource
-        # 4. Create any agent-specific resources (S3, DynamoDB, etc.)
-        # 5. Set up dependencies between resources
-        # 6. Apply tags using tag_manager
-        
-        # For now, return empty dict
-        # This will be implemented when integrating with provisioners
-        
-        return resources
-    
-    def _build_shared_resources(self) -> Dict[str, Resource]:
-        """Build shared infrastructure resources.
-        
-        Returns:
-            Dictionary of shared resources
-        """
-        resources = {}
-        
-        # This is a placeholder - actual implementation would:
-        # 1. Create VPC resources if enabled
-        # 2. Create shared IAM roles
-        # 3. Create shared security groups
-        # 4. Apply tags using tag_manager
-        
-        # For now, return empty dict
-        # This will be implemented when integrating with provisioners
-        
-        return resources
+        state = self.state_manager.load()
+        compiled = compile_project(
+            self.config, self.environment, account=state.account or None, region=state.region or self.boto_session.region_name,
+            agent_filter=agent_filter,
+        )
+        self.compile_notes = compiled.notes
+        self.compile_skipped = compiled.skipped
+        desired: Dict[str, Resource] = {}
+        for rid, resource in compiled.resources.items():
+            properties, _ = resolve(resource.properties, state.get_resource)
+            desired[rid] = resource.model_copy(update={"properties": properties})
+        return desired
