@@ -631,6 +631,8 @@ class AWSScanner:
         configuration raises rather than returning an empty result.
         """
         s3_client = discovery_client(self.session, 's3', self.region)
+        # A bucket that is gone must raise, not come back as a shell of Nones.
+        s3_client.head_bucket(Bucket=bucket_name)
         details: Dict = {'BucketName': bucket_name}
 
         def _try(key: str, fn):

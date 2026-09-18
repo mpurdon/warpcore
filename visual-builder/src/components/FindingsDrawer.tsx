@@ -9,6 +9,7 @@ import { useStore } from '../store/useStore';
 import { projectProfile } from '../utils/accountExplorer';
 import { fetchFindings, Finding, FindingKind, KIND_LABEL, SEVERITY_RANK, Severity } from '../utils/findings';
 import { WINDOWS } from './live/LiveDetail';
+import { refreshDrift } from '../utils/live';
 
 const KIND_ICON: Record<FindingKind, JSX.Element> = {
   cost: <Coins size={13} />, security: <ShieldAlert size={13} />, reliability: <AlertTriangle size={13} />, operability: <Wrench size={13} />,
@@ -34,7 +35,12 @@ export async function runReview(hours = 24): Promise<void> {
 }
 
 export default function FindingsDrawer({ onClose }: { onClose: () => void }) {
-  const { review, reviewBusy, nodes, selectNode, prefs, configPath, environmentExtras, currentEnvironment, openSettings } = useStore();
+  const { review, reviewBusy, nodes, selectNode, prefs, configPath, environmentExtras, currentEnvironment, openSettings, drift, driftBusy } = useStore();
+  const driftItems = (drift?.items ?? []).filter((d) => d.kind === 'modified' || d.kind === 'missing');
+  const goArn = (arn: string) => {
+    const hit = nodes.find((n) => n.data?.arn === arn);
+    if (hit) { selectNode(hit.id); onClose(); }
+  };
   const [hours, setHours] = useState(review?.window_hours ?? 24);
   const [filter, setFilter] = useState<FindingKind | 'all'>('all');
   const profile = projectProfile(environmentExtras, currentEnvironment);
@@ -77,6 +83,45 @@ export default function FindingsDrawer({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          <div className="px-4 pt-3" data-testid="drift-section">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-medium text-gray-800">Drift</span>
+              <span className="text-gray-500">
+                {driftBusy ? 'comparing the state with the account…'
+                  : drift?.error ? <span className="text-amber-700" title={drift.error}>could not compare: {drift.error.split('\n')[0].slice(0, 120)}</span>
+                  : drift ? `${drift.counts.modified} changed, ${drift.counts.missing} gone, ${drift.counts.ok} as recorded, ${drift.counts.unchecked} unchecked · ${new Date(drift.checked_at).toLocaleTimeString()}`
+                  : 'the deployment state has not been checked against the account'}
+              </span>
+              <span className="flex-1" />
+              <button
+                onClick={() => { void refreshDrift(); }}
+                disabled={driftBusy || !profile || !configPath}
+                className="px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40"
+                title={prefs.driftCheckMinutes ? `Also checked every ${prefs.driftCheckMinutes} minutes` : 'Compare now; a schedule can be set in Settings'}
+              >
+                {drift ? 'Check again' : 'Check'}
+              </button>
+            </div>
+            {driftItems.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {driftItems.map((d) => (
+                  <li key={d.id}>
+                    <button onClick={() => goArn(d.physical_id)} className="w-full text-left text-xs rounded border border-violet-200 bg-violet-50/60 px-2 py-1.5 hover:bg-violet-50">
+                      <span className={`font-medium ${d.kind === 'missing' ? 'text-red-700' : 'text-violet-800'}`}>{d.kind === 'missing' ? 'gone' : 'changed'}</span>
+                      <span className="ml-1.5 font-mono text-gray-800">{d.id}</span>
+                      <span className="ml-1 text-gray-400">{d.type.replace('AWS::', '')}{d.managed ? '' : ' · adopted'}</span>
+                      {d.kind === 'missing' && d.note && <span className="ml-1 text-gray-500">{d.note}</span>}
+                      {d.differences.map((x) => (
+                        <div key={x.key} className="ml-2 text-[11px] text-gray-600">
+                          <span className="font-mono">{x.key}</span>: recorded <span className="font-mono">{JSON.stringify(x.recorded)}</span>, account has <span className="font-mono">{JSON.stringify(x.live)}</span>
+                        </div>
+                      ))}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           {!review && !reviewBusy && (
             <div className="p-8 text-sm text-gray-600 space-y-2">
               <p>A review reads each metered resource's CloudWatch metrics over the window, then applies the rules: idle hosts, quiet NAT gateways, ports open to the world, stopped instances still billing, missing Session Manager, failing functions, databases nobody connects to.</p>
@@ -128,6 +173,11 @@ export default function FindingsDrawer({ onClose }: { onClose: () => void }) {
                             </div>
                             <p className="text-xs text-gray-600 mt-0.5">{f.detail}</p>
                             {f.why && <p className="text-xs text-blue-900 mt-1 flex gap-1"><Sparkles size={11} className="shrink-0 mt-0.5" /> {f.why}</p>}
+                            {f.reasoning?.length > 0 && (
+                              <ol className="mt-1 ml-5 list-decimal text-[11px] text-blue-900/80 space-y-0.5" title="The chain the model reasoned from; each step cites the evidence">
+                                {f.reasoning.map((step, i) => <li key={i}>{step}</li>)}
+                              </ol>
+                            )}
                             {f.suggestion && <p className="text-xs text-gray-500 mt-1 flex gap-1"><Terminal size={11} className="shrink-0 mt-0.5" /> {f.suggestion}</p>}
                           </div>
                         </div>

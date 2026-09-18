@@ -64,7 +64,8 @@ class AgentCodeChangeHandler(FileSystemEventHandler):
 class LocalDevServer:
     """Local development server for running agents with hot-reload and AWS connectivity."""
 
-    def __init__(self, agent_config: AgentConfig, state: State, aws_profile: Optional[str] = None):
+    def __init__(self, agent_config: AgentConfig, state: State, aws_profile: Optional[str] = None,
+                 queue_urls: Optional[list] = None):
         """
         Initialize LocalDevServer.
 
@@ -76,6 +77,8 @@ class LocalDevServer:
         self.agent_config = agent_config
         self.state = state
         self.aws_profile = aws_profile
+        # Deployed queues whose messages go to the local handler (triggers.py).
+        self.queue_urls = list(queue_urls or [])
         self.agent_process: Optional[subprocess.Popen] = None
         self.observer: Optional[Observer] = None
         self.is_running = False
@@ -173,20 +176,26 @@ except ImportError as e:
     print(f"Error importing handler: {{e}}", file=sys.stderr)
     sys.exit(1)
 
-# Simple local development loop
 print("Agent running in local development mode...")
 print("Press Ctrl+C to stop")
 print()
 
-# For now, just keep the process alive
-# In a real implementation, this would set up a local HTTP server
-# or event loop to handle requests
-try:
-    import time
-    while True:
-        time.sleep(1)
-except KeyboardInterrupt:
-    print("\\nShutting down...")
+# Live triggers: messages from the deployed queues named in the environment
+# are delivered to the handler here, with the event Lambda would have built.
+from warpcore.local_dev.triggers import ENV_QUEUES, parse_queue_env, run_relays
+queues = parse_queue_env(os.environ.get(ENV_QUEUES))
+if queues:
+    for q in queues:
+        print(f"Polling {{q}}")
+    run_relays({function_name}, queues, os.environ.get("AWS_REGION", "us-east-1"), os.environ.get("AWS_PROFILE"))
+else:
+    print("No live triggers: pass --from-queue to deliver a deployed queue's messages here.")
+    try:
+        import time
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\\nShutting down...")
 """
 
         # Start the process
@@ -286,6 +295,10 @@ except KeyboardInterrupt:
         # Inject AWS resource information from state
         resource_env = self._extract_resource_environment()
         env.update(resource_env)
+
+        if self.queue_urls:
+            from .triggers import ENV_QUEUES
+            env[ENV_QUEUES] = ",".join(self.queue_urls)
 
         # Add development mode flag
         env['STRANDS_DEV_MODE'] = 'true'

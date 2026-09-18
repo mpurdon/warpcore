@@ -11,7 +11,7 @@
 import { Node, Edge } from 'reactflow';
 import { DEFAULT_LAYERS, Layer } from './layers';
 
-export type Lens = 'all' | 'security' | 'network' | 'dataflow' | 'cost';
+export type Lens = 'all' | 'security' | 'network' | 'dataflow' | 'cost' | 'live';
 
 export interface LensInfo {
   id: Lens;
@@ -28,6 +28,7 @@ export const LENSES: LensInfo[] = [
   { id: 'network', label: 'Network', description: 'VPCs, subnets, gateways, routes, load balancers and what sits inside them', key: '3' },
   { id: 'dataflow', label: 'Data flow', description: 'Agents, functions, queues, topics, streams and stores, with what triggers what', key: '4' },
   { id: 'cost', label: 'Cost', description: 'Every resource with its monthly estimate on it', key: '5' },
+  { id: 'live', label: 'Live', description: 'What the account says now: each discovered resource coloured by its health and the last review', key: '6' },
 ];
 
 export const DEFAULT_LENS: Lens = 'all';
@@ -39,6 +40,7 @@ export const LENS_LAYERS: Record<Lens, Record<Layer, boolean>> = {
   network: { triggers: false, access: false, network: true, encryption: false, plumbing: false },
   dataflow: { triggers: true, access: true, network: false, encryption: false, plumbing: false },
   cost: { triggers: true, access: false, network: false, encryption: false, plumbing: false },
+  live: { triggers: true, access: false, network: false, encryption: false, plumbing: false },
 };
 
 const SECURITY_TYPES = new Set([
@@ -113,6 +115,9 @@ export function lensEmphasis(node: Node, lens: Lens, ctx: LensContext): Emphasis
       return 'context';
     case 'dataflow':
       return DATAFLOW_TYPES.has(type) ? 'focus' : 'context';
+    case 'live':
+      // Only what was found in the account has a live state to show.
+      return node.data?.arn ? 'focus' : 'context';
   }
   return 'focus';
 }

@@ -1,5 +1,6 @@
 """Composing the way into an instance."""
 
+import json
 from unittest.mock import Mock
 
 from warpcore.discovery.connect import ConnectAdvisor, cidr_admits, compose_ssh, find_key, guess_user
@@ -17,11 +18,13 @@ def _ec2(instance, images=None, rules=None, others=None):
     return ec2
 
 
-def _advisor(ec2, ssm_status=None, home="/nowhere"):
+def _advisor(ec2, ssm_status=None, home="/nowhere", plugin=True, idle=None):
     ssm = Mock()
     ssm.describe_instance_information.return_value = {"InstanceInformationList": [{"PingStatus": ssm_status}] if ssm_status else []}
+    ssm.get_document.return_value = {"Content": json.dumps({"inputs": {"idleSessionTimeout": str(idle)}})} if idle else {}
     session = Mock()
-    advisor = ConnectAdvisor(session, "us-east-1", profile="team", home=home, lookup_my_ip=False)
+    advisor = ConnectAdvisor(session, "us-east-1", profile="team", home=home, lookup_my_ip=False,
+                             which=(lambda name: "/usr/local/bin/" + name) if plugin else (lambda _name: None))
     import warpcore.discovery.connect as mod
     mod.discovery_client = lambda _s, service, _r: {"ec2": ec2, "ssm": ssm}[service]
     return advisor
@@ -93,3 +96,35 @@ def test_a_stopped_instance_has_no_way_in():
     plan = _advisor(_ec2(inst)).plan(ARN)
     assert plan.method == "none"
     assert "Start the instance first." in plan.notes
+
+
+def test_session_manager_needs_the_plugin_on_this_machine():
+    inst = {"InstanceId": "i-1", "State": {"Name": "running"}, "PrivateIpAddress": "10.0.1.5", "ImageId": "ami-1",
+            "IamInstanceProfile": {"Arn": "arn:aws:iam::1:instance-profile/ssm"}, "SecurityGroups": []}
+    plan = _advisor(_ec2(inst), ssm_status="Online", plugin=False, idle=20).plan(ARN)
+    assert plan.method == "ssm"
+    by_id = {c.id: c for c in plan.checks}
+    assert by_id["plugin"].ok is False and "session-manager-plugin" in by_id["plugin"].detail
+    assert any("Install the Session Manager plugin" in n for n in plan.notes)
+    assert plan.idle_timeout_minutes == 20
+    assert any("20 idle minutes" in n for n in plan.notes)
+    ok = _advisor(_ec2(inst), ssm_status="Online", plugin=True).plan(ARN)
+    assert {c.id: c for c in ok.checks}["plugin"].ok is True
+    assert not any("Install the Session Manager plugin" in n for n in ok.notes)
+
+
+def test_private_instance_uses_an_instance_connect_endpoint_when_the_vpc_has_one():
+    inst = {"InstanceId": "i-1", "State": {"Name": "running"}, "PrivateIpAddress": "10.0.1.5", "ImageId": "ami-1",
+            "VpcId": "vpc-1", "KeyName": "ops", "SecurityGroups": [{"GroupId": "sg-1"}]}
+    ec2 = _ec2(inst, rules=[{"IsEgress": False, "IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "CidrIpv4": "10.0.0.0/16"}])
+    ec2.describe_instance_connect_endpoints.return_value = {"InstanceConnectEndpoints": [
+        {"InstanceConnectEndpointId": "eice-1", "SubnetId": "subnet-1", "State": "create-complete"},
+    ]}
+    plan = _advisor(ec2).plan(ARN)
+    assert plan.method == "eice"
+    assert plan.eice == {"id": "eice-1", "subnet_id": "subnet-1", "state": "create-complete"}
+    assert plan.command == "aws ec2-instance-connect ssh --instance-id i-1 --connection-type eice --region us-east-1 --profile team --os-user ec2-user"
+    assert {c.id: c for c in plan.checks}["eice"].ok is True
+    # No endpoint: the plan is the same as before the check existed.
+    ec2.describe_instance_connect_endpoints.return_value = {"InstanceConnectEndpoints": []}
+    assert _advisor(ec2).plan(ARN).method in ("ssh-jump", "none")

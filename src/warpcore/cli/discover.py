@@ -653,6 +653,87 @@ def provenance(ctx, environment, config_path, terraform_states, pulumi_states, a
         console.print(f"[dim]{n}[/dim]")
 
 
+def _canvas_nodes(config_path: str):
+    path = Path(config_path)
+    if not path.exists():
+        console.print(f"[red]No such file:[/red] {config_path}")
+        sys.exit(1)
+    data = yaml.safe_load(path.read_text()) or {}
+    return path, data, ((data.get("canvas") or {}).get("nodes")) or []
+
+
+@discover.command("health")
+@click.option("--config", "config_path", default="warpcore.yaml", show_default=True)
+@click.option("--env", "environment", help="Environment whose state gives the deploy times; defaults to the first")
+@click.option("--parallelism", type=int, default=8, show_default=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def health(ctx, config_path, environment, parallelism, as_json):
+    """What the account says about every resource on the canvas right now: running, stopped, gone."""
+    from warpcore.cli.main import get_state_path
+    from warpcore.discovery.health import canvas_health
+
+    path, data, nodes = _canvas_nodes(config_path)
+    envs = data.get("environments") or {}
+    env_name = environment or (next(iter(envs)) if isinstance(envs, dict) and envs else "dev")
+    env_block = envs.get(env_name) or {} if isinstance(envs, dict) else {}
+    if not ctx.obj.get("profile") and env_block.get("profile"):
+        ctx.obj["profile"] = env_block["profile"]
+    region = ctx.obj.get("region") or env_block.get("region") or (data.get("project") or {}).get("region")
+    scanner, _credentials, resolved_region = _scanner(ctx, region, "discovered", env_name)
+    state = None
+    project_name = (data.get("project") or {}).get("name") or path.parent.name
+    state_path = path.resolve().parent / ".warpcore" / "state" / f"{project_name}-{env_name}.json"
+    if state_path.exists():
+        state = StateManager(str(state_path)).load()
+    result = canvas_health(scanner.session, resolved_region, nodes, state=state, parallelism=parallelism)
+    if as_json:
+        click.echo(json.dumps(result, indent=2, default=str))
+        return
+    levels = {}
+    for arn, h in result["resources"].items():
+        levels[h["level"]] = levels.get(h["level"], 0) + 1
+    console.print(", ".join(f"{n} {lvl}" for lvl, n in sorted(levels.items())) or "nothing with reportable health")
+    for arn, h in result["resources"].items():
+        if h["level"] != "ok":
+            console.print(f"  [yellow]{h['level']:7}[/yellow] {arn.rsplit('/', 1)[-1].rsplit(':', 1)[-1]}  [dim]{h['reason']}[/dim]")
+
+
+@discover.command("drift")
+@click.option("--env", "environment", required=True, help="Environment whose state to compare with the account")
+@click.option("--config", "config_path", default="warpcore.yaml", show_default=True)
+@click.option("--parallelism", type=int, default=8, show_default=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def drift(ctx, environment, config_path, parallelism, as_json):
+    """Where the account differs from the deployment state: gone, or changed outside warpcore, property by property."""
+    from warpcore.cli.main import get_state_path, load_config
+    from warpcore.discovery.health import drift_report
+
+    config = load_config(config_path)
+    env = config.get_environment(environment)
+    if not ctx.obj.get("profile") and env.profile:
+        ctx.obj["profile"] = env.profile
+    state_path = get_state_path(environment, config.project.name)
+    if not state_path.exists():
+        console.print(f"[red]No deployment state for '{environment}'.[/red]")
+        sys.exit(1)
+    scanner, _credentials, region = _scanner(ctx, ctx.obj.get("region") or env.region, config.project.name, environment)
+    report = drift_report(scanner.session, region, StateManager(str(state_path)).load(), parallelism=parallelism)
+    if as_json:
+        click.echo(json.dumps(report, indent=2, default=str))
+        return
+    c = report["counts"]
+    console.print(f"{c['ok']} unchanged, [yellow]{c['modified']} modified[/yellow], [red]{c['missing']} missing[/red], {c['unchecked']} unchecked")
+    for item in report["items"]:
+        if item["kind"] == "missing":
+            console.print(f"  [red]missing [/red] {item['resource_id']} [dim]{item['resource_type']}[/dim]")
+        elif item["kind"] == "modified":
+            console.print(f"  [yellow]modified[/yellow] {item['resource_id']} [dim]{item['resource_type']}[/dim]")
+            for d in item["differences"]:
+                console.print(f"           {d['key']}: {json.dumps(d['recorded'], default=str)[:70]} [dim]->[/dim] {json.dumps(d['live'], default=str)[:70]}")
+
+
 @discover.command("takeover")
 @click.argument("resources", nargs=-1, required=True)
 @click.option("--env", "environment", required=True, help="Environment whose state holds the resources")
@@ -857,10 +938,14 @@ def _fmt_metric(value) -> str:
               help="A Terraform/OpenTofu state file (path or s3://bucket/key) whose resources are marked as Terraform's; repeatable")
 @click.option("--pulumi-state", "pulumi_states", multiple=True,
               help="A Pulumi checkpoint or stack export (path or s3://bucket/key); repeatable")
+@click.option("--snapshot-dir", default=None,
+              help="Where to keep this import's snapshot (default: the current directory, under .warpcore/snapshots)")
+@click.option("--no-snapshot", is_flag=True, help="Do not keep a snapshot of this import")
 @click.option("--json", "as_json", is_flag=True, help="Emit the project as JSON")
 @click.pass_context
 def project(ctx, regions, all_regions, project_name, environment, include, exclude, lambda_as,
-            include_env_values, adopt, max_resources, parallelism, stream_progress, terraform_states, pulumi_states, as_json):
+            include_env_values, adopt, max_resources, parallelism, stream_progress, terraform_states, pulumi_states,
+            snapshot_dir, no_snapshot, as_json):
     """Turn an account into a Visual Builder project: resources, relationships, canvas fields."""
     from warpcore.cli.main import get_state_path
 
@@ -963,6 +1048,19 @@ def project(ctx, regions, all_regions, project_name, environment, include, exclu
     payload["adopted"] = None
     payload["provenance"] = provenance_counts
 
+    # Keep what this import saw, and say what changed since the last one.
+    payload["since_last_import"] = None
+    payload["snapshot_path"] = None
+    if not no_snapshot:
+        from warpcore.discovery.snapshots import latest_diff, write_snapshot
+        target = Path(snapshot_dir) if snapshot_dir else Path.cwd()
+        try:
+            payload["snapshot_path"] = str(write_snapshot(target, payload))
+            since = latest_diff(target)
+            payload["since_last_import"] = since.to_dict() if since else None
+        except OSError as e:
+            payload["notes"].append({"level": "warning", "physical_id": "(snapshot)", "message": f"could not keep a snapshot: {e}"})
+
     if adopt:
         # Local state only; never touches AWS. Keyed by the same path deploy
         # uses, so the next deploy sees these as already existing.
@@ -1011,6 +1109,47 @@ def project(ctx, regions, all_regions, project_name, environment, include, exclu
     for note in result.notes:
         if note.level == "warning":
             console.print(f"  [yellow]{note.physical_id}[/yellow] {note.message}")
+
+
+@discover.command("snapshots")
+@click.option("--config", "config_path", default="warpcore.yaml", show_default=True,
+              help="The project whose imports to compare")
+@click.option("--json", "as_json", is_flag=True, help="Emit the snapshots and the latest diff as JSON")
+def snapshots(config_path, as_json):
+    """What changed between the last two imports of this project's account."""
+    from warpcore.discovery.snapshots import latest_diff, list_snapshots, read_snapshot
+
+    project_dir = Path(config_path).resolve().parent
+    paths = list_snapshots(project_dir)
+    diff = latest_diff(project_dir)
+    if as_json:
+        click.echo(json.dumps({
+            "snapshots": [{"path": str(p), "taken_at": read_snapshot(p).get("taken_at")} for p in paths],
+            "since_last_import": diff.to_dict() if diff else None,
+        }, indent=2, default=str))
+        return
+    if not paths:
+        console.print("No snapshots yet; `warpcore discover project` keeps one per import.")
+        return
+    console.print(f"{len(paths)} snapshot(s), latest {read_snapshot(paths[-1]).get('taken_at')}")
+    if diff is None:
+        console.print("One import so far; nothing to compare.")
+        return
+    if diff.empty():
+        console.print(f"[green]Nothing changed[/green] between {diff.before_at} and {diff.after_at}")
+        return
+    console.print(f"Since {diff.before_at}:")
+    for r in diff.added:
+        console.print(f"  [green]+[/green] {r['type']} {r['name']}")
+    for r in diff.removed:
+        console.print(f"  [red]-[/red] {r['type']} {r['name']}")
+    for r in diff.changed:
+        keys = ", ".join(c["key"] for c in r["changes"])
+        console.print(f"  [yellow]~[/yellow] {r['type']} {r['name']}: {keys}")
+    for c in diff.connections_added:
+        console.print(f"  [green]+[/green] {c['from']} → {c['to']} ({c['kind']})")
+    for c in diff.connections_removed:
+        console.print(f"  [red]-[/red] {c['from']} → {c['to']} ({c['kind']})")
 
 
 @discover.command("regions")

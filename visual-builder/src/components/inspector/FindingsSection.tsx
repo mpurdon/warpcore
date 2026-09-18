@@ -31,6 +31,11 @@ export default function FindingsSection({ node }: { node: Node }) {
               </div>
               <p className="text-gray-600 mt-0.5">{f.detail}</p>
               {f.why && <p className="text-blue-900 mt-0.5 flex gap-1"><Sparkles size={11} className="shrink-0 mt-0.5" /> {f.why}</p>}
+              {f.reasoning?.length > 0 && (
+                <ol className="mt-0.5 ml-4 list-decimal text-[11px] text-blue-900/80 space-y-0.5">
+                  {f.reasoning.map((step, i) => <li key={i}>{step}</li>)}
+                </ol>
+              )}
               {f.suggestion && <p className="text-gray-500 mt-0.5">{f.suggestion}</p>}
               {Object.keys(f.evidence).length > 0 && (
                 <details className="mt-0.5">

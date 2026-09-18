@@ -54,7 +54,7 @@ def _run(runner, args):
 
 def _project(runner, *extra):
     result = _run(runner, ["discover", "project", "--project-name", "shop", "--env", "prod",
-                           "--region", REGION, "--json", *extra])
+                           "--region", REGION, "--json", "--no-snapshot", *extra])
     assert result.exit_code == 0, result.output
     # stdout must be pure JSON: logs and progress go to stderr.
     return json.loads(result.stdout)
@@ -100,7 +100,7 @@ class TestDiscoverProject:
 
     def test_progress_streams_then_result(self, account):
         result = _run(CliRunner(), ["discover", "project", "--project-name", "shop",
-                                    "--region", REGION, "--progress"])
+                                    "--region", REGION, "--progress", "--no-snapshot"])
         assert result.exit_code == 0, result.output
         lines = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
         assert lines[0]["event"] == "scan_start"
@@ -109,5 +109,5 @@ class TestDiscoverProject:
         assert lines[-1]["data"]["counts"]["shown"] >= 3
 
     def test_rejects_bad_project_name(self, account):
-        result = CliRunner().invoke(cli, ["discover", "project", "--project-name", "Shop!", "--json"])
+        result = CliRunner().invoke(cli, ["discover", "project", "--project-name", "Shop!", "--json", "--no-snapshot"])
         assert result.exit_code == 2

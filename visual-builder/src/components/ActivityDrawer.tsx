@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, X, CheckCircle2, XCircle, Circle, Loader2, MinusCircle } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { scenariosBrokenBy } from '../utils/whatIf';
 import { isActive, matchNodeForResource, RunResource, runElapsedSeconds } from '../utils/deployEvents';
 import { canvas } from '../utils/canvasActions';
 import { StatusDot, Tone } from './inspector/InspectorHeader';
@@ -50,7 +51,14 @@ const BAR: Record<RunResource['status'], string> = {
 };
 
 export default function ActivityDrawer() {
-  const { run, activityOpen, setActivityOpen, clearRun, nodes, selectNode } = useStore();
+  const { run, activityOpen, setActivityOpen, clearRun, nodes, selectNode, edges, scenarios, inspectScenario } = useStore();
+  // What the plan's deletes would do to the scenarios: the same check, over
+  // the wiring without those resources (utils/whatIf.ts).
+  const broken = useMemo(() => {
+    if (!run?.planned) return [];
+    const removed = new Set(run.resources.filter((r) => r.change === 'delete').map((r) => r.id));
+    return scenariosBrokenBy(scenarios, nodes, edges, removed);
+  }, [run?.planned, run?.resources, scenarios, nodes, edges]);
   const [tab, setTab] = useState<Tab>('resources');
   const active = isActive(run);
   const now = useNow(active);
@@ -136,6 +144,20 @@ export default function ActivityDrawer() {
                   {run.skipped.some((x) => x.reason.includes('discovered')) && (
                     <div className="text-amber-800/80">{run.skipped.filter((x) => x.reason.includes('discovered')).length} discovered resource(s) are observed, not managed.</div>
                   )}
+                </div>
+              )}
+              {broken.length > 0 && (
+                <div className="mx-3 mt-2 text-xs rounded border border-red-200 bg-red-50 text-red-900 px-3 py-2" data-testid="plan-breaks-scenarios">
+                  <div className="font-medium">This plan's deletes break {broken.length} {broken.length === 1 ? 'scenario' : 'scenarios'}</div>
+                  <ul className="mt-1 space-y-0.5">
+                    {broken.map((w) => (
+                      <li key={w.scenario.id}>
+                        <button className="hover:underline" onClick={() => inspectScenario(w.scenario.id)}>{w.scenario.name}</button>
+                        <span className="text-red-800/80"> · {w.brokenSteps.length === 0 ? 'its trigger goes' : `${w.brokenSteps.length} ${w.brokenSteps.length === 1 ? 'step loses' : 'steps lose'} their evidence`}</span>
+                        {w.newProblems[0] && <span className="text-red-800/70">: {w.newProblems[0]}</span>}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               {run.planned && run.resources.length === 0 && (

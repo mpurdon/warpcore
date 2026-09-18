@@ -15,6 +15,13 @@ const ASSISTANT_OPTIONS: { label: string; value: '' | 'anthropic' | 'openai' | '
 ];
 const ASSISTANT_DEFAULTS: Record<string, string> = { anthropic: 'claude-opus-5', openai: 'gpt-4', bedrock: 'anthropic.claude-opus-5', local: 'llama2' };
 
+const DRIFT_OPTIONS = [
+  { label: 'Only when asked', value: 0 },
+  { label: 'Every 15 minutes', value: 15 },
+  { label: 'Every hour', value: 60 },
+  { label: 'Every 4 hours', value: 240 },
+];
+
 const CACHE_OPTIONS = [
   { label: 'Off - always rescan', value: 0 },
   { label: '15 minutes', value: 15 },
@@ -95,6 +102,14 @@ export default function ExplorationSection() {
           />
         </Field>
       )}
+
+      <SubHeader title="Drift" hint="state vs account" />
+      <Field
+        label="Check the deployment state against the account"
+        description="Reads what the account has for every resource warpcore recorded and marks what changed behind its back. Read-only; the Review lists what it found."
+      >
+        <Select value={prefs.driftCheckMinutes} onChange={(v) => setPref('driftCheckMinutes', Number(v))} options={DRIFT_OPTIONS} />
+      </Field>
 
       <SubHeader title="Scanning" />
       <Field

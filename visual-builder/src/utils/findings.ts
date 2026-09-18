@@ -28,6 +28,8 @@ export interface Finding {
   /** The model's sentence on why it matters in this account. */
   why: string | null;
   rank: number | null;
+  /** The model's chain of evidence, each step citing a value or a resource, so the sentence can be checked. */
+  reasoning: string[];
 }
 
 /** One resource and everything found about it: one card, findings as traits. */

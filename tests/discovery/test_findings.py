@@ -83,7 +83,7 @@ def test_the_model_ranks_and_explains_but_cannot_add_or_drop():
     usage = {host["arn"]: _usage(host["arn"], CPUUtilization_Average=0.2, CPUUtilization_Maximum=1.1, NetworkIn_Sum=100)}
     llm = Mock()
     llm.model = "claude-opus-5"
-    llm._call_llm.return_value = '```json\n{"summary": "A quiet host with an open port.", "findings": [{"id": "idle:host", "rank": 2, "why": "It idles."}, {"id": "exposed:host", "rank": 1, "why": "Open to the world."}, {"id": "made-up", "rank": 3, "why": "x"}]}\n```'
+    llm._call_llm.return_value = '```json\n{"summary": "A quiet host with an open port.", "findings": [{"id": "idle:host", "rank": 2, "why": "It idles."}, {"id": "exposed:host", "rank": 1, "why": "Open to the world.", "reasoning": ["port 22 is open to 0.0.0.0/0", "the host has a public address", ""]}, {"id": "made-up", "rank": 3, "why": "x"}]}\n```'
     reviewer = ProjectReviewer(Mock(), "us-east-1", llm=llm)
     import warpcore.discovery.findings as mod
     mod.ResourceUsageReader = lambda *_a, **_k: Mock(read=lambda *_a, **_k: usage[host["arn"]])
@@ -92,6 +92,8 @@ def test_the_model_ranks_and_explains_but_cannot_add_or_drop():
     assert review.model == "claude-opus-5"
     assert [f.id for f in review.findings][:2] == ["exposed:host", "idle:host"]
     assert review.findings[0].why == "Open to the world."
+    assert review.findings[0].reasoning == ["port 22 is open to 0.0.0.0/0", "the host has a public address"]
+    assert review.findings[1].reasoning == []
     assert all(f.id != "made-up" for f in review.findings)
 
 

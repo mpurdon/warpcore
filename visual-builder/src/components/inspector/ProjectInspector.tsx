@@ -14,6 +14,7 @@ import RolesPanel from '../RolesPanel';
 import ScenarioRow from './ScenarioRow';
 import DraftScenarioButton from './DraftScenarioButton';
 import { checkScenario, hopIndex } from '../../utils/scenarios';
+import { importDiffIsEmpty } from '../../utils/live';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot } from './InspectorHeader';
 
 type Tab = 'overview' | 'roles';
@@ -22,8 +23,10 @@ export default function ProjectInspector() {
   const {
     projectName, configPath, hasUnsavedChanges, nodes, environmentConfigs, currentEnvironment,
     inspectEnvironment, deploymentHistory, executionsPerMonth, setExecutionsPerMonth, selectNode,
-    scenarios, edges, newScenario, holodeck, holodeckPreview, openDialog,
+    scenarios, edges, newScenario, holodeck, holodeckPreview, openDialog, importDiff,
   } = useStore();
+  const byArn = useMemo(() => new Map(nodes.filter((n) => n.data?.arn).map((n) => [n.data.arn as string, n.id])), [nodes]);
+  const goArn = (arn: string) => { const id = byArn.get(arn); if (id) selectNode(id); };
   const readOnly = useReadOnly();
   const [tab, setTab] = useState<Tab>('overview');
   const entry = holodeck ? findEntry(holodeck.id) : undefined;
@@ -117,6 +120,33 @@ export default function ProjectInspector() {
               ))
             )}
           </Section>
+
+          {importDiff && !holodeckPreview && (
+            <Section title="Since last import" hint={importDiffIsEmpty(importDiff) ? 'nothing changed' : new Date(importDiff.before_at).toLocaleDateString()}>
+              {importDiffIsEmpty(importDiff) ? (
+                <p className="text-xs text-gray-500">The account looked the same as at the previous import.</p>
+              ) : (
+                <ul className="text-xs space-y-1" data-testid="since-last-import">
+                  {importDiff.added.map((r) => (
+                    <li key={r.arn}><button className="text-left hover:underline" onClick={() => goArn(r.arn)}><span className="text-green-700 font-medium">+</span> {r.type} <span className="text-gray-800">{r.name}</span></button></li>
+                  ))}
+                  {importDiff.removed.map((r) => (
+                    <li key={r.arn}><span className="text-red-700 font-medium">−</span> {r.type} <span className="text-gray-800">{r.name}</span> <span className="text-gray-400">gone</span></li>
+                  ))}
+                  {importDiff.changed.map((r) => (
+                    <li key={r.arn}>
+                      <button className="text-left hover:underline" onClick={() => goArn(r.arn)}>
+                        <span className="text-amber-700 font-medium">~</span> {r.type} <span className="text-gray-800">{r.name}</span>
+                        <span className="text-gray-500"> · {r.changes.map((c) => c.key).join(', ')}</span>
+                      </button>
+                    </li>
+                  ))}
+                  {importDiff.connections_added.map((c, i) => <li key={`ca${i}`}><span className="text-green-700 font-medium">+</span> {c.from} → {c.to} <span className="text-gray-400">{c.kind}</span></li>)}
+                  {importDiff.connections_removed.map((c, i) => <li key={`cr${i}`}><span className="text-red-700 font-medium">−</span> {c.from} → {c.to} <span className="text-gray-400">{c.kind}</span></li>)}
+                </ul>
+              )}
+            </Section>
+          )}
 
           <Section title="Scenarios" hint={scenarios.length ? `${scenarios.length}` : 'play a request through the system'}>
             {scenarios.length === 0 && (

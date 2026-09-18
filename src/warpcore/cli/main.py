@@ -822,6 +822,28 @@ def describe(ctx, resource_id, env, config):
         sys.exit(1)
 
 
+@cli.command()
+@click.option('--config', 'config_path', default='warpcore.yaml', show_default=True, help='The project to serve')
+@click.option('--list', 'list_tools', is_flag=True, help='Print the tools and exit')
+@click.pass_context
+def mcp(ctx, config_path, list_tools):
+    """Serve this project to an editor or agent over MCP (stdio).
+
+    Add to Claude Code with:  claude mcp add warpcore -- warpcore mcp --config /path/to/warpcore.yaml
+    """
+    try:
+        from warpcore.mcp_server import build_server, tool_names
+    except ImportError:
+        console.print('[red]The mcp package is not installed.[/red] Install it with: pip install "warpcore[mcp]"')
+        sys.exit(1)
+    server = build_server(config_path, profile=ctx.obj.get('profile'), region=ctx.obj.get('region'))
+    if list_tools:
+        for name in tool_names(server):
+            console.print(f"  {name}")
+        return
+    server.run(transport='stdio')
+
+
 @cli.group()
 def env():
     """Manage deployment environments."""
@@ -1892,9 +1914,11 @@ def history_rollback(ctx, deployment_id, env, yes, dry_run, config):
 @click.option('--env', required=True, help='Environment name')
 @click.option('--agent', required=True, help='Agent name to run locally')
 @click.option('--config', default='warpcore.yaml', help='Path to configuration file')
+@click.option('--from-queue', 'from_queues', multiple=True,
+              help='A deployed SQS queue (resource id, name, ARN or URL) whose messages are delivered to the local handler; repeatable')
 @click.pass_context
-def dev(ctx, env, agent, config):
-    """Start local development server for an agent."""
+def dev(ctx, env, agent, config, from_queues):
+    """Start local development server for an agent, with live triggers from deployed queues."""
     try:
         from warpcore.local_dev.server import LocalDevServer
         from warpcore.local_dev.connectivity import AWSConnectivityValidator
@@ -1972,17 +1996,25 @@ def dev(ctx, env, agent, config):
         console.print("\n[cyan]Starting development server...[/cyan]\n")
         
         try:
+            from warpcore.local_dev.triggers import queue_urls_from_state
+            try:
+                queue_urls = queue_urls_from_state(state, from_queues)
+            except ValueError as e:
+                console.print(f"[red]Error:[/red] {e}")
+                sys.exit(1)
             with LocalDevServer(
                 agent_config=agent_config,
                 state=state,
-                aws_profile=ctx.obj.get('profile')
+                aws_profile=ctx.obj.get('profile'),
+                queue_urls=queue_urls,
             ) as server:
                 console.print(Panel.fit(
                     f"[green]✓ Development server running[/green]\n\n"
                     f"Agent: {agent_config.name}\n"
                     f"PID: {server.agent_process.pid if server.agent_process else 'N/A'}\n"
-                    f"Watching: {agent_config.path}\n\n"
-                    f"[dim]Code changes will trigger automatic reload[/dim]\n"
+                    f"Watching: {agent_config.path}\n"
+                    + (f"Live triggers: {', '.join(queue_urls)}\n\n" if queue_urls else "\n")
+                    + f"[dim]Code changes will trigger automatic reload[/dim]\n"
                     f"[dim]Press Ctrl+C to stop[/dim]",
                     title="Server Status",
                     border_style="green"

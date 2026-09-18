@@ -58,6 +58,11 @@ export interface Preferences {
   assistantProvider: '' | 'anthropic' | 'openai' | 'bedrock' | 'local';
   /** Model name for the provider; empty means the provider's default. */
   assistantModel: string;
+  /**
+   * How often the open project's deployment state is checked against the
+   * account while the app is open, in minutes. 0 means only when asked.
+   */
+  driftCheckMinutes: number;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -73,6 +78,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   activityOpen: false,
   assistantProvider: '',
   assistantModel: '',
+  driftCheckMinutes: 0,
 };
 
 export function getPreferences(): Preferences {

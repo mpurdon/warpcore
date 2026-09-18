@@ -9,9 +9,11 @@ import { useReadOnly, useStore } from '../store/useStore';
 import { LOCK_BANNER_HEIGHT } from './ProjectLock';
 import { LAYERS, Layer } from '../utils/layers';
 import { LENSES, countFocus } from '../utils/lenses';
+import { countLevels, isStale, refreshLive } from '../utils/live';
+import { RefreshCw } from 'lucide-react';
 
 export default function LensBar() {
-  const { nodes, edges, layers, setLayer, lens, setLens, selectedNode } = useStore();
+  const { nodes, edges, layers, setLayer, lens, setLens, selectedNode, liveHealth, liveBusy, reviewByArn, configPath } = useStore();
   // Sits below the lock band when there is one.
   const readOnly = useReadOnly();
   const [layersOpen, setLayersOpen] = useState(false);
@@ -43,6 +45,11 @@ export default function LensBar() {
     [nodes, edges, selectedNode],
   );
 
+  const liveArns = useMemo(() => nodes.filter((n) => !n.hidden && n.data?.arn).map((n) => n.data.arn as string), [nodes]);
+  const liveCounts = useMemo(() => countLevels(liveHealth, reviewByArn, liveArns), [liveHealth, reviewByArn, liveArns]);
+  const liveError = (liveHealth as { error?: string } | null)?.error;
+  const liveStale = isStale(liveHealth);
+
   if (visible === 0) return null;
 
   return (
@@ -68,6 +75,32 @@ export default function LensBar() {
           );
         })}
       </div>
+
+      {lens === 'live' && (
+        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow-sm text-gray-700" data-testid="live-status">
+          {liveHealth && !liveError && (
+            <span className="flex items-center gap-1.5 tabular-nums">
+              {liveCounts.bad > 0 && <span className="text-red-700">{liveCounts.bad} bad</span>}
+              {liveCounts.warn > 0 && <span className="text-amber-700">{liveCounts.warn} warn</span>}
+              <span className="text-green-700">{liveCounts.ok} ok</span>
+              {liveCounts.unknown > 0 && <span className="text-gray-400">{liveCounts.unknown} unchecked</span>}
+            </span>
+          )}
+          {liveError && <span className="text-red-700 truncate max-w-[16rem]" title={liveError}>could not read the account</span>}
+          {!liveHealth && !liveBusy && <span className="text-gray-500">{configPath ? 'not read yet' : 'save the project to read the account'}</span>}
+          <span className={`text-gray-400 ${liveStale && liveHealth ? 'italic' : ''}`}>
+            {liveBusy ? 'reading…' : liveHealth && !liveError ? `read ${new Date(liveHealth.checked_at).toLocaleTimeString()}${liveStale ? ', stale' : ''}` : ''}
+          </span>
+          <button
+            onClick={() => { void refreshLive(); }}
+            disabled={liveBusy || !configPath}
+            className="p-0.5 rounded hover:bg-gray-100 disabled:opacity-40"
+            title="Read the account again"
+          >
+            <RefreshCw size={12} className={liveBusy ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      )}
 
       <div className="relative" ref={popRef}>
         <button

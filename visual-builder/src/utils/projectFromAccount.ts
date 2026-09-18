@@ -77,6 +77,9 @@ export interface AccountProject {
   notes: ProjectNote[];
   adopted: number | null;
   state_path?: string;
+  /** Where the CLI kept this import's snapshot, and what changed since the previous one. */
+  snapshot_path?: string | null;
+  since_last_import?: import('./live').ImportDiff | null;
   explorer: boolean;
   errors: { physical_id: string; type: string; stage: string; message: string }[];
 }

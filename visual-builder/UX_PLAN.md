@@ -211,3 +211,22 @@ scenario plays identically in both. DESIGN_GUIDANCE.md §13.
 Next: the Holodeck, a library of example systems with scenarios and a
 drawer to preview and copy them. Plan and the state it builds on:
 HOLODECK_PLAN.md.
+
+
+## 6. Follow-up, 2026-09-18: explore as much as deploy
+
+Shipped in one pass, every piece read-only against AWS unless it says
+otherwise: the **Live** lens (health fused with the review, stale after
+15 minutes), **Drift** in the Review drawer with an optional schedule,
+**Since last import** from per-import snapshots, **What if** on scenarios
+and on the deploy plan, the project over **MCP** (two writes, both to the
+project's own files), connect pre-flight (Session Manager plugin, Instance
+Connect Endpoint, idle timeout), the model's evidence chain on each finding,
+and `warpcore dev --from-queue` delivering a deployed queue's messages to
+the local handler. Take-over of SST/Terraform/CDK/SAM/Serverless/Pulumi
+accounts is the provenance + takeover pair shipped earlier in the month.
+
+Not done, deliberately: live triggers for API routes and bucket
+notifications (taking those over means changing the account, which the
+tool does not do behind the operator's back), and a real-account run of
+`discover health` and `discover drift` on the imported data-team account.

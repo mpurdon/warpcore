@@ -266,8 +266,15 @@ key pair on this machine, with the places it looked; the port open to this
 machine's address; and, when there is no public address, a jump host among
 the instances the security groups admit.
 
+Two more checks cover what is easy to miss: whether the Session Manager
+plugin the AWS CLI shells out to is on this machine, and whether the
+instance's VPC has an EC2 Instance Connect Endpoint, which reaches a private
+instance with no bastion and no public address. When the account's session
+preferences set an idle timeout, the notes say how long a session lasts.
+
 It then composes the command that would work: Session Manager first, then
-SSH, then SSH through the bastion as a `ProxyCommand`. **Copy** puts it on
+SSH, then the Instance Connect Endpoint, then SSH through the bastion as a
+`ProxyCommand`. **Copy** puts it on
 the clipboard; **Open in Terminal** recomputes it in the backend from the
 ARN and opens it in a terminal window, so the page never hands a shell
 string across. When a check fails, the notes say what would fix it.
@@ -300,7 +307,9 @@ side:
 
 - **Review** hands the findings and the canvas to the model, which ranks
   them for this account and writes one or two sentences on why each matters
-  here. It cannot add or drop a finding; if it fails, the rules' order stands.
+  here, with a numbered chain of the evidence it reasoned from so every
+  step can be checked against the finding's own evidence. It cannot add or
+  drop a finding; if it fails, the rules' order stands.
 - **Import** asks the model to name application tiles whose every member was
   placed by a guess (a component named after its busiest member or an AWS
   id). The inspector says *named by the assistant* and why.
@@ -308,6 +317,55 @@ side:
   scenario, asks for a scenario over the graph and the hops the checker
   allows. The draft is added like any other scenario and every hop the
   wiring cannot ground shows as a problem.
+
+### The Live lens: the account's word on every card
+
+The lens bar's sixth lens, **Live** (key `6`), colours every discovered card
+by what the account says now, worsened by the last review: green for
+running and clean, amber for stopped or a medium or high finding, red for
+gone, dotted grey for not checked. Choosing the lens reads the account
+(`warpcore discover health`, batched describes) and the bar says when it
+was read and how many are bad, warn and ok; after fifteen minutes the
+outlines go dashed until **refresh** reads again. Nothing here writes.
+
+### Drift: the deployment state against the account
+
+The Review drawer opens with a **Drift** row. **Check** runs
+`warpcore discover drift`, which reads every resource the deployment state
+records and compares only the properties the record set, so an AWS default
+is never drift. What changed behind warpcore's back is listed with the
+recorded and live values; what is gone is listed as gone; click a row and
+the canvas selects the card. In the Live lens those cards wear a violet
+(changed) or dashed red (gone) outline. Settings › Exploration › Drift can
+schedule the check every 15 minutes, hour or 4 hours while the project is
+open.
+
+### Since last import
+
+Every import keeps a snapshot of what it saw under
+`.warpcore/snapshots/<time>.json` beside the project file. When a project is
+opened after a second import, the project inspector's **Since last import**
+section lists what appeared, what went, which properties changed and which
+connections came or went. `warpcore discover snapshots --config …` prints
+the same.
+
+### What if
+
+A scenario's inspector has a **What if** section: pick a resource on its
+path and the same checker runs over the wiring without it, naming the steps
+that lose their evidence. The Activity drawer does the same for a deploy
+plan: when the plan deletes something a scenario passes through, the drawer
+says which scenarios break before anything is applied.
+
+### The project over MCP
+
+`warpcore mcp --config warpcore.yaml` serves the project to an editor or
+agent over stdio (`pip install "warpcore[mcp]"`): the canvas, each
+resource with its edges, the scenarios, live detail, health, the review's
+findings, the deploy plan and the connect plan, plus two writes that touch
+only the project's own files (mute a finding, add a scenario). Add it to
+Claude Code with `claude mcp add warpcore -- warpcore mcp --config
+/path/to/warpcore.yaml`; `--list` prints the tools.
 
 ### Scenarios: play a request through the system
 
@@ -438,7 +496,7 @@ never written to `warpcore.yaml`:
 |---|---|
 | General | Developer mode (`--dev`), CLI log level, reset |
 | Regions | Regions of interest, offered everywhere else in the app |
-| Exploration | Default AWS profile, how long a scan is reused, scan parallelism, scan cache |
+| Exploration | Default AWS profile, the assistant model, the drift check schedule, how long a scan is reused, scan parallelism, scan cache |
 | Logs | The CLI's daily JSONL logs, per project and home, with a viewer |
 | Audit trail | Every AWS change the CLI made, per environment |
 | Dev sessions | Manifests captured in developer mode |

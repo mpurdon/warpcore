@@ -3,6 +3,7 @@ import { Node, Edge } from 'reactflow';
 import { getPreferences, setPreference, Preferences } from '../utils/preferences';
 import { Layer } from '../utils/layers';
 import { Finding, findingsByArn, Review } from '../utils/findings';
+import type { CanvasHealth, DriftReport, ImportDiff } from '../utils/live';
 import { Lens, LENS_LAYERS } from '../utils/lenses';
 import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
 import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
@@ -476,6 +477,19 @@ interface StoreState {
   reviewBusy: boolean;
   setReview: (review: Review | null) => void;
   setReviewBusy: (busy: boolean) => void;
+  // The live lens (utils/live.ts): health per ARN as the account last
+  // reported it, the deployment state checked against the account, and
+  // what changed since the previous import. Session-only, like the review.
+  liveHealth: CanvasHealth | null;
+  liveBusy: boolean;
+  setLiveHealth: (health: CanvasHealth | null) => void;
+  setLiveBusy: (busy: boolean) => void;
+  drift: DriftReport | null;
+  driftBusy: boolean;
+  setDrift: (drift: DriftReport | null) => void;
+  setDriftBusy: (busy: boolean) => void;
+  importDiff: ImportDiff | null;
+  setImportDiff: (diff: ImportDiff | null) => void;
   closeDialog: () => void;
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
@@ -833,7 +847,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ holodeck: null, holodeckPreview: false, previewStash: null });
     return stash;
   },
-  loadProject: (project) => set({ ...projectPatch(project), holodeckPreview: false, previewStash: null, review: null, reviewByArn: new Map() }),
+  loadProject: (project) => set({ ...projectPatch(project), holodeckPreview: false, previewStash: null, review: null, reviewByArn: new Map(), liveHealth: null, drift: null }),
   snapshotProject: () => snapshotOf(get()),
   fitPending: false,
   clearFitPending: () => set({ fitPending: false }),
@@ -860,6 +874,16 @@ export const useStore = create<StoreState>((set, get) => ({
   reviewBusy: false,
   setReview: (review) => set({ review, reviewByArn: findingsByArn(review) }),
   setReviewBusy: (reviewBusy) => set({ reviewBusy }),
+  liveHealth: null,
+  liveBusy: false,
+  setLiveHealth: (liveHealth) => set({ liveHealth }),
+  setLiveBusy: (liveBusy) => set({ liveBusy }),
+  drift: null,
+  driftBusy: false,
+  setDrift: (drift) => set({ drift }),
+  setDriftBusy: (driftBusy) => set({ driftBusy }),
+  importDiff: null,
+  setImportDiff: (importDiff) => set({ importDiff }),
   closeDialog: () => set({ dialog: null }),
   paletteOpen: false,
   setPaletteOpen: (open) => set({ paletteOpen: open }),

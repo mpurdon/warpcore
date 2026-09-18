@@ -358,6 +358,19 @@ code {
   transition: opacity 0.25s ease, filter 0.25s ease;
 }
 
+/* The live lens: each discovered resource wears what the account said,
+   worsened by the review. An outline, because the state box-shadow on
+   .node-inner is !important and must keep meaning "deployed / present". */
+.react-flow__node.live-ok .node-inner { outline: 2px solid #16a34a; outline-offset: 2px; }
+.react-flow__node.live-warn .node-inner { outline: 2px solid #d97706; outline-offset: 2px; }
+.react-flow__node.live-bad .node-inner { outline: 2px solid #dc2626; outline-offset: 2px; }
+.react-flow__node.live-unknown .node-inner { outline: 2px dotted #9ca3af; outline-offset: 2px; }
+/* Read a while ago: still shown, but not vouched for. */
+.react-flow__node.live-stale .node-inner { outline-style: dashed; }
+/* Something warpcore recorded that the account now says differently. */
+.react-flow__node.drift-modified .node-inner { outline: 2px solid #7c3aed; outline-offset: 2px; }
+.react-flow__node.drift-missing .node-inner { outline: 2px dashed #dc2626; outline-offset: 2px; }
+
 /* ---------------------------------------------------- activity drawer offsets */
 
 /* The canvas sets --drawer-h to the drawer's height; React Flow's own

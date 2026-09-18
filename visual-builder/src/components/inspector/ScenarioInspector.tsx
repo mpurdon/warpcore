@@ -13,6 +13,7 @@ import {
 } from '../../utils/scenarios';
 import InspectorHeader, { Fact, Section, StatusDot } from './InspectorHeader';
 import DraftScenarioButton from './DraftScenarioButton';
+import { resourcesOnPath, whatIf } from '../../utils/whatIf';
 
 const LEVEL_CLASS: Record<string, string> = {
   START: 'text-gray-400', END: 'text-gray-400', REPORT: 'text-gray-400', INFO: 'text-emerald-300', WARN: 'text-amber-300', ERROR: 'text-red-300',
@@ -36,6 +37,12 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
   const candidates = useMemo(() => nodes.filter(canBeStep).sort((a, b) => displayNameFor(a).localeCompare(displayNameFor(b))), [nodes]);
   const logRef = useRef<HTMLPreElement>(null);
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [logs]);
+
+  // What if: the scenario checked against the canvas without one resource on its path.
+  const [whatIfId, setWhatIfId] = useState('');
+  useEffect(() => setWhatIfId(''), [scenario.id]);
+  const whatIfResult = useMemo(() => (whatIfId && byId.has(whatIfId) ? whatIf(scenario, nodes, edges, new Set([whatIfId])) : null), [whatIfId, scenario, nodes, edges, byId]);
+  const removedTrigger = Boolean(whatIfId) && scenario.trigger.at === whatIfId;
 
   const [draftName, setDraftName] = useState(scenario.name);
   useEffect(() => setDraftName(scenario.name), [scenario.name]);
@@ -304,6 +311,48 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
                   </div>
                 ))}
               </pre>
+            )}
+          </Section>
+        )}
+
+        {scenario.steps.length > 0 && (
+          <Section title="What if" hint="a resource on the path went away">
+            <select
+              value={whatIfId}
+              onChange={(e) => setWhatIfId(e.target.value)}
+              className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-white"
+              data-testid="what-if-pick"
+            >
+              <option value="">Pick a resource on the path…</option>
+              {resourcesOnPath(scenario).map((id) => <option key={id} value={id}>{name(id)}</option>)}
+            </select>
+            {whatIfResult && (
+              <div className="mt-2 text-xs" data-testid="what-if-result">
+                {whatIfResult.brokenSteps.length === 0 && !removedTrigger ? (
+                  <p className="text-green-800">Nothing else on the path depends on {name(whatIfId)}: the other steps keep their evidence.</p>
+                ) : (
+                  <>
+                    <p className="text-red-800 font-medium">
+                      {removedTrigger ? 'The trigger goes, so nothing starts.' : `${whatIfResult.brokenSteps.length} ${whatIfResult.brokenSteps.length === 1 ? 'step loses' : 'steps lose'} their evidence.`}
+                    </p>
+                    <ul className="mt-1 space-y-0.5 text-red-900/80">
+                      {whatIfResult.brokenSteps.map((i) => (
+                        <li key={i}>
+                          <button className="hover:underline" onClick={() => jump(i)}>
+                            {i + 1}. {name(scenario.steps[i].at)}
+                          </button>
+                          {scenario.steps[i].at === whatIfId ? ' is the one removed' : ` no longer has a hop from ${name(i === 0 ? scenario.trigger.at : scenario.steps[i - 1].at)}`}
+                        </li>
+                      ))}
+                    </ul>
+                    {whatIfResult.newProblems.length > 0 && (
+                      <ul className="mt-1 text-gray-600 space-y-0.5">
+                        {whatIfResult.newProblems.map((pr) => <li key={pr}>{pr}</li>)}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </Section>
         )}

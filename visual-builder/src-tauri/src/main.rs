@@ -1180,6 +1180,44 @@ async fn mute_finding(config_path: String, finding_id: String, reason: Option<St
     run_warpcore_json_in(&dir, &args).await
 }
 
+/// Live health of every discovered resource on the canvas, from the account.
+/// Runs in the project directory so the deployment state beside the file
+/// says when warpcore last touched each resource.
+#[tauri::command]
+async fn project_health(profile: String, config_path: String, environment: Option<String>) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&config_path);
+    let dir = path.parent().ok_or_else(|| format!("{config_path} has no directory"))?.to_path_buf();
+    let mut args: Vec<&str> = vec!["--profile", &profile, "discover", "health", "--config", &config_path, "--json"];
+    let env_name = environment.unwrap_or_default();
+    if !env_name.is_empty() {
+        args.push("--env");
+        args.push(&env_name);
+    }
+    run_warpcore_json_in(&dir, &args).await
+}
+
+/// The deployment state against the account: what changed behind warpcore's back.
+#[tauri::command]
+async fn project_drift(profile: String, config_path: String, environment: Option<String>) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&config_path);
+    let dir = path.parent().ok_or_else(|| format!("{config_path} has no directory"))?.to_path_buf();
+    let mut args: Vec<&str> = vec!["--profile", &profile, "discover", "drift", "--config", &config_path, "--json"];
+    let env_name = environment.unwrap_or_default();
+    if !env_name.is_empty() {
+        args.push("--env");
+        args.push(&env_name);
+    }
+    run_warpcore_json_in(&dir, &args).await
+}
+
+/// The project's import snapshots and what changed between the last two.
+#[tauri::command]
+async fn import_history(config_path: String) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&config_path);
+    let dir = path.parent().ok_or_else(|| format!("{config_path} has no directory"))?.to_path_buf();
+    run_warpcore_json_in(&dir, &["discover", "snapshots", "--config", &config_path, "--json"]).await
+}
+
 /// Take over adopted resources: from then on the canvas config is what a
 /// deploy enforces. Returns the CLI's JSON (items and release steps).
 #[tauri::command]
@@ -1656,6 +1694,9 @@ fn main() {
             instance_connect,
             open_connect_session,
             project_findings,
+            project_health,
+            project_drift,
+            import_history,
             assistant_suggest,
             takeover_resources,
             mute_finding,

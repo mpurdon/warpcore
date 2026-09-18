@@ -41,6 +41,7 @@ import HolodeckBanner from './components/HolodeckBanner';
 import ScenarioTransport from './components/ScenarioTransport';
 import SystemView from './components/SystemView';
 import { edgeView, isPlainEdge, ScenarioMarksContext, useLensView, useScenarioView } from './hooks/useCanvasView';
+import { fusedLevel, isStale, loadImportHistory, refreshDrift, refreshLive } from './utils/live';
 import { usePlaybackClock } from './hooks/usePlaybackClock';
 import { registerCanvas } from './utils/canvasActions';
 import { isDlqEdge } from './utils/scenarios';
@@ -198,6 +199,42 @@ function Flow() {
   // The scenario on show and the lens re-flow, shared with the system view.
   const scenarioView = useScenarioView();
   const { emphasis, reflow } = useLensView();
+  // The live lens: colours from the account's last word and the review,
+  // and drift marks from the state check. Read on demand, kept for the
+  // session, faded once stale. See utils/live.ts.
+  const lens = useStore((s) => s.lens);
+  const liveHealth = useStore((s) => s.liveHealth);
+  const reviewByArn = useStore((s) => s.reviewByArn);
+  const drift = useStore((s) => s.drift);
+  const holodeckPreview = useStore((s) => s.holodeckPreview);
+  const driftCheckMinutes = useStore((s) => s.prefs.driftCheckMinutes);
+  const liveClasses = useMemo(() => {
+    if (lens !== 'live') return null;
+    const stale = isStale(liveHealth);
+    const byArn = new Map<string, string>();
+    for (const n of nodes) {
+      const arn = n.data?.arn as string | undefined;
+      if (!arn) continue;
+      byArn.set(arn, `live-${fusedLevel(liveHealth?.resources[arn], reviewByArn.get(arn))}${stale ? ' live-stale' : ''}`);
+    }
+    for (const item of drift?.items ?? []) {
+      if (item.kind === 'modified' || item.kind === 'missing') byArn.set(item.physical_id, `drift-${item.kind}`);
+    }
+    return byArn;
+  }, [lens, liveHealth, reviewByArn, drift, nodes]);
+  useEffect(() => {
+    if (lens === 'live' && isStale(liveHealth)) void refreshLive();
+  }, [lens, configPath]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (holodeckPreview || !configPath) { useStore.getState().setImportDiff(null); return; }
+    void loadImportHistory(configPath);
+  }, [configPath, holodeckPreview]);
+  useEffect(() => {
+    if (!driftCheckMinutes || !configPath || holodeckPreview) return;
+    void refreshDrift();
+    const id = window.setInterval(() => { void refreshDrift(); }, driftCheckMinutes * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, [driftCheckMinutes, configPath, holodeckPreview]);
   usePlaybackClock();
 
   // A freshly loaded project fits the view once React Flow has measured
@@ -270,6 +307,10 @@ function Flow() {
     } else if (emphasis) {
       classes.push(emphasis.get(n.id) === 'context' ? 'lens-context' : 'lens-focus');
     }
+    if (liveClasses) {
+      const live = n.data?.arn ? liveClasses.get(n.data.arn as string) : undefined;
+      if (live) classes.push(live);
+    }
     // Scenario marks: the state of each resource at the playhead, and
     // everything else pushed back while it plays. The badges themselves
     // come from ScenarioMarksContext in NodeWrapper.
@@ -284,7 +325,7 @@ function Flow() {
     const className = classes.join(' ') || undefined;
     if (out === n) return className === n.className ? n : { ...n, className };
     return { ...out, className };
-  }), [baseNodes, errorsByNode, emphasis, reflow, scenarioView]);
+  }), [baseNodes, errorsByNode, emphasis, reflow, scenarioView, liveClasses]);
 
   // Handle mouse-based drag from palette
   useEffect(() => {

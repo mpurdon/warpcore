@@ -10,6 +10,7 @@ stands in the way. It never connects; it only advises.
 
 import ipaddress
 import os
+import shutil
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -44,7 +45,7 @@ class ConnectPlan:
     name: str
     state: Optional[str] = None
     platform: str = "linux"
-    method: str = "none"                       # ssm | ssh | ssh-jump | rdp | none
+    method: str = "none"                       # ssm | eice | ssh | ssh-jump | rdp | none
     command: Optional[str] = None
     user: Optional[str] = None
     key_name: Optional[str] = None
@@ -53,6 +54,10 @@ class ConnectPlan:
     private_ip: Optional[str] = None
     jump: Optional[Dict[str, Any]] = None      # {instance_id, name, public_ip, user, key_path}
     my_ip: Optional[str] = None
+    # An EC2 Instance Connect Endpoint in the instance's VPC, when there is one.
+    eice: Optional[Dict[str, Any]] = None      # {id, subnet_id, state}
+    # Session Manager's idle timeout in minutes, when the account's preferences say.
+    idle_timeout_minutes: Optional[int] = None
     checks: List[Check] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
@@ -139,6 +144,27 @@ def compose_ssh(user: str, host: str, key_path: Optional[str], jump: Optional[Di
     return " ".join(parts)
 
 
+SESSION_MANAGER_PLUGIN = "session-manager-plugin"
+SESSION_MANAGER_PLUGIN_URL = "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
+
+
+def plugin_installed(which=shutil.which) -> bool:
+    """Whether the Session Manager plugin the AWS CLI shells out to is on this machine."""
+    return which(SESSION_MANAGER_PLUGIN) is not None
+
+
+def compose_eice(instance_id: str, profile: Optional[str], region: str, user: Optional[str], key_path: Optional[str]) -> str:
+    """SSH over an Instance Connect Endpoint: the CLI opens the tunnel, no public address needed."""
+    parts = ["aws", "ec2-instance-connect", "ssh", "--instance-id", instance_id, "--connection-type", "eice", "--region", region]
+    if profile:
+        parts += ["--profile", profile]
+    if user:
+        parts += ["--os-user", user]
+    if key_path:
+        parts += ["--private-key-file", _quote(key_path)]
+    return " ".join(parts)
+
+
 def compose_ssm(instance_id: str, profile: Optional[str], region: str) -> str:
     parts = ["aws", "ssm", "start-session", "--target", instance_id, "--region", region]
     if profile:
@@ -154,12 +180,13 @@ class ConnectAdvisor:
     """Reads what reaching one instance needs, and composes the way in."""
 
     def __init__(self, session: boto3.Session, region: str, profile: Optional[str] = None,
-                 home: Optional[str] = None, lookup_my_ip: bool = True):
+                 home: Optional[str] = None, lookup_my_ip: bool = True, which=shutil.which):
         self.session = session
         self.region = region
         self.profile = profile
         self.home = home
         self.lookup_my_ip = lookup_my_ip
+        self.which = which
 
     def plan(self, arn: str) -> ConnectPlan:
         parsed = parse_arn(arn)
@@ -195,6 +222,24 @@ class ConnectAdvisor:
             plan.checks.append(Check("ssm", False, "Session Manager", "Has an instance profile but the SSM agent is not registered or offline"))
         else:
             plan.checks.append(Check("ssm", None, "Session Manager", "Could not read SSM instance information"))
+
+        # 2b. The plugin the CLI needs for any Session Manager session.
+        has_plugin = plugin_installed(self.which)
+        if profile_arn:
+            plan.checks.append(Check(
+                "plugin", has_plugin, "Session Manager plugin on this machine",
+                f"{SESSION_MANAGER_PLUGIN} is on PATH" if has_plugin else f"{SESSION_MANAGER_PLUGIN} is not on PATH; the AWS CLI needs it to open a session ({SESSION_MANAGER_PLUGIN_URL})",
+            ))
+        if ssm_online:
+            plan.idle_timeout_minutes = self._idle_timeout(region)
+
+        # 2c. An Instance Connect Endpoint in the VPC: SSH without a public address or a bastion.
+        if not inst.get("PublicIpAddress") and plan.platform == "linux":
+            plan.eice = self._eice(ec2, inst.get("VpcId"))
+            if plan.eice:
+                ready = plan.eice.get("state") == "create-complete"
+                plan.checks.append(Check("eice", ready, "Instance Connect Endpoint",
+                                         f"{plan.eice['id']} in {plan.eice.get('subnet_id')} is {plan.eice.get('state')}"))
 
         # 3. The login user, from the image.
         user = guess_user(self._image_name(ec2, inst.get("ImageId")), platform_details)
@@ -253,12 +298,21 @@ class ConnectAdvisor:
         elif plan.public_ip:
             plan.method = "ssh"
             plan.command = compose_ssh(user, plan.public_ip, plan.key_path or (f"~/.ssh/{plan.key_name}.pem" if plan.key_name else None))
+        elif plan.eice and plan.eice.get("state") == "create-complete":
+            plan.method = "eice"
+            plan.command = compose_eice(instance_id, self.profile, region, user, plan.key_path)
+            if not plan.key_path:
+                plan.notes.append("Without a key file the CLI pushes a one-minute key through EC2 Instance Connect; the instance needs the ec2-instance-connect package.")
         elif jump:
             plan.method = "ssh-jump"
             plan.command = compose_ssh(user, plan.private_ip or instance_id, plan.key_path or (f"~/.ssh/{plan.key_name}.pem" if plan.key_name else None), jump)
         else:
             plan.method = "none"
 
+        if plan.method == "ssm" and not has_plugin:
+            plan.notes.append(f"Install the Session Manager plugin first: {SESSION_MANAGER_PLUGIN_URL}")
+        if plan.method == "ssm" and plan.idle_timeout_minutes:
+            plan.notes.append(f"Session Manager ends the session after {plan.idle_timeout_minutes} idle minutes (the account's session preferences).")
         if plan.method in ("ssh", "ssh-jump") and not plan.key_path:
             plan.notes.append(f"Put the private key for {plan.key_name} at ~/.ssh/{plan.key_name}.pem, or edit the -i path.")
         if plan.method in ("ssh", "ssh-jump") and not profile_arn:
@@ -289,6 +343,39 @@ class ConnectAdvisor:
         if not infos:
             return False
         return infos[0].get("PingStatus") == "Online"
+
+    def _idle_timeout(self, region: str) -> Optional[int]:
+        """The idle timeout from the account's Session Manager preferences document, if readable."""
+        try:
+            ssm = discovery_client(self.session, "ssm", region)
+            doc = ssm.get_document(Name="SSM-SessionManagerRunShell")
+            content = doc.get("Content") if isinstance(doc, dict) else None
+            if not isinstance(content, str):
+                return None
+            import json
+            value = (json.loads(content).get("inputs") or {}).get("idleSessionTimeout")
+            return int(value) if value not in (None, "") else None
+        except Exception as e:  # noqa: BLE001 - preferences are optional context
+            logger.info("session preferences not read: %s", e)
+            return None
+
+    def _eice(self, ec2, vpc_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not vpc_id:
+            return None
+        try:
+            resp = ec2.describe_instance_connect_endpoints(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}])
+        except Exception as e:  # noqa: BLE001 - an older CLI or a denied call is "no endpoint"
+            logger.info("describe_instance_connect_endpoints failed: %s", e)
+            return None
+        endpoints = resp.get("InstanceConnectEndpoints") if isinstance(resp, dict) else None
+        if not isinstance(endpoints, list):
+            return None
+        ready = [e for e in endpoints if isinstance(e, dict)]
+        ready.sort(key=lambda e: e.get("State") != "create-complete")
+        if not ready:
+            return None
+        e = ready[0]
+        return {"id": e.get("InstanceConnectEndpointId"), "subnet_id": e.get("SubnetId"), "state": e.get("State")}
 
     def _image_name(self, ec2, image_id: Optional[str]) -> str:
         if not image_id:

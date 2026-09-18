@@ -579,9 +579,11 @@ class ProjectReviewer:
             "Rank them for this account: what should the operator look at first, given how the resources relate. "
             "For each finding write one or two plain sentences saying why it matters here, referring to other resources "
             "by name where that is the point (for example a port open to the world on a host that a bastion already reaches). "
+            "Also give the chain of evidence you reasoned from as two to four short steps, each citing a value from the "
+            "finding's evidence or a resource from the canvas by name, so the operator can check every step. "
             "Then write a two-sentence summary of the account's state.\n\n"
             "Answer with JSON only, no prose around it, in this shape:\n"
-            '{"summary": "...", "findings": [{"id": "<finding id>", "rank": 1, "why": "..."}, ...]}\n\n'
+            '{"summary": "...", "findings": [{"id": "<finding id>", "rank": 1, "why": "...", "reasoning": ["...", "..."]}, ...]}\n\n'
             f"Resources:\n{json.dumps(summary_nodes, separators=(',', ':'))}\n\n"
             f"Findings:\n{json.dumps([f.to_dict() for f in review.open()], separators=(',', ':'), default=str)}\n"
         )
@@ -599,6 +601,8 @@ class ProjectReviewer:
                 continue
             f.rank = item.get("rank")
             f.why = item.get("why")
+            steps = item.get("reasoning")
+            f.reasoning = [str(x) for x in steps if str(x).strip()] if isinstance(steps, list) else []
         if any(f.rank is not None for f in review.findings):
             review.findings.sort(key=lambda f: (f.rank is None, f.rank or 0))
         review.summary = parsed.get("summary")

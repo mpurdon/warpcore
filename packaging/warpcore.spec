@@ -22,13 +22,18 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 datas = []
 
 
-def optional_submodules(package):
-    """Every submodule of an optional dependency, or nothing when it is absent."""
+def optional_submodules(package, skip=()):
+    """Every submodule of an optional dependency, or nothing when it is absent.
+
+    `skip` names prefixes to leave out: mcp.cli imports typer, which the
+    server never needs, and collecting it aborts the build when typer is
+    not installed.
+    """
     try:
         __import__(package)
     except ImportError:
         return []
-    return collect_submodules(package)
+    return collect_submodules(package, filter=lambda name: not name.startswith(tuple(skip)))
 
 
 # devmode._warpcore_version() calls importlib.metadata.version("warpcore").
@@ -49,6 +54,7 @@ a = Analysis(
         # reports itself unavailable.
         "warpcore.cli.main",
         *optional_submodules("anthropic"),
+        *optional_submodules("mcp", skip=("mcp.cli",)),
     ],
     hookspath=[],
     hooksconfig={},
