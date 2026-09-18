@@ -41,6 +41,8 @@ export interface ProjectItem {
   folded_into?: string;
   /** What the service said about the resource's state, and why. */
   health?: { level: 'ok' | 'warn' | 'unknown'; reason: string };
+  /** Who deployed it, as the CLI worked out from tags, stacks and state files. */
+  provenance?: NodeMeta['provenance'];
 }
 
 export type ConnectionKind = 'role' | 'reference' | 'access' | 'event-source' | 'event-target' | 'dlq' | 'vpc' | 'logs' | 'invokes' | 'dns' | 'origin';
@@ -277,6 +279,10 @@ export interface NodeMeta {
   hiddenCount?: number;
   /** A note on the resource: the design decision worth teaching, in the author's words. */
   note?: string;
+  /** Who deployed a discovered resource, as the import worked it out. */
+  provenance?: { manager: string; stack?: string; address?: string; app?: string; stage?: string; logical_id?: string; urn?: string; evidence?: string };
+  /** A discovered resource warpcore has taken over: its config is what a deploy enforces. */
+  managed?: boolean;
 }
 
 export interface EdgeMeta {
@@ -433,7 +439,11 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
         status,
         arn: item.arn,
         region: item.region ?? undefined,
-        meta: { health, ...(health.level === 'warn' ? { warning: health.reason } : {}) } as NodeMeta,
+        meta: {
+          health,
+          ...(health.level === 'warn' ? { warning: health.reason } : {}),
+          ...(item.provenance ? { provenance: item.provenance } : {}),
+        } as NodeMeta,
       },
     };
     byArn.set(item.arn, node);

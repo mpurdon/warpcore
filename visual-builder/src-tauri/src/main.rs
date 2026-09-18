@@ -1150,6 +1150,37 @@ async fn assistant_suggest(
     result
 }
 
+/// Run a one-shot JSON command inside a project's directory: state, logs
+/// and stubs are CWD-relative in the CLI.
+async fn run_warpcore_json_in(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let output = warpcore_command()
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| format!("could not start warpcore: {e}"))?;
+    if !output.status.success() {
+        return Err(cli_failure(output.status, &output.stderr));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Take over adopted resources: from then on the canvas config is what a
+/// deploy enforces. Returns the CLI's JSON (items and release steps).
+#[tauri::command]
+async fn takeover_resources(config_path: String, environment: String, resources: Vec<String>, dry_run: bool) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&config_path);
+    let dir = path.parent().ok_or_else(|| format!("{config_path} has no directory"))?.to_path_buf();
+    let mut args: Vec<&str> = vec!["discover", "takeover", "--env", &environment, "--config", &config_path, "--json"];
+    if dry_run {
+        args.push("--dry-run");
+    }
+    for r in &resources {
+        args.push(r);
+    }
+    run_warpcore_json_in(&dir, &args).await
+}
+
 /// How to reach an instance from this machine: the checks and the command,
 /// by ARN. Advice only; nothing is opened.
 #[tauri::command]
@@ -1611,6 +1642,7 @@ fn main() {
             open_connect_session,
             project_findings,
             assistant_suggest,
+            takeover_resources,
             cancel_scan,
             list_regions,
             app_paths,
