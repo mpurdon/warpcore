@@ -373,7 +373,7 @@ class DeploymentOrchestrator:
         state = self.state_manager.load()
         compiled = compile_project(
             self.config, self.environment, account=state.account or None, region=state.region or self.boto_session.region_name,
-            agent_filter=agent_filter,
+            agent_filter=agent_filter, state=state,
         )
         self.compile_notes = compiled.notes
         self.compile_skipped = compiled.skipped

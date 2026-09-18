@@ -21,6 +21,7 @@ from warpcore.discovery.detail import ResourceDetailReader
 from warpcore.discovery.connect import ConnectAdvisor
 from warpcore.discovery.findings import ProjectReviewer
 from warpcore.discovery.suggest import draft_scenario, suggest_names
+from warpcore.discovery.takeover import take_over
 from warpcore.discovery.inventory import enabled_regions, scan_account
 from warpcore.utils.progress import PHASE, RESULT, ProgressEmitter, ndjson_writer
 from warpcore.state.manager import StateManager
@@ -536,6 +537,44 @@ def suggest(ctx, kind, input_path, llm_provider, llm_model, ask):
         console.print(f"[red]The model's answer could not be used:[/red] {e}")
         sys.exit(1)
     click.echo(json.dumps(result, indent=2, default=str))
+
+
+@discover.command("takeover")
+@click.argument("resources", nargs=-1, required=True)
+@click.option("--env", "environment", required=True, help="Environment whose state holds the resources")
+@click.option("--config", "config_path", default="warpcore.yaml", show_default=True)
+@click.option("--dry-run", is_flag=True, help="Say what would happen without writing state")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON")
+@click.pass_context
+def takeover(ctx, resources, environment, config_path, dry_run, as_json):
+    """Make adopted resources warpcore's: the canvas config is then what deploy enforces.
+
+    RESOURCES are logical ids, ARNs, or names. Calls nothing in AWS; rewrites
+    the state and prints what the previous manager (Terraform, SST, a
+    CloudFormation stack) has to be told so the two tools do not fight.
+    """
+    from warpcore.cli.main import get_state_path, load_config
+
+    config = load_config(config_path)
+    state_path = get_state_path(environment, config.project.name)
+    if not state_path.exists():
+        console.print(f"[red]No deployment state for '{environment}'.[/red] Import the account with adopt, or run `warpcore discover adopt`.")
+        sys.exit(1)
+    result = take_over(StateManager(str(state_path)), list(resources), dry_run=dry_run)
+
+    if as_json:
+        click.echo(json.dumps(result.to_dict(), indent=2, default=str))
+        return
+    for item in result.items:
+        mark = {"taken": "[green]✓[/green]", "already": "[dim]=[/dim]", "not-found": "[red]?[/red]"}.get(item.action, "[yellow]![/yellow]")
+        what = "taken over" if item.action == "taken" else item.detail
+        console.print(f"  {mark} {item.resource_id} [dim]{item.resource_type}[/dim] {what}{' (dry run)' if dry_run and item.action == 'taken' else ''}")
+    if result.release:
+        console.print("\n[bold]Tell the previous manager:[/bold]")
+        for step in result.release:
+            console.print(f"  {step}")
+    if result.taken() and not dry_run:
+        console.print(f"\n[green]{len(result.taken())} resource(s) are now managed.[/green] `warpcore diff --env {environment}` should propose nothing until you change them.")
 
 
 @discover.command("detail")

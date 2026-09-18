@@ -292,12 +292,19 @@ def target_for(config: Config, environment: str, account: Optional[str] = None, 
 class Compiler:
     """Compiles one project for one target."""
 
-    def __init__(self, config: Config, target: Target, write_stubs: bool = True):
+    def __init__(self, config: Config, target: Target, write_stubs: bool = True, state: Optional[Any] = None):
         self.config = config
         self.target = target
         self.write_stubs = write_stubs
         self.notes: List[str] = []
         self.skipped: List[Dict[str, str]] = []
+        # Adopted resources by ARN: a discovered node is owned only once its
+        # state entry says it was taken over (discovery/takeover.py).
+        self.taken: Dict[str, Resource] = {}
+        if state is not None:
+            for _stack, r in state.all_resources():
+                if r.physical_id and (r.metadata or {}).get("adopted") and (r.metadata or {}).get("managed"):
+                    self.taken[r.physical_id] = r
 
     # ----------------------------------------------------------- entry
 
@@ -315,6 +322,11 @@ class Compiler:
 
         for n in owned:
             if n.type in COMPUTE and agent_filter and _agent_name(n) != agent_filter:
+                continue
+            if n.arn and n.arn in self.taken:
+                taken = self._taken_over(n, self.taken[n.arn])
+                if taken is not None:
+                    resources[taken.id] = taken
                 continue
             if n.type in COMPUTE:
                 resources.update(self._function(n, edges, by_id, role_nodes, owned_ids))
@@ -366,8 +378,14 @@ class Compiler:
     def _owned(self, n: Node) -> bool:
         if n.type in CONTAINER_TYPES:
             return False
+        if n.arn and n.arn in self.taken:
+            return True  # taken over: compiled from its live shape, below
         if n.discovered:
             self.skipped.append({"id": n.id, "type": n.type, "reason": "discovered in the account; not managed by this project"})
+            return False
+        if n.arn and n.meta.get("managed"):
+            # The canvas says taken over but the state does not know it yet.
+            self.skipped.append({"id": n.id, "type": n.type, "reason": "marked as taken over on the canvas, but not in the deployment state; run `warpcore discover takeover`"})
             return False
         if n.type not in PROVISIONED_TYPES:
             what = "a type no provisioner builds yet" if n.type in KNOWN_UNPROVISIONED else f"an unknown type '{n.type}'"
@@ -741,6 +759,56 @@ class Compiler:
             props["IngressRules"] = rules
         return self._resource(n, "AWS::EC2::SecurityGroup", props, deps)
 
+    # --------------------------------------------------------- taken over
+
+    # Config keys the operator may change on a taken-over resource, and the
+    # provisioner property each sets. Everything else keeps its live value.
+    EDITABLE: Dict[str, Dict[str, str]] = {
+        "AWS::Lambda::Function": {"runtime": "Runtime", "handler": "Handler", "memory": "MemorySize", "timeout": "Timeout"},
+        "AWS::SQS::Queue": {"visibilityTimeout": "VisibilityTimeout", "delaySeconds": "DelaySeconds"},
+        "AWS::SNS::Topic": {"displayName": "DisplayName"},
+        "AWS::Logs::LogGroup": {"retentionDays": "RetentionInDays"},
+        "AWS::S3::Bucket": {},
+        "AWS::DynamoDB::Table": {},
+        "AWS::IAM::Role": {},
+        "AWS::EC2::VPC": {},
+        "AWS::EC2::SecurityGroup": {},
+    }
+
+    def _taken_over(self, n: Node, existing: Resource) -> Optional[Resource]:
+        """A resource warpcore now owns but did not create: its live shape,
+        with the canvas's edits on top. Keeps the state's id, so the plan
+        compares it with the entry the take-over rewrote."""
+        editable = self.EDITABLE.get(existing.type)
+        if editable is None:
+            self.skipped.append({"id": n.id, "type": n.type, "reason": f"taken over, but no provisioner manages {existing.type}"})
+            return None
+        props = dict(existing.properties)
+        for key, prop in editable.items():
+            value = n.config.get(key)
+            if value is None or value == "":
+                continue
+            props[prop] = int(value) if prop in ("MemorySize", "Timeout", "VisibilityTimeout", "DelaySeconds", "RetentionInDays") else value
+        if existing.type == "AWS::Lambda::Function":
+            env = n.config.get("environment")
+            if isinstance(env, dict) and env and not any(str(v) == "<redacted>" for v in env.values()):
+                props["Environment"] = {str(k): str(v) for k, v in env.items()}
+            path = n.config.get("path")
+            if isinstance(path, str) and path.strip():
+                full = (self.target.project_dir / path).resolve() if not os.path.isabs(path) else Path(path)
+                if full.exists():
+                    props["CodePath"] = str(full)
+                else:
+                    self.notes.append(f"{n.label}: code path {path} does not exist; the deployed code is kept")
+            props.pop("CodeSha256", None) if "CodePath" in props else None
+        if existing.type == "AWS::S3::Bucket" and n.config.get("versioning") is not None:
+            props["VersioningStatus"] = "Enabled" if n.config.get("versioning") else "Disabled"
+        # Its tags stay as they are: a take-over is a change of record, not
+        # a change in AWS, and the first plan after one must propose nothing.
+        tags = {**existing.tags, **{str(k): str(v) for k, v in (n.config.get("tags") or {}).items()}}
+        return Resource(id=existing.id, type=existing.type, physical_id=existing.physical_id, properties=props,
+                        dependencies=[], tags=tags, metadata={**(existing.metadata or {}), "managed": True, "canvas": n.type})
+
     # ------------------------------------------------------------ helpers
 
     def _resource(self, n: Node, aws_type: str, props: Dict[str, Any], deps: Optional[List[str]] = None, agent: Optional[str] = None) -> Resource:
@@ -774,7 +842,8 @@ def _attr_type(raw: Any) -> str:
 
 
 def compile_project(config: Config, environment: str, account: Optional[str] = None, region: Optional[str] = None,
-                    agent_filter: Optional[str] = None, write_stubs: bool = True) -> Compiled:
-    """The desired resources of a project for one environment."""
+                    agent_filter: Optional[str] = None, write_stubs: bool = True, state: Optional[Any] = None) -> Compiled:
+    """The desired resources of a project for one environment. `state` is
+    the deployment state, so taken-over resources compile from their live shape."""
     target = target_for(config, environment, account, region)
-    return Compiler(config, target, write_stubs=write_stubs).compile(agent_filter=agent_filter)
+    return Compiler(config, target, write_stubs=write_stubs, state=state).compile(agent_filter=agent_filter)

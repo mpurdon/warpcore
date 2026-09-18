@@ -131,9 +131,11 @@ class TestWhatIsNotCompiled:
                  {"id": "s3-1", "type": "s3", "label": "logs", "arn": "arn:aws:s3:::logs", "config": {"bucketName": "logs"}},
                  {"id": "s3-2", "type": "s3", "label": "taken", "arn": "arn:aws:s3:::taken", "config": {"bucketName": "taken"}, "meta": {"managed": True}}]
         out = compile_project(_config(tmp_path, _canvas(nodes)), "dev")
-        assert set(out.resources) == {"s3-2"}
+        # A canvas flag alone does not take a resource over; the state has to say so.
+        assert out.resources == {}
         reasons = {x["id"]: x["reason"] for x in out.skipped}
         assert "discovered" in reasons["s3-1"] and "discovered" in reasons["ec2-1"]
+        assert "warpcore discover takeover" in reasons["s3-2"]
 
     def test_unprovisioned_types_are_named_in_the_skip(self, tmp_path):
         out = compile_project(_config(tmp_path, _canvas([node("step-functions-1", "step-functions", "flow"), node("application-x", "application", "tile")])), "dev")
