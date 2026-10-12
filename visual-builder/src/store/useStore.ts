@@ -4,6 +4,7 @@ import { getPreferences, setPreference, Preferences } from '../utils/preferences
 import { Layer } from '../utils/layers';
 import { Finding, findingsByArn, Review } from '../utils/findings';
 import type { CanvasHealth, DriftReport, ImportDiff } from '../utils/live';
+import type { Receipt } from '../commands/types';
 import { Lens, LENS_LAYERS } from '../utils/lenses';
 import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
 import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
@@ -290,7 +291,7 @@ export function _resetHistoryClock(): void {
 
 // -------------------------------------------------------------------- store
 
-interface StoreState {
+export interface StoreState {
   // Canvas state
   nodes: Node[];
   edges: Edge[];
@@ -490,6 +491,11 @@ interface StoreState {
   setDriftBusy: (busy: boolean) => void;
   importDiff: ImportDiff | null;
   setImportDiff: (diff: ImportDiff | null) => void;
+  // What the command layer ran this session (commands/dispatch.ts): one
+  // receipt per run, whoever asked. The Activity drawer's audit, the
+  // assistant's transcript lines.
+  receipts: Receipt[];
+  clearReceipts: () => void;
   closeDialog: () => void;
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
@@ -884,6 +890,8 @@ export const useStore = create<StoreState>((set, get) => ({
   setDriftBusy: (driftBusy) => set({ driftBusy }),
   importDiff: null,
   setImportDiff: (importDiff) => set({ importDiff }),
+  receipts: [],
+  clearReceipts: () => set({ receipts: [] }),
   closeDialog: () => set({ dialog: null }),
   paletteOpen: false,
   setPaletteOpen: (open) => set({ paletteOpen: open }),

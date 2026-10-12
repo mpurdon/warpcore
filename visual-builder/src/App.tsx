@@ -4,7 +4,6 @@ import ReactFlow, {
   BackgroundVariant,
   Controls,
   MiniMap,
-  addEdge,
   applyNodeChanges,
   applyEdgeChanges,
   reconnectEdge,
@@ -22,7 +21,6 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 import { useReadOnly, useStore, NodeStatus } from './store/useStore';
-import { generateLogGroupPath } from './utils/logGroupPath';
 import Toolbar from './components/Toolbar';
 import ResourceLibrary from './components/ResourceLibrary';
 import ExecutionLogPanel from './components/ExecutionLogPanel';
@@ -44,6 +42,7 @@ import { edgeView, isPlainEdge, ScenarioMarksContext, useLensView, useScenarioVi
 import { fusedLevel, isStale, loadImportHistory, refreshDrift, refreshLive } from './utils/live';
 import { usePlaybackClock } from './hooks/usePlaybackClock';
 import { registerCanvas } from './utils/canvasActions';
+import { runFromUi } from './commands';
 import { isDlqEdge } from './utils/scenarios';
 import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
@@ -366,14 +365,7 @@ function Flow() {
           y: e.clientY,
         });
 
-        const newNode = {
-          id: `${draggedItem.type}-${Date.now()}`,
-          type: draggedItem.type,
-          position,
-          data: { label: draggedItem.label, status: 'draft' },
-        };
-
-        setNodes([...nodes, newNode]);
+        void runFromUi('canvas.addNode', { type: draggedItem.type, label: draggedItem.label, x: position.x, y: position.y });
       }
 
       setDraggedItem(null);
@@ -541,51 +533,14 @@ function Flow() {
       connectionCompletedRef.current = true; // Mark connection as completed
       setPendingConnection(null); // Clear pending connection
 
-      const sourceNode = nodes.find(n => n.id === connection.source);
-      const targetNode = nodes.find(n => n.id === connection.target);
-
-      const sourceType = sourceNode?.type || '';
-      const targetType = targetNode?.type || '';
-
-      // Check if this is a resource-based connection (no role needed)
-      const isResourceBased = isResourceBasedConnection(sourceType, targetType);
-
-      const newEdge = {
-        ...connection,
-        type: 'permission',
-        data: {
-          isResourceBased,
-          // roleId will be assigned via the RoleAssignmentModal
-        },
-      };
-
-      // Auto-populate log group path if connecting Lambda/Agent to Log Group
-      if (targetType === 'log-group' && targetNode && !targetNode.data?.config?.logGroupPath) {
-        const { projectName } = useStore.getState();
-        const suggestedPath = generateLogGroupPath(sourceNode, projectName);
-        if (suggestedPath) {
-          const updatedNodes = nodes.map(n => {
-            if (n.id === targetNode.id) {
-              return {
-                ...n,
-                data: {
-                  ...n.data,
-                  config: {
-                    ...n.data?.config,
-                    logGroupPath: suggestedPath,
-                  },
-                },
-              };
-            }
-            return n;
-          });
-          setNodes(updatedNodes);
-        }
-      }
-
-      setEdges(addEdge(newEdge, edges));
+      if (!connection.source || !connection.target) return;
+      // The edge, its data and the log group's path all come from the command.
+      void runFromUi('canvas.connect', {
+        source: connection.source, target: connection.target,
+        sourceHandle: connection.sourceHandle ?? undefined, targetHandle: connection.targetHandle ?? undefined,
+      });
     },
-    [edges, setEdges, nodes, setNodes]
+    []
   );
 
   // When connection drag ends, try to connect to nearby node or show radial menu
@@ -691,50 +646,19 @@ function Flow() {
     (resourceType: string, label: string) => {
       if (!pendingConnection || !radialMenuPos) return;
 
-      const sourceNode = nodes.find(n => n.id === pendingConnection.nodeId);
-
-      // Create new node at flow position (offset slightly from menu center)
-      const newNodeId = `${resourceType}-${Date.now()}`;
-      const newNode: Node = {
-        id: newNodeId,
-        type: resourceType,
-        position: { x: radialMenuPos.flow.x + 50, y: radialMenuPos.flow.y - 20 },
-        data: { label, status: 'draft' },
-      };
-
-      // Auto-populate log group path if creating a Log Group from Lambda/Agent
-      if (resourceType === 'log-group' && sourceNode) {
-        const { projectName } = useStore.getState();
-        const suggestedPath = generateLogGroupPath(sourceNode, projectName);
-        if (suggestedPath) {
-          newNode.data = {
-            ...newNode.data,
-            config: {
-              logGroupPath: suggestedPath,
-            },
-          };
-        }
-      }
-
-      // Create edge from source to new node
-      const newEdge = {
-        id: `${pendingConnection.nodeId}-${newNodeId}`,
-        source: pendingConnection.nodeId,
-        sourceHandle: pendingConnection.handleId,
-        target: newNodeId,
-        targetHandle: 'left-2-target', // Default to left-center target handle
-        type: 'permission',
-        data: {
-          isResourceBased: isResourceBasedConnection(pendingConnection.nodeType, resourceType),
-        },
-      };
-
-      setNodes([...nodes, newNode]);
-      setEdges([...edges, newEdge]);
+      // Two commands: the node, then the edge to it. The log group's path
+      // comes from the connect command, as it does for a drawn edge.
+      const source = pendingConnection.nodeId;
+      const handle = pendingConnection.handleId;
+      void runFromUi('canvas.addNode', { type: resourceType, label, x: radialMenuPos.flow.x + 50, y: radialMenuPos.flow.y - 20 }).then((r) => {
+        if (!r.ok) return;
+        const id = (r.result as { id: string }).id;
+        void runFromUi('canvas.connect', { source, target: id, sourceHandle: handle ?? undefined, targetHandle: 'left-2-target' });
+      });
       setRadialMenuPos(null);
       setPendingConnection(null);
     },
-    [pendingConnection, radialMenuPos, nodes, edges, setNodes, setEdges]
+    [pendingConnection, radialMenuPos]
   );
 
   // Close radial menu
@@ -925,20 +849,10 @@ function Flow() {
 
   // Delete selected nodes or edges (supports multi-select)
   const deleteSelected = useCallback(() => {
-    const nodesToDelete = nodes.filter(n => n.selected).map(n => n.id);
-
-    if (nodesToDelete.length > 0) {
-      // Remove selected nodes and any connected edges
-      setNodes(nodes.filter(n => !n.selected));
-      setEdges(edges.filter(e => !nodesToDelete.includes(e.source) && !nodesToDelete.includes(e.target)));
-      setSelectedNode(null);
-      setEditingNode(null);
-    } else if (selectedEdge) {
-      setEdges(edges.filter(e => e.id !== selectedEdge));
-      setSelectedEdge(null);
-      setEditingEdge(null);
-    }
-  }, [nodes, edges, setNodes, setEdges, setSelectedNode, setEditingNode, selectedEdge]);
+    void runFromUi('canvas.removeSelected', selectedEdge ? { edgeId: selectedEdge } : {}, 'shortcut').then((r) => {
+      if (r.ok && selectedEdge) { setSelectedEdge(null); setEditingEdge(null); }
+    });
+  }, [selectedEdge]);
 
   useShortcuts({ deleteSelected });
 

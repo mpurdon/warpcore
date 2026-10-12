@@ -230,3 +230,13 @@ Not done, deliberately: live triggers for API routes and bucket
 notifications (taking those over means changing the account, which the
 tool does not do behind the operator's back), and a real-account run of
 `discover health` and `discover drift` on the imported data-team account.
+
+## 7. Follow-up, 2026-10-12: the command layer
+
+Before an in-app assistant, the layer it will stand on: every UI action
+as a declared command, one dispatcher, receipts, tool schemas derived.
+Shipped with the palette, shortcuts, toolbar, canvas edits, configuration
+form, scenario and environment editors routed through it. Next: the chat
+panel over the registry (confirm cards, receipts as transcript lines), and
+the bridge so `warpcore mcp` and an outside agent reach the running app
+rather than the file.

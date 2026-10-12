@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Link, Unlink, Trash2, ChevronDown, ChevronRight, Copy, Check, AlertTriangle, Mail } from 'lucide-react';
+import { runFromUi } from '../commands';
 import { useStore } from '../store/useStore';
 import { Node } from 'reactflow';
 import { computeRolePolicy, generateIAMPolicyJSON } from '../utils/rolePolicy';
@@ -1093,15 +1094,12 @@ const configSchemas: Record<string, ConfigField[]> = {
 };
 
 export default function ConfigurationPanel({ node, onClose }: ConfigurationPanelProps) {
-  const { nodes, setNodes, edges, setEdges, currentEnvironment, environmentConfigs } = useStore();
+  const { nodes, setNodes, currentEnvironment, environmentConfigs } = useStore();
   const envConfig = environmentConfigs[currentEnvironment];
   const schema = configSchemas[node.type || ''] || [];
 
   const handleDelete = () => {
-    // Remove the node
-    setNodes(nodes.filter(n => n.id !== node.id));
-    // Remove any connected edges
-    setEdges(edges.filter(e => e.source !== node.id && e.target !== node.id));
+    void runFromUi('canvas.removeNodes', { ids: [node.id] });
     onClose();
   };
 
@@ -1144,23 +1142,9 @@ export default function ConfigurationPanel({ node, onClose }: ConfigurationPanel
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  // One field at a time, through the command the assistant would use.
   const updateNodeData = (key: string, value: any) => {
-    // Use functional update to avoid race conditions
-    setNodes(currentNodes => currentNodes.map((n) => {
-      if (n.id === node.id) {
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            config: {
-              ...n.data.config,
-              [key]: value,
-            },
-          },
-        };
-      }
-      return n;
-    }));
+    void runFromUi('canvas.setConfig', { id: node.id, config: { [key]: value } });
   };
 
   const getConfigValue = (key: string, defaultValue: any = '') => {

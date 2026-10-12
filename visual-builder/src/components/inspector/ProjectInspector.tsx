@@ -15,6 +15,7 @@ import ScenarioRow from './ScenarioRow';
 import DraftScenarioButton from './DraftScenarioButton';
 import { checkScenario, hopIndex } from '../../utils/scenarios';
 import { importDiffIsEmpty } from '../../utils/live';
+import { runFromUi } from '../../commands';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot } from './InspectorHeader';
 
 type Tab = 'overview' | 'roles';
@@ -23,7 +24,7 @@ export default function ProjectInspector() {
   const {
     projectName, configPath, hasUnsavedChanges, nodes, environmentConfigs, currentEnvironment,
     inspectEnvironment, deploymentHistory, executionsPerMonth, setExecutionsPerMonth, selectNode,
-    scenarios, edges, newScenario, holodeck, holodeckPreview, openDialog, importDiff,
+    scenarios, edges, holodeck, holodeckPreview, openDialog, importDiff,
   } = useStore();
   const byArn = useMemo(() => new Map(nodes.filter((n) => n.data?.arn).map((n) => [n.data.arn as string, n.id])), [nodes]);
   const goArn = (arn: string) => { const id = byArn.get(arn); if (id) selectNode(id); };
@@ -161,7 +162,7 @@ export default function ProjectInspector() {
             ))}
             <div className="mt-1 flex items-center gap-2 flex-wrap">
               <button
-                onClick={() => newScenario()}
+                onClick={() => { void runFromUi('scenario.new'); }}
                 disabled={readOnly || nodes.length === 0}
                 className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-200 text-gray-800 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                 title={readOnly ? 'Unlock the project to add scenarios' : 'New scenario'}

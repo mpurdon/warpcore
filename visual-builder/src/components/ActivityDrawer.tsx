@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, X, CheckCircle2, XCircle, Circle, Loader2, MinusCircle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { scenariosBrokenBy } from '../utils/whatIf';
+import type { Receipt } from '../commands';
 import { isActive, matchNodeForResource, RunResource, runElapsedSeconds } from '../utils/deployEvents';
 import { canvas } from '../utils/canvasActions';
 import { StatusDot, Tone } from './inspector/InspectorHeader';
@@ -16,7 +17,7 @@ import { StatusDot, Tone } from './inspector/InspectorHeader';
 export const ACTIVITY_BAR_HEIGHT = 36;
 export const ACTIVITY_BODY_HEIGHT = 240;
 
-type Tab = 'resources' | 'output';
+type Tab = 'resources' | 'output' | 'commands';
 
 function fmtSeconds(s: number): string {
   if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
@@ -51,7 +52,7 @@ const BAR: Record<RunResource['status'], string> = {
 };
 
 export default function ActivityDrawer() {
-  const { run, activityOpen, setActivityOpen, clearRun, nodes, selectNode, edges, scenarios, inspectScenario } = useStore();
+  const { run, activityOpen, setActivityOpen, clearRun, nodes, selectNode, edges, scenarios, inspectScenario, receipts } = useStore();
   // What the plan's deletes would do to the scenarios: the same check, over
   // the wiring without those resources (utils/whatIf.ts).
   const broken = useMemo(() => {
@@ -78,7 +79,25 @@ export default function ActivityDrawer() {
     return { origin, span: end - origin };
   }, [run, now]);
 
-  if (!run) return null;
+  // With no run yet, the drawer is the receipts alone: what has been asked
+  // of the app this session, by whom.
+  if (!run) {
+    if (receipts.length === 0) return null;
+    return (
+      <div className="absolute left-0 right-0 bottom-0 z-30 bg-white border-t border-gray-200 shadow-[0_-4px_12px_-6px_rgba(0,0,0,0.12)]">
+        <button onClick={() => setActivityOpen(!activityOpen)} className="w-full flex items-center gap-3 px-3 text-left hover:bg-gray-50" style={{ height: ACTIVITY_BAR_HEIGHT }} title={activityOpen ? 'Collapse' : 'Expand'}>
+          <span className="text-sm font-medium text-gray-900">Commands · {receipts.length}</span>
+          <span className="text-xs text-gray-500 truncate">{receipts[receipts.length - 1].summary}</span>
+          {activityOpen ? <ChevronDown size={14} className="ml-auto text-gray-400" /> : <ChevronUp size={14} className="ml-auto text-gray-400" />}
+        </button>
+        {activityOpen && (
+          <div className="border-t border-gray-100 flex flex-col" style={{ height: ACTIVITY_BODY_HEIGHT }}>
+            <Receipts receipts={receipts} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const outcomeTone: Tone = active ? 'info' : run.outcome === 'success' ? 'ok' : run.outcome === 'partial' ? 'warn' : 'bad';
   const verb = run.kind === 'deploy' ? 'Deploy' : 'Destroy';
@@ -110,13 +129,13 @@ export default function ActivityDrawer() {
       {activityOpen && (
         <div className="border-t border-gray-100 flex flex-col" style={{ height: ACTIVITY_BODY_HEIGHT }}>
           <div className="flex items-center gap-1 px-2 border-b border-gray-100 flex-shrink-0">
-            {(['resources', 'output'] as Tab[]).map((t) => (
+            {(['resources', 'output', 'commands'] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px ${tab === t ? 'text-blue-700 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-800'}`}
               >
-                {t === 'resources' ? `Resources · ${run.resources.length}` : `Output · ${run.output.length}`}
+                {t === 'resources' ? `Resources · ${run.resources.length}` : t === 'output' ? `Output · ${run.output.length}` : `Commands · ${receipts.length}`}
               </button>
             ))}
             <span className="flex-1" />
@@ -217,6 +236,7 @@ export default function ActivityDrawer() {
             </div>
           )}
 
+          {tab === 'commands' && <Receipts receipts={receipts} />}
           {tab === 'output' && (
             <pre className="flex-1 overflow-auto min-h-0 m-0 px-3 py-2 text-[11px] leading-relaxed font-mono bg-gray-950 text-gray-200">
               {run.output.length === 0 ? <span className="text-gray-500">No output from the CLI yet.</span> : run.output.map((l, i) => (
@@ -231,6 +251,26 @@ export default function ActivityDrawer() {
 }
 
 /** What a planned change does: properties, code, permissions. Folded by default. */
+/** The receipts, newest first: what ran, from where, and whether it worked. */
+function Receipts({ receipts }: { receipts: Receipt[] }) {
+  return (
+    <div className="flex-1 overflow-y-auto min-h-0 px-3 py-2 text-xs" data-testid="receipts">
+      {receipts.length === 0 && <p className="text-gray-500">Nothing has run yet. Every command, from a button, a key, the palette or an assistant, lands here.</p>}
+      <ul className="space-y-0.5">
+        {[...receipts].reverse().map((r, i) => (
+          <li key={`${r.at}-${i}`} className="flex items-baseline gap-2">
+            <span className="text-gray-400 tabular-nums w-20 shrink-0 whitespace-nowrap">{new Date(r.at).toLocaleTimeString()}</span>
+            <span className={`w-14 shrink-0 ${r.source === 'ui' ? 'text-gray-400' : 'text-blue-700'}`}>{r.source}</span>
+            <span className={r.ok ? 'text-gray-800' : 'text-red-700'}>{r.ok ? '✓' : '✕'} {r.summary}</span>
+            {!r.ok && r.error && <span className="text-gray-500 truncate">{r.error}</span>}
+            <span className="ml-auto font-mono text-gray-400 shrink-0">{r.id}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function PlanDetail({ r }: { r: RunResource }) {
   const props = r.properties ?? [];
   const iam = r.iam;

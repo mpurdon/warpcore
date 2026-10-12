@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Plus, ExternalLink, Search } from 'lucide-react';
-import { useStore, ENVIRONMENT_TEMPLATES, environmentFromTemplate, summariseEnvironment } from '../store/useStore';
+import { runFromUi } from '../commands';
+import { useStore, ENVIRONMENT_TEMPLATES, summariseEnvironment } from '../store/useStore';
 
 interface Props {
   onOpenEnvironment: (env: string) => void;
 }
 
 export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
-  const { currentEnvironment, setCurrentEnvironment, environmentConfigs, setEnvironmentConfig } = useStore();
+  const { currentEnvironment, environmentConfigs } = useStore();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredEnv, setHoveredEnv] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
   }, [isOpen]);
 
   const handleSelectEnv = (env: string) => {
-    setCurrentEnvironment(env);
+    void runFromUi('project.switchEnvironment', { environment: env });
     setIsOpen(false);
     setSearchQuery('');
   };
@@ -69,16 +70,12 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
   const handleAddEnvironment = () => {
     if (!newEnvName.trim()) return;
 
-    const envKey = newEnvName.toLowerCase().replace(/\s+/g, '-');
-    if (environmentConfigs[envKey]) {
-      alert('Environment already exists');
-      return;
-    }
-
-    const newConfig = environmentFromTemplate(baseConfig, newEnvName.trim());
-
-    setEnvironmentConfig(envKey, newConfig);
-    setCurrentEnvironment(envKey);
+    const [kind, key] = newEnvBase.split(':');
+    void runFromUi('project.addEnvironment', { name: newEnvName.trim(), from: key }).then((r) => {
+      if (!r.ok) return;
+      void runFromUi('project.switchEnvironment', { environment: (r.result as { key: string }).key });
+    });
+    void kind; void baseConfig;
     setShowNewEnvInput(false);
     setNewEnvName('');
     setIsOpen(false);

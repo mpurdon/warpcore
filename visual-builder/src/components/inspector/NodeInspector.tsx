@@ -18,6 +18,7 @@ import LiveTab from './LiveTab';
 import ConnectSection from './ConnectSection';
 import FindingsSection from './FindingsSection';
 import ManagedBySection from './ManagedBySection';
+import { runFromUi } from '../../commands';
 import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot, Tone } from './InspectorHeader';
 
 type Tab = 'overview' | 'live' | 'execution' | 'raw';
@@ -33,7 +34,7 @@ const STATUS: Record<NodeStatus, { tone: Tone; label: string; pulse?: boolean }>
 };
 
 export default function NodeInspector({ node }: { node: Node }) {
-  const { nodes, edges, executionsPerMonth, setEditingNode, selectNode, executionLogs, scenarios, newScenario, setNodes } = useStore();
+  const { nodes, edges, executionsPerMonth, setEditingNode, selectNode, executionLogs, scenarios, setNodes } = useStore();
   const through = useMemo(() => scenarios.filter((sc) => sc.trigger.at === node.id || sc.steps.some((st) => st.at === node.id)), [scenarios, node.id]);
   const readOnly = useReadOnly();
   const [chosenTab, setTab] = useState<Tab>('overview');
@@ -276,7 +277,7 @@ export default function NodeInspector({ node }: { node: Node }) {
               ))}
               {canBeStep(node) && (
                 <button
-                  onClick={() => newScenario(node.id)}
+                  onClick={() => { void runFromUi('scenario.new', { triggerAt: node.id }); }}
                   disabled={readOnly}
                   className="mt-1 inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-gray-900 disabled:text-gray-400"
                   title={readOnly ? 'Unlock the project to add scenarios' : 'A new scenario whose request arrives here'}

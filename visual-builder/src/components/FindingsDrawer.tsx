@@ -7,7 +7,8 @@ import { useState } from 'react';
 import { AlertTriangle, Coins, RefreshCw, ShieldAlert, Sparkles, Terminal, Wrench, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { projectProfile } from '../utils/accountExplorer';
-import { fetchFindings, Finding, FindingKind, KIND_LABEL, SEVERITY_RANK, Severity } from '../utils/findings';
+import { Finding, FindingKind, KIND_LABEL, SEVERITY_RANK, Severity } from '../utils/findings';
+import { runReview } from '../utils/review';
 import { WINDOWS } from './live/LiveDetail';
 import { refreshDrift } from '../utils/live';
 
@@ -17,22 +18,6 @@ const KIND_ICON: Record<FindingKind, JSX.Element> = {
 const SEVERITY_CLASS: Record<Severity, string> = {
   high: 'bg-red-100 text-red-800 border-red-200', medium: 'bg-amber-100 text-amber-800 border-amber-200', low: 'bg-gray-100 text-gray-700 border-gray-200',
 };
-
-/** Read (or re-read) the review for the open project. Shared with the palette. */
-export async function runReview(hours = 24): Promise<void> {
-  const s = useStore.getState();
-  const profile = projectProfile(s.environmentExtras, s.currentEnvironment);
-  if (!profile || !s.configPath) return;
-  s.setReviewBusy(true);
-  try {
-    const llm = s.prefs.assistantProvider ? { provider: s.prefs.assistantProvider, model: s.prefs.assistantModel } : undefined;
-    s.setReview(await fetchFindings(profile, s.configPath, hours, llm));
-  } catch (e) {
-    s.setReview({ window_hours: hours, findings: [], groups: [], summary: null, model: null, notes: [], errors: { review: String(e) }, at: new Date().toISOString() });
-  } finally {
-    useStore.getState().setReviewBusy(false);
-  }
-}
 
 export default function FindingsDrawer({ onClose }: { onClose: () => void }) {
   const { review, reviewBusy, nodes, selectNode, prefs, configPath, environmentExtras, currentEnvironment, openSettings, drift, driftBusy } = useStore();

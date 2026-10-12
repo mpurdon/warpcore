@@ -13,6 +13,7 @@ import {
 } from '../../utils/scenarios';
 import InspectorHeader, { Fact, Section, StatusDot } from './InspectorHeader';
 import DraftScenarioButton from './DraftScenarioButton';
+import { runFromUi } from '../../commands';
 import { resourcesOnPath, whatIf } from '../../utils/whatIf';
 
 const LEVEL_CLASS: Record<string, string> = {
@@ -52,7 +53,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
     else setDraftName(scenario.name);
   };
 
-  const setSteps = (steps: ScenarioStep[]) => updateScenario(scenario.id, (s) => ({ ...s, steps }));
+  const setSteps = (steps: ScenarioStep[]) => { void runFromUi('scenario.setSteps', { id: scenario.id, steps: { steps } }); };
   const patchStep = (i: number, patch: Partial<ScenarioStep>) => setSteps(scenario.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const move = (i: number, d: number) => {
     const steps = [...scenario.steps];

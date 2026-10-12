@@ -17,7 +17,8 @@ import ProjectDiscoveryPanel from './ProjectDiscoveryPanel';
 import AccountExplorerPanel from './AccountExplorerPanel';
 import ShortcutsHelp from './ShortcutsHelp';
 import { isOwnSaveEcho, openProjectDialog, openProjectFile, saveProject } from '../utils/projectIO';
-import { blockedReason, runDeployment } from '../utils/deployRunner';
+import { blockedReason } from '../utils/deployRunner';
+import { runFromUi } from '../commands';
 import { isActive } from '../utils/deployEvents';
 import { dirname } from '../utils/paths';
 import { useAppPaths } from '../utils/useAppPaths';
@@ -43,20 +44,15 @@ export default function Toolbar() {
     environmentExtras,
     executionsPerMonth,
     rightPanelVisible,
-    setRightPanelVisible,
     debugMode,
     inspectEnvironment,
-    setSelectedNode,
     settingsOpen,
     closeSettings,
     locked,
     run,
     activityOpen,
-    setActivityOpen,
     systemView,
-    setSystemView,
     dialog,
-    openDialog,
     closeDialog,
     setPaletteOpen,
     review,
@@ -98,19 +94,10 @@ export default function Toolbar() {
     };
   }, [configPath, hasUnsavedChanges, nodes, edges, executionsPerMonth, environmentConfigs, environmentExtras]);
 
-  const handleDestroy = async () => {
-    if (blockedReason('destroy')) return;
-    if (!confirm(`Destroy every resource in the ${envName} environment?\n\nThis runs warpcore destroy against AWS.`)) return;
-    void runDeployment('destroy');
-  };
-
-  // Put the project in the inspector: nothing narrower selected.
-  const inspectProject = () => {
-    closeSettings();
-    setSelectedNode(null);
-    inspectEnvironment(null);
-    setRightPanelVisible(true);
-  };
+  // Every button runs a command (commands/): the dispatcher asks before a
+  // destroy, writes the receipt, and is what an assistant would call.
+  const handleDestroy = () => { void runFromUi('account.destroy'); };
+  const inspectProject = () => { void runFromUi('view.inspectProject'); };
 
   const deployReason = blockedReason('deploy') ?? `Deploy to ${envName}${debugMode ? ' (developer mode)' : ''} · ⌘D`;
   const destroyReason = blockedReason('destroy') ?? `Destroy everything in ${envName}`;
@@ -158,26 +145,26 @@ export default function Toolbar() {
         <FileMenu onOpenFile={() => { void openProjectDialog(); }} onOpenRecent={(p) => { void openProjectFile(p); }} />
 
         {configPath && (
-          <button onClick={() => openDialog('discovery')} className={quiet} title="Scan this project's code for Strands SDK components">
+          <button onClick={() => { void runFromUi('view.dialog', { dialog: 'discovery' }); }} className={quiet} title="Scan this project's code for Strands SDK components">
             <FolderSearch size={15} />
             <span className="hidden 2xl:inline">Discover</span>
           </button>
         )}
 
-        <button onClick={() => openDialog('explorer')} className={quiet} title="Reverse-engineer an AWS account: every resource, drill in to config, network, metrics and logs">
+        <button onClick={() => { void runFromUi('view.dialog', { dialog: 'explorer' }); }} className={quiet} title="Reverse-engineer an AWS account: every resource, drill in to config, network, metrics and logs">
           <Radar size={15} />
           <span className="hidden 2xl:inline">Explore</span>
         </button>
 
         {configPath && (
-          <button onClick={() => openDialog('findings')} className={quiet} title="Review: what the resources are doing, and what is wrong, wasteful or fragile">
+          <button onClick={() => { void runFromUi('view.dialog', { dialog: 'findings' }); }} className={quiet} title="Review: what the resources are doing, and what is wrong, wasteful or fragile">
             <ClipboardCheck size={15} />
             <span className="hidden 2xl:inline">Review</span>
             {reviewCount > 0 && <span className="ml-0.5 px-1.5 rounded-full bg-red-100 text-red-800 text-[10px] font-semibold">{reviewCount}</span>}
           </button>
         )}
 
-        <button onClick={() => openDialog('holodeck')} className={quiet} title="The Holodeck: systems to walk through with scenarios, and copy to work from">
+        <button onClick={() => { void runFromUi('view.dialog', { dialog: 'holodeck' }); }} className={quiet} title="The Holodeck: systems to walk through with scenarios, and copy to work from">
           <LibraryBig size={15} />
           <span className="hidden 2xl:inline">Holodeck</span>
         </button>
@@ -188,7 +175,7 @@ export default function Toolbar() {
         <LockControl />
 
         <button
-          onClick={() => { void runDeployment('deploy'); }}
+          onClick={() => { void runFromUi('account.deploy'); }}
           disabled={Boolean(blockedReason('deploy'))}
           title={deployReason}
           className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-1.5 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
@@ -210,7 +197,7 @@ export default function Toolbar() {
         <span className="w-px h-5 bg-gray-200 mx-1" />
 
         <button
-          onClick={() => setActivityOpen(!activityOpen)}
+          onClick={() => { void runFromUi('view.activity'); }}
           disabled={settingsOpen || !run}
           className={`relative ${iconButton(activityOpen && Boolean(run))}`}
           title={!run ? 'Activity: nothing has run yet' : activityOpen ? 'Hide the activity drawer' : 'Show the activity drawer'}
@@ -220,7 +207,7 @@ export default function Toolbar() {
         </button>
 
         <button
-          onClick={() => setSystemView(!systemView)}
+          onClick={() => { void runFromUi('view.systemView'); }}
           disabled={settingsOpen}
           className={iconButton(systemView)}
           title={systemView ? 'Back to the canvas' : 'System view: the canvas as terraces, read only. Scenarios play here too.'}
@@ -229,7 +216,7 @@ export default function Toolbar() {
         </button>
 
         <button
-          onClick={() => setRightPanelVisible(!rightPanelVisible)}
+          onClick={() => { void runFromUi('view.inspector'); }}
           disabled={settingsOpen}
           className={iconButton(rightPanelVisible)}
           title={settingsOpen ? 'Close Settings to use the inspector' : rightPanelVisible ? 'Hide inspector' : 'Show inspector'}

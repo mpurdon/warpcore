@@ -5,31 +5,13 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, CornerDownLeft } from 'lucide-react';
-import { selectReadOnly, useStore, NodeStatus, SETTINGS_SECTIONS } from '../store/useStore';
-import { displayNameFor } from '../utils/nodeName';
-import { DISCOVERED_TYPES, discoveredTypeLabel } from '../utils/discoveredTypes';
-import { groupItems, PaletteItem, rankItems } from '../utils/palette';
-import { LENSES } from '../utils/lenses';
-import { LAYERS } from '../utils/layers';
-import { canvas } from '../utils/canvasActions';
-import { openProjectDialog, saveProject } from '../utils/projectIO';
-import { blockedReason, runDeployment } from '../utils/deployRunner';
-import { closePreview } from '../utils/holodeckActions';
-import { StatusDot, Tone } from './inspector/InspectorHeader';
+import { useStore } from '../store/useStore';
+import { groupItems, PaletteItem, PaletteKind, rankItems } from '../utils/palette';
+import { paletteRows, runFromUi } from '../commands';
+import { StatusDot } from './inspector/InspectorHeader';
 
-const TONE: Record<NodeStatus, Tone> = {
-  draft: 'muted', warning: 'warn', configured: 'info', deploying: 'info', deployed: 'ok', failed: 'bad', present: 'muted',
-};
-
-const SECTION_LABELS: Record<(typeof SETTINGS_SECTIONS)[number], string> = {
-  general: 'General', regions: 'Regions', exploration: 'Exploration', logs: 'Logs', audit: 'Audit trail',
-  sessions: 'Dev sessions', storage: 'Storage', projects: 'Projects', about: 'About',
-};
-
-function typeLabel(type: string | undefined, config: Record<string, unknown> | undefined): string {
-  if (!type) return 'resource';
-  return discoveredTypeLabel(type, config) || DISCOVERED_TYPES[type]?.label || type;
-}
+/** How a command's group reads in the palette: resources get a status dot, the rest a label. */
+const KIND_FOR: Record<string, PaletteKind> = { view: 'command', project: 'command', canvas: 'command', scenario: 'command', account: 'command', query: 'command' };
 
 export default function CommandPalette() {
   const s = useStore();
@@ -50,83 +32,22 @@ export default function CommandPalette() {
   const close = () => setPaletteOpen(false);
   const after = (fn: () => void) => () => { close(); fn(); };
 
+  // Every row comes from the command registry (commands/): the same
+  // declarations the toolbar, the shortcuts and an assistant run. A row
+  // the registry says is blocked still runs, so the reason is the answer.
   const items = useMemo<PaletteItem[]>(() => {
     if (!paletteOpen) return [];
-    const list: PaletteItem[] = [];
-    const deployBlock = blockedReason('deploy');
-    const destroyBlock = blockedReason('destroy');
-    const envName = s.environmentConfigs[s.currentEnvironment]?.name ?? s.currentEnvironment;
-
-    // Actions
-    list.push({ id: 'deploy', kind: 'command', group: 'Actions', title: `Deploy to ${envName}`, subtitle: deployBlock ?? 'Runs warpcore deploy and shows the run in Activity', shortcut: '⌘D', keywords: ['run', 'apply'], run: after(() => { if (!deployBlock) void runDeployment('deploy'); }) });
-    list.push({ id: 'destroy', kind: 'command', group: 'Actions', title: `Destroy ${envName}`, subtitle: destroyBlock ?? 'Asks first, then runs warpcore destroy', keywords: ['delete', 'teardown', 'remove'], run: after(() => { if (destroyBlock) return; if (confirm(`Destroy every resource in the ${envName} environment?`)) void runDeployment('destroy'); }) });
-    list.push({ id: 'save', kind: 'command', group: 'Actions', title: 'Save project', subtitle: s.configPath ? s.configPath : 'No file yet: open or create a project first', shortcut: '⌘S', run: after(() => { void saveProject(); }) });
-    list.push({ id: 'open', kind: 'command', group: 'Actions', title: 'Open project…', subtitle: 'Choose a warpcore.yaml', shortcut: '⌘O', run: after(() => { void openProjectDialog(); }) });
-    list.push({ id: 'holodeck', kind: 'command', group: 'Actions', title: 'Holodeck…', subtitle: 'Systems to walk through with scenarios, and copy to work from', keywords: ['template', 'example', 'library', 'reference', 'architecture'], run: after(() => s.openDialog('holodeck')) });
-    if (s.holodeckPreview) list.push({ id: 'holodeck-close', kind: 'command', group: 'Actions', title: 'Close the Holodeck preview', subtitle: 'Back to what was open before', keywords: ['preview'], run: after(() => { void closePreview(); }) });
-    list.push({ id: 'explore', kind: 'command', group: 'Actions', title: 'Explore an AWS account…', subtitle: 'Scan an account and turn it into a project', keywords: ['scan', 'discover', 'import', 'reverse'], run: after(() => s.openDialog('explorer')) });
-    if (s.configPath) list.push({ id: 'discover', kind: 'command', group: 'Actions', title: 'Discover Strands components…', subtitle: 'Scan this project\'s code', keywords: ['scan'], run: after(() => s.openDialog('discovery')) });
-    if (s.configPath && !s.locked) list.push({ id: 'lock', kind: 'command', group: 'Actions', title: 'Lock the project', subtitle: 'Back to view-only', run: after(() => s.lock()) });
-    list.push({ id: 'undo', kind: 'command', group: 'Actions', title: 'Undo', subtitle: s.past.length ? `${s.past.length} step${s.past.length === 1 ? '' : 's'} back` : 'Nothing to undo', shortcut: '⌘Z', run: after(() => s.undo()) });
-    list.push({ id: 'redo', kind: 'command', group: 'Actions', title: 'Redo', subtitle: s.future.length ? `${s.future.length} step${s.future.length === 1 ? '' : 's'} forward` : 'Nothing to redo', shortcut: '⇧⌘Z', run: after(() => s.redo()) });
-
-    // View
-    list.push({ id: 'fit', kind: 'command', group: 'View', title: 'Fit view', subtitle: 'Show the whole canvas', shortcut: '⌘0', run: after(() => canvas.fitView()) });
-    for (const lens of LENSES) {
-      list.push({ id: `lens-${lens.id}`, kind: 'lens', group: 'View', title: `Lens: ${lens.label}`, subtitle: lens.description, shortcut: lens.key, keywords: ['view', 'filter', 'layer'], tone: s.lens === lens.id ? 'info' : undefined, run: after(() => s.setLens(lens.id)) });
-    }
-    for (const layer of LAYERS) {
-      const on = s.layers[layer.id];
-      list.push({ id: `layer-${layer.id}`, kind: 'layer', group: 'View', title: `${on ? 'Hide' : 'Show'} ${layer.label.toLowerCase()} edges`, subtitle: layer.description, keywords: ['layer', 'edges'], run: after(() => s.setLayer(layer.id, !on)) });
-    }
-    list.push({ id: 'system-view', kind: 'command', group: 'View', title: s.systemView ? 'Back to the canvas' : 'System view', subtitle: s.systemView ? 'The editable canvas' : 'The canvas as terraces in 3D, read only; scenarios play here too', keywords: ['3d', 'three', 'terraces', 'presentation'], tone: s.systemView ? 'info' : undefined, run: after(() => s.setSystemView(!s.systemView)) });
-    list.push({ id: 'inspector', kind: 'command', group: 'View', title: `${s.rightPanelVisible ? 'Hide' : 'Show'} inspector`, run: after(() => s.setRightPanelVisible(!s.rightPanelVisible)) });
-    list.push({ id: 'activity', kind: 'command', group: 'View', title: `${s.activityOpen ? 'Hide' : 'Show'} activity`, subtitle: s.run ? `Last run: ${s.run.kind} to ${s.run.environment}` : 'Nothing has run yet', run: after(() => s.setActivityOpen(!s.activityOpen)) });
-    list.push({ id: 'help', kind: 'command', group: 'View', title: 'Keyboard shortcuts', shortcut: '?', run: after(() => s.openDialog('shortcuts')) });
-
-    // Scenarios
-    if (s.playhead) {
-      list.push({ id: 'scn-toggle', kind: 'command', group: 'Scenarios', title: s.playhead.playing ? 'Pause playback' : 'Resume playback', shortcut: 'space', run: after(() => s.setPlaying(!s.playhead!.playing)) });
-      list.push({ id: 'scn-stop', kind: 'command', group: 'Scenarios', title: 'Stop playback', run: after(() => s.stopPlayback()) });
-    }
-    for (const sc of s.scenarios) {
-      list.push({ id: `scn-play-${sc.id}`, kind: 'command', group: 'Scenarios', title: `Play scenario: ${sc.name}`, subtitle: sc.steps.length ? `${sc.steps.length} steps from ${sc.trigger.at}` : 'No steps yet', keywords: ['scenario', 'simulate', 'request'], run: after(() => { if (sc.steps.length) s.playScenario(sc.id); else s.inspectScenario(sc.id); }) });
-      list.push({ id: `scn-open-${sc.id}`, kind: 'command', group: 'Scenarios', title: `Inspect scenario: ${sc.name}`, keywords: ['scenario', 'edit'], run: after(() => s.inspectScenario(sc.id)) });
-    }
-    if (s.nodes.length && !selectReadOnly(s)) {
-      list.push({ id: 'scn-new', kind: 'command', group: 'Scenarios', title: 'New scenario', subtitle: 'Play a request through the system, step by step', keywords: ['scenario', 'simulate', 'record'], run: after(() => s.newScenario(s.selectedNode ?? undefined)) });
-    }
-
-    // Resources
-    for (const n of s.nodes) {
-      if (n.hidden) continue;
-      const status = (n.data?.status as NodeStatus | undefined) ?? 'draft';
-      list.push({
-        id: `node-${n.id}`,
-        kind: 'resource',
-        group: 'Resources',
-        title: displayNameFor(n),
-        subtitle: `${typeLabel(n.type, n.data?.config)} · ${n.id}`,
-        keywords: [n.type || '', String(n.data?.arn || ''), String(n.data?.region || '')].filter(Boolean),
-        tone: TONE[status],
-        run: after(() => {
-          s.selectNode(n.id);
-          canvas.fitToNodes([n.id]);
-        }),
-      });
-    }
-
-    // Environments
-    for (const [key, cfg] of Object.entries(s.environmentConfigs)) {
-      list.push({ id: `env-switch-${key}`, kind: 'environment', group: 'Environments', title: `Switch to ${cfg.name}`, subtitle: key === s.currentEnvironment ? 'Current deploy scope' : `Make ${key} the deploy scope (re-locks the project)`, keywords: [key, 'environment'], run: after(() => s.setCurrentEnvironment(key)) });
-      list.push({ id: `env-inspect-${key}`, kind: 'environment', group: 'Environments', title: `Inspect ${cfg.name}`, subtitle: 'Removal policies, logging, Lambda defaults', keywords: [key, 'environment', 'settings'], run: after(() => s.inspectEnvironment(key)) });
-    }
-
-    // Settings
-    for (const section of SETTINGS_SECTIONS) {
-      list.push({ id: `settings-${section}`, kind: 'setting', group: 'Settings', title: `Settings: ${SECTION_LABELS[section]}`, shortcut: section === 'general' ? '⌘,' : undefined, keywords: ['preferences', 'settings'], run: after(() => s.openSettings(section)) });
-    }
-    return list;
+    return paletteRows(s).map((row) => ({
+      id: row.id,
+      kind: row.command === 'view.select' ? 'resource' : row.command === 'view.lens' ? 'lens' : row.command === 'view.layer' ? 'layer' : row.command === 'view.settings' ? 'setting' : row.command.endsWith('Environment') ? 'environment' : KIND_FOR[row.command.split('.')[0]] ?? 'command',
+      group: row.group,
+      title: row.title,
+      subtitle: row.subtitle,
+      keywords: row.keywords,
+      shortcut: row.shortcut,
+      tone: row.tone,
+      run: after(() => { void runFromUi(row.command, row.args, 'palette'); }),
+    }));
     // The palette rebuilds when it opens; the store fields it reads are
     // captured then, which is what a snapshot-style list wants.
     // eslint-disable-next-line react-hooks/exhaustive-deps

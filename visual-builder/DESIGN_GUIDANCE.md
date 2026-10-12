@@ -618,3 +618,47 @@ playhead. Shipped in `utils/systemLayout.ts` (pure, tested) and
 - **Notes travel with the project.** `meta.note` is how an entry teaches
   and how a user annotates their own system; the same field, the same
   marker.
+
+
+## 15. The command layer
+
+[2026-10-12. `visual-builder/src/commands/`.]
+
+Everything the app can do is a command, declared once, and every surface
+is derived from the declaration: the palette's rows, the shortcut table,
+the receipts in the Activity drawer, the tool schemas a model is handed,
+and what an outside agent reaches over MCP. The toolbar, the keys, the
+palette, the inspector and the assistant all run the same command through
+the same dispatcher (`dispatch.ts`), which checks the arguments, asks the
+lock and the command's own `available()`, confirms an `aws-change`
+command whoever asked, runs it, and writes a receipt whatever happened.
+Parity between the UI and an agent is therefore a property of the design,
+not a list someone keeps in step.
+
+Kinds are split by consequence: `view` (this operator's screen), `project`
+(the file; respects the lock, lands in undo), `aws-read` (slow, changes
+nothing), `aws-change` (always confirmed), `query` (exact answers from
+what the app holds, so a model never has to guess at the graph).
+
+The shape was taken from CORA's review assistant and changed in six
+places, recorded here because each is a rule for adding a command:
+
+- One declaration, not four. CORA writes an action's schema, its confirm
+  text, its execution and its editability in separate places; here they
+  are fields of one `CommandSpec`, and `is_action`-style derivations are
+  the only way to get a list.
+- The registry lives where the state lives. CORA's actions are Rust over
+  SQLite and reach frontend-held state through an emitted event; ours are
+  TypeScript over the store, and the backend reaches in.
+- Availability is declared (`available`, `ignoresLock`), shown as the
+  palette subtitle, and handed to an agent as the answer, rather than
+  discovered by an error.
+- Queries are first class, so questions are tool results, not prose.
+- Confirmation and the receipt are the dispatcher's, so no command can
+  forget either.
+- Arguments are typed once and validated once; the JSON schema is derived.
+
+Rules: a new UI action is a new command first, and the button calls it.
+Do not call `setNodes`/`setEdges` from a component for a project edit;
+make the command and run it. A command that changes AWS or the deployment
+state is `aws-change` and gets a `confirm` that says what will happen.

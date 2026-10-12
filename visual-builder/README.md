@@ -357,6 +357,18 @@ that lose their evidence. The Activity drawer does the same for a deploy
 plan: when the plan deletes something a scenario passes through, the drawer
 says which scenarios break before anything is applied.
 
+### The command layer
+
+Everything the app can do is a command (`src/commands/`), declared once:
+the toolbar, the keyboard, the palette, the inspector and an assistant all
+run the same commands through one dispatcher, which checks the arguments,
+honours the lock, confirms anything that changes AWS or the deployment
+state, and writes a receipt. The Activity drawer's **Commands** tab lists
+every receipt with where it came from. In a dev build,
+`window.__warpcore.commands.list()`, `.run(id, args)` and `.tools()` expose
+the registry, so an automated check or an agent can drive the app the way
+a person does. See `DESIGN_GUIDANCE.md` §15.
+
 ### The project over MCP
 
 `warpcore mcp --config warpcore.yaml` serves the project to an editor or

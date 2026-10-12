@@ -1,5 +1,9 @@
-// Every keyboard shortcut in the app, in one place. The sheet in
-// ShortcutsHelp.tsx documents these; keep the two in step.
+// Every keyboard shortcut in the app. The keys come from the command
+// registry (each command declares its own), so the sheet in
+// ShortcutsHelp.tsx and the palette's hints read the same table. What is
+// left here is the layering: Escape closes the top-most thing, playback
+// keys only while a scenario is on the transport, lens digits only when no
+// dialog is up.
 //
 // Rules: modifier shortcuts work everywhere, including inside inputs, the
 // way desktop apps behave. Bare keys (lens digits, ?, Delete) only fire
@@ -7,9 +11,7 @@
 
 import { useEffect } from 'react';
 import { selectReadOnly, useStore } from '../store/useStore';
-import { canvas } from '../utils/canvasActions';
-import { openProjectDialog, saveProject } from '../utils/projectIO';
-import { blockedReason, runDeployment } from '../utils/deployRunner';
+import { runFromUi, shortcuts } from '../commands';
 import { LENSES } from '../utils/lenses';
 
 function inEditable(target: EventTarget | null): boolean {
@@ -36,54 +38,18 @@ export function useShortcuts({ deleteSelected }: { deleteSelected: () => void })
       }
 
       if (mod) {
-        switch (key) {
-          case 'k':
-          case 'p':
-            e.preventDefault();
-            s.setPaletteOpen(!s.paletteOpen);
-            return;
-          case ',':
-            e.preventDefault();
-            s.openSettings();
-            return;
-          case 's':
-            e.preventDefault();
-            if (s.configPath) void saveProject();
-            return;
-          case 'o':
-            e.preventDefault();
-            void openProjectDialog();
-            return;
-          case 'd':
-            e.preventDefault();
-            if (!blockedReason('deploy')) void runDeployment('deploy');
-            return;
-          case 'z':
-            if (editable) return;
-            e.preventDefault();
-            if (e.shiftKey) s.redo(); else s.undo();
-            return;
-          case 'y':
-            if (editable) return;
-            e.preventDefault();
-            s.redo();
-            return;
-          case '0':
-            e.preventDefault();
-            canvas.fitView();
-            return;
-          case '=':
-          case '+':
-            e.preventDefault();
-            canvas.zoomIn();
-            return;
-          case '-':
-            e.preventDefault();
-            canvas.zoomOut();
-            return;
-          default:
-            return;
+        // Registry shortcuts: ⌘K, ⌘S, ⌘O, ⌘D, ⌘Z, ⇧⌘Z, ⌘0, ⌘=, ⌘-, ⌘,
+        const hit = shortcuts().find((sc) => sc.mod && sc.key === key && sc.shift === e.shiftKey);
+        if (hit) {
+          if (hit.command.startsWith('project.undo') || hit.command.startsWith('project.redo')) { if (editable) return; }
+          e.preventDefault();
+          void runFromUi(hit.command, {}, 'shortcut');
+          return;
         }
+        if (key === 'p') { e.preventDefault(); void runFromUi('view.palette', {}, 'shortcut'); return; }
+        if (key === 'y' && !editable) { e.preventDefault(); void runFromUi('project.redo', {}, 'shortcut'); return; }
+        if (key === '+') { e.preventDefault(); void runFromUi('view.zoomIn', {}, 'shortcut'); return; }
+        return;
       }
 
       if (e.key === 'Escape') {
@@ -104,21 +70,21 @@ export function useShortcuts({ deleteSelected }: { deleteSelected: () => void })
 
       // Playback: space, [ and ] while a scenario is on the transport bar.
       if (s.playhead && !s.settingsOpen && !s.paletteOpen && !s.dialog) {
-        if (e.key === ' ') { e.preventDefault(); s.setPlaying(!s.playhead.playing); return; }
-        if (e.key === '[') { e.preventDefault(); s.stepBack(); return; }
-        if (e.key === ']') { e.preventDefault(); s.stepForward(); return; }
+        if (e.key === ' ') { e.preventDefault(); void runFromUi('scenario.setPlaying', {}, 'shortcut'); return; }
+        if (e.key === '[') { e.preventDefault(); void runFromUi('scenario.seek', { by: -1 }, 'shortcut'); return; }
+        if (e.key === ']') { e.preventDefault(); void runFromUi('scenario.seek', { by: 1 }, 'shortcut'); return; }
       }
 
       if (e.key === '?') {
         e.preventDefault();
-        s.openDialog('shortcuts');
+        void runFromUi('view.shortcuts', {}, 'shortcut');
         return;
       }
 
       const lens = LENSES.find((l) => l.key === e.key);
       if (lens && !s.settingsOpen && !s.paletteOpen && !s.dialog) {
         e.preventDefault();
-        s.setLens(lens.id);
+        void runFromUi('view.lens', { lens: lens.id }, 'shortcut');
         return;
       }
 
