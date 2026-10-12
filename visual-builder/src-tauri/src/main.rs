@@ -1218,6 +1218,191 @@ async fn import_history(config_path: String) -> Result<String, String> {
     run_warpcore_json_in(&dir, &["discover", "snapshots", "--config", &config_path, "--json"]).await
 }
 
+// ---------------------------------------------------------------- the bridge
+//
+// A local HTTP door into the running app, so `warpcore mcp` (and so an
+// outside agent) can run the same commands the toolbar does. The app
+// writes ~/.warpcore/app.json with the port and a token when it starts;
+// each request carries the token. A request becomes a Tauri event to the
+// webview, which runs the command and answers through `bridge_respond`.
+// A command that needs the operator's confirmation waits here until they
+// answer the card in the app.
+
+struct Bridge {
+    token: String,
+    pending: std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>,
+    next: std::sync::atomic::AtomicU64,
+}
+
+impl Bridge {
+    fn new() -> Self {
+        let mut bytes = [0u8; 24];
+        // The token only has to be unguessable by another local process; the
+        // clock and the pid mixed through a small hash do, without a crate.
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0) ^ (std::process::id() as u128) << 64;
+        let mut x = seed;
+        for b in bytes.iter_mut() {
+            x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+            *b = (x & 0xff) as u8;
+        }
+        let token = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        Bridge { token, pending: std::sync::Mutex::new(std::collections::HashMap::new()), next: std::sync::atomic::AtomicU64::new(1) }
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+struct BridgeRequest {
+    id: String,
+    kind: String,
+    command: Option<String>,
+    args: serde_json::Value,
+}
+
+const BRIDGE_TIMEOUT_SECS: u64 = 240;
+
+async fn bridge_ask(app: &tauri::AppHandle, kind: &str, command: Option<String>, args: serde_json::Value) -> Result<String, String> {
+    use tauri::Manager;
+    let bridge = app.state::<Bridge>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    let id = format!("req-{}", bridge.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    bridge.pending.lock().map_err(|e| e.to_string())?.insert(id.clone(), tx);
+    app.emit("bridge-request", BridgeRequest { id: id.clone(), kind: kind.into(), command, args }).map_err(|e| e.to_string())?;
+    match tokio::time::timeout(std::time::Duration::from_secs(BRIDGE_TIMEOUT_SECS), rx).await {
+        Ok(Ok(payload)) => Ok(payload),
+        Ok(Err(_)) => Err("the app dropped the request".into()),
+        Err(_) => {
+            let _ = bridge.pending.lock().map(|mut p| p.remove(&id));
+            Err("the app did not answer in time (a confirmation may be waiting)".into())
+        }
+    }
+}
+
+/// The webview's answer to a bridge request.
+#[tauri::command]
+fn bridge_respond(bridge: tauri::State<'_, Bridge>, request_id: String, payload: String) -> Result<(), String> {
+    let tx = bridge.pending.lock().map_err(|e| e.to_string())?.remove(&request_id);
+    match tx {
+        Some(tx) => { let _ = tx.send(payload); Ok(()) }
+        None => Err(format!("no pending bridge request {request_id}")),
+    }
+}
+
+/// Where the bridge is listening, for the operator and for a check.
+#[tauri::command]
+fn bridge_info() -> Result<serde_json::Value, String> {
+    let file = home_dir()?.join(".warpcore").join("app.json");
+    let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
+}
+
+fn http_response(status: &str, body: &str) -> Vec<u8> {
+    format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: null\r\n\r\n{body}", body.len()).into_bytes()
+}
+
+async fn bridge_serve_one(app: tauri::AppHandle, mut socket: tokio::net::TcpStream) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut buf = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    // Headers first.
+    let header_end = loop {
+        let n = match socket.read(&mut chunk).await { Ok(0) | Err(_) => return, Ok(n) => n };
+        buf.extend_from_slice(&chunk[..n]);
+        if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") { break i + 4; }
+        if buf.len() > 64 * 1024 { return; }
+    };
+    let head = String::from_utf8_lossy(&buf[..header_end]).into_owned();
+    let mut lines = head.lines();
+    let request_line = lines.next().unwrap_or("");
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("").to_string();
+    let route = parts.next().unwrap_or("").to_string();
+    let mut token = String::new();
+    let mut length = 0usize;
+    for line in lines {
+        let lower = line.to_ascii_lowercase();
+        if let Some(v) = lower.strip_prefix("content-length:") { length = v.trim().parse().unwrap_or(0); }
+        if lower.starts_with("x-warpcore-token:") { token = line[17..].trim().to_string(); }
+    }
+    let mut body = buf[header_end..].to_vec();
+    while body.len() < length {
+        let n = match socket.read(&mut chunk).await { Ok(0) | Err(_) => break, Ok(n) => n };
+        body.extend_from_slice(&chunk[..n]);
+    }
+    let expected = { use tauri::Manager; app.state::<Bridge>().token.clone() };
+    let reply = if token != expected {
+        http_response("401 Unauthorized", "{\"error\":\"bad token\"}")
+    } else if method == "GET" && route == "/health" {
+        http_response("200 OK", &format!("{{\"ok\":true,\"pid\":{}}}", std::process::id()))
+    } else if method == "GET" && route == "/tools" {
+        match bridge_ask(&app, "tools", None, serde_json::Value::Null).await {
+            Ok(payload) => http_response("200 OK", &payload),
+            Err(e) => http_response("504 Gateway Timeout", &serde_json::json!({ "error": e }).to_string()),
+        }
+    } else if method == "POST" && route == "/command" {
+        let parsed: Result<serde_json::Value, _> = serde_json::from_slice(&body);
+        match parsed {
+            Ok(v) => {
+                let command = v.get("command").and_then(|c| c.as_str()).map(String::from);
+                let args = v.get("args").cloned().unwrap_or(serde_json::json!({}));
+                match command {
+                    None => http_response("400 Bad Request", "{\"error\":\"command is required\"}"),
+                    Some(c) => match bridge_ask(&app, "command", Some(c), args).await {
+                        Ok(payload) => http_response("200 OK", &payload),
+                        Err(e) => http_response("504 Gateway Timeout", &serde_json::json!({ "error": e }).to_string()),
+                    },
+                }
+            }
+            Err(e) => http_response("400 Bad Request", &serde_json::json!({ "error": format!("bad JSON: {e}") }).to_string()),
+        }
+    } else {
+        http_response("404 Not Found", "{\"error\":\"no such route\"}")
+    };
+    let _ = socket.write_all(&reply).await;
+    let _ = socket.shutdown().await;
+}
+
+/// Bind the bridge on a free loopback port and record it for `warpcore mcp`.
+async fn bridge_start(app: tauri::AppHandle) {
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(l) => l,
+        Err(e) => { eprintln!("bridge: could not bind: {e}"); return; }
+    };
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    let token = { use tauri::Manager; app.state::<Bridge>().token.clone() };
+    if let Ok(home) = home_dir() {
+        let dir = home.join(".warpcore");
+        let _ = std::fs::create_dir_all(&dir);
+        let info = serde_json::json!({ "port": port, "token": token, "pid": std::process::id(), "started_at": chrono::Utc::now().to_rfc3339() });
+        let _ = std::fs::write(dir.join("app.json"), info.to_string());
+    }
+    loop {
+        match listener.accept().await {
+            Ok((socket, _)) => { tauri::async_runtime::spawn(bridge_serve_one(app.clone(), socket)); }
+            Err(e) => { eprintln!("bridge: accept failed: {e}"); break; }
+        }
+    }
+}
+
+/// One model turn for the in-app assistant: the transcript and the tools go
+/// to `warpcore assistant turn`, which makes no AWS calls of its own.
+#[tauri::command]
+async fn assistant_turn(provider: String, model: Option<String>, input: String) -> Result<String, String> {
+    let dir = home_dir()?.join(".warpcore").join("cache").join("assistant");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let path = dir.join(format!("turn-{stamp}.json"));
+    std::fs::write(&path, input).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    let path_str = path.to_string_lossy().into_owned();
+    let mut args: Vec<&str> = vec!["assistant", "turn", "--provider", &provider, "--input", &path_str];
+    if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
+        args.push("--model");
+        args.push(m);
+    }
+    let result = run_warpcore_json(&args).await;
+    let _ = std::fs::remove_file(&path);
+    result
+}
+
 /// Take over adopted resources: from then on the canvas config is what a
 /// deploy enforces. Returns the CLI's JSON (items and release steps).
 #[tauri::command]
@@ -1660,6 +1845,7 @@ async fn write_scan_cache(key: String, content: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .manage(ActiveScan::default())
+        .manage(Bridge::new())
         // Only the dialog plugin is used: the frontend opens a file picker.
         // All file IO happens in Rust commands via tokio::fs/std::fs, which
         // needs no plugin and is not reachable from the webview.
@@ -1668,6 +1854,8 @@ fn main() {
             // A dev build says so in its title bar, with the commit it was
             // built from, so a stale instance left behind by a `tauri dev`
             // restart is recognisable at a glance.
+            // The bridge for `warpcore mcp` and outside agents.
+            tauri::async_runtime::spawn(bridge_start(app.handle().clone()));
             let label = build_label();
             if !label.is_empty() {
                 use tauri::Manager;
@@ -1698,6 +1886,9 @@ fn main() {
             project_drift,
             import_history,
             assistant_suggest,
+            assistant_turn,
+            bridge_respond,
+            bridge_info,
             takeover_resources,
             mute_finding,
             cancel_scan,

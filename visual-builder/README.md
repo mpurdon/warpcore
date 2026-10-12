@@ -369,7 +369,21 @@ every receipt with where it came from. In a dev build,
 the registry, so an automated check or an agent can drive the app the way
 a person does. See `DESIGN_GUIDANCE.md` §15.
 
-### The project over MCP
+### The assistant panel
+
+**Assistant** in the toolbar (`⌘J`) opens a conversation docked beside
+the inspector. Ask about the canvas or ask for a change: the model is
+handed the command registry as its tools, so it reads the graph exactly
+(`query_path`, `query_reach`, `scenario_check`, …), edits the project
+under the same lock as you, and anything that changes AWS or the
+deployment state waits for your yes on a card in the panel. Every command
+it runs lands as its own line there and in the Activity drawer's
+receipts; the model is told not to repeat them. One model turn at a time
+goes through `warpcore assistant turn` with the provider chosen in
+Settings (Anthropic, OpenAI, Bedrock or a local model); the app stores no
+key.
+
+### The project over MCP, and the running app
 
 `warpcore mcp --config warpcore.yaml` serves the project to an editor or
 agent over stdio (`pip install "warpcore[mcp]"`): the canvas, each
@@ -378,6 +392,15 @@ findings, the deploy plan and the connect plan, plus two writes that touch
 only the project's own files (mute a finding, add a scenario). Add it to
 Claude Code with `claude mcp add warpcore -- warpcore mcp --config
 /path/to/warpcore.yaml`; `--list` prints the tools.
+
+While the Visual Builder is running, its commands are tools too. The app
+opens a loopback door when it starts and records the port and a token in
+`~/.warpcore/app.json`; `warpcore mcp` finds it and publishes every
+command (`query_project`, `canvas_addNode`, `view_select`,
+`account_deploy`, …) alongside the file tools. An agent then acts on the
+canvas as the operator sees it, through the same dispatcher, with the same
+receipts, and a change to AWS waits on the same card in the assistant
+panel for the operator's yes.
 
 ### Scenarios: play a request through the system
 

@@ -662,3 +662,31 @@ Rules: a new UI action is a new command first, and the button calls it.
 Do not call `setNodes`/`setEdges` from a component for a project edit;
 make the command and run it. A command that changes AWS or the deployment
 state is `aws-change` and gets a `confirm` that says what will happen.
+
+
+## 16. The assistant and the bridge
+
+[2026-10-12. `visual-builder/src/assistant/`, `src-tauri/src/main.rs` (Bridge), `warpcore/assistant/`, `warpcore/mcp_server.py`.]
+
+The assistant is the command layer with a model in front of it. The loop
+runs in the app (`assistant/loop.ts`): one model turn at a time through
+`warpcore assistant turn`, which maps one message shape to every provider
+and keeps no state; every tool the model calls is a command run through
+the dispatcher with the source marked `assistant`. Queries give it exact
+answers, so it is told to read before it acts. An `aws-change` command
+waits on a card (`assistant/confirm.ts`), one at a time; a second in the
+same turn is answered "ask again after the pending one resolves". The
+receipts are the transcript's tool lines, and the model is told not to
+recap them.
+
+The bridge is the same door for an outside agent. The app listens on a
+loopback port, records it with a token in `~/.warpcore/app.json`, and
+turns each request into a Tauri event the webview answers by running the
+command with the source marked `mcp`. `warpcore mcp` finds the file,
+publishes the app's commands as MCP tools next to the file tools, and a
+change to AWS asked for over MCP shows the same card in the panel. Without
+the app, the file tools are what there is.
+
+Rules: the model never gets a tool that is not a command; nothing other
+than the operator answers a card; a new command is automatically a tool
+for both.

@@ -43,6 +43,8 @@ import { fusedLevel, isStale, loadImportHistory, refreshDrift, refreshLive } fro
 import { usePlaybackClock } from './hooks/usePlaybackClock';
 import { registerCanvas } from './utils/canvasActions';
 import { runFromUi } from './commands';
+import AssistantPanel from './components/AssistantPanel';
+import { startBridge } from './assistant/bridge';
 import { isDlqEdge } from './utils/scenarios';
 import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
@@ -206,6 +208,13 @@ function Flow() {
   const reviewByArn = useStore((s) => s.reviewByArn);
   const drift = useStore((s) => s.drift);
   const holodeckPreview = useStore((s) => s.holodeckPreview);
+  const assistantOpen = useStore((s) => s.assistantOpen);
+  // The bridge: `warpcore mcp` and outside agents run commands through here.
+  useEffect(() => {
+    let stop: (() => void) | null = null;
+    void startBridge().then((un) => { stop = un; });
+    return () => { stop?.(); };
+  }, []);
   const driftCheckMinutes = useStore((s) => s.prefs.driftCheckMinutes);
   const liveClasses = useMemo(() => {
     if (lens !== 'live') return null;
@@ -969,6 +978,7 @@ function Flow() {
         </div>
 
         {/* Contextual inspector: environment, node or project */}
+        {!settingsOpen && assistantOpen && <AssistantPanel />}
         {!settingsOpen && <Inspector />}
 
         {/* Execution log panel - shows during deployment */}

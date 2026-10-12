@@ -5,7 +5,7 @@
 // §5.3 and UX_PLAN.md §3.6: one light chrome, colour only for state and for
 // the two actions that change AWS.
 
-import { Play, Trash2, LibraryBig, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon, Box, ClipboardCheck } from 'lucide-react';
+import { Play, Trash2, LibraryBig, FolderSearch, PanelRight, Radar, Search, Activity as ActivityIcon, Box, ClipboardCheck, Bot } from 'lucide-react';
 import { useCurrentEnvName, useStore } from '../store/useStore';
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -56,6 +56,7 @@ export default function Toolbar() {
     closeDialog,
     setPaletteOpen,
     review,
+    assistantOpen,
   } = useStore();
   const reviewCount = review?.findings.filter((f) => f.severity !== 'low').length ?? 0;
 
@@ -167,6 +168,13 @@ export default function Toolbar() {
         <button onClick={() => { void runFromUi('view.dialog', { dialog: 'holodeck' }); }} className={quiet} title="The Holodeck: systems to walk through with scenarios, and copy to work from">
           <LibraryBig size={15} />
           <span className="hidden 2xl:inline">Holodeck</span>
+        </button>
+        <button
+          onClick={() => { void runFromUi('view.assistant'); }}
+          className={`${quiet} ${assistantOpen ? 'bg-gray-100' : ''}`}
+          title="Assistant: ask about the canvas or ask for a change; it works through the app's own commands · ⌘J"
+        >
+          <Bot size={14} /> Assistant
         </button>
 
         <span className="w-px h-5 bg-gray-200 mx-1" />

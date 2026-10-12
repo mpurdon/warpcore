@@ -5,6 +5,7 @@ import { Layer } from '../utils/layers';
 import { Finding, findingsByArn, Review } from '../utils/findings';
 import type { CanvasHealth, DriftReport, ImportDiff } from '../utils/live';
 import type { Receipt } from '../commands/types';
+import { EMPTY_CHAT, type ChatItem, type ChatState, type Message, type PendingAction } from '../assistant/types';
 import { Lens, LENS_LAYERS } from '../utils/lenses';
 import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
 import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
@@ -496,6 +497,17 @@ export interface StoreState {
   // assistant's transcript lines.
   receipts: Receipt[];
   clearReceipts: () => void;
+  // The assistant (assistant/): its transcript, the model's messages, and
+  // the card waiting for the operator. Session-only.
+  chat: ChatState;
+  assistantOpen: boolean;
+  setAssistantOpen: (open: boolean) => void;
+  pushChatItem: (item: ChatItem) => void;
+  setChatMessages: (messages: Message[]) => void;
+  setChatBusy: (busy: boolean) => void;
+  setChatPending: (pending: PendingAction | null) => void;
+  addChatUsage: (usage: { input: number; output: number }, model: string | null) => void;
+  clearChat: () => void;
   closeDialog: () => void;
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
@@ -892,6 +904,15 @@ export const useStore = create<StoreState>((set, get) => ({
   setImportDiff: (importDiff) => set({ importDiff }),
   receipts: [],
   clearReceipts: () => set({ receipts: [] }),
+  chat: EMPTY_CHAT,
+  assistantOpen: false,
+  setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
+  pushChatItem: (item) => set((s) => ({ chat: { ...s.chat, items: [...s.chat.items, item] } })),
+  setChatMessages: (messages) => set((s) => ({ chat: { ...s.chat, messages } })),
+  setChatBusy: (busy) => set((s) => ({ chat: { ...s.chat, busy } })),
+  setChatPending: (pending) => set((s) => ({ chat: { ...s.chat, pending } })),
+  addChatUsage: (usage, model) => set((s) => ({ chat: { ...s.chat, model: model ?? s.chat.model, usage: { input: s.chat.usage.input + usage.input, output: s.chat.usage.output + usage.output, turns: s.chat.usage.turns + 1 } } })),
+  clearChat: () => set((s) => ({ chat: { ...EMPTY_CHAT, pending: s.chat.pending } })),
   closeDialog: () => set({ dialog: null }),
   paletteOpen: false,
   setPaletteOpen: (open) => set({ paletteOpen: open }),

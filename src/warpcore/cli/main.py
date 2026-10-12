@@ -838,10 +838,38 @@ def mcp(ctx, config_path, list_tools):
         sys.exit(1)
     server = build_server(config_path, profile=ctx.obj.get('profile'), region=ctx.obj.get('region'))
     if list_tools:
+        from warpcore.mcp_server import AppBridge
+        console.print("The Visual Builder is running; its commands are tools." if AppBridge.find() else "The Visual Builder is not running; file tools only.")
         for name in tool_names(server):
             console.print(f"  {name}")
         return
     server.run(transport='stdio')
+
+
+@cli.group()
+def assistant():
+    """The Visual Builder's assistant: one model turn with tools, JSON in, JSON out."""
+
+
+@assistant.command('turn')
+@click.option('--provider', 'provider', type=click.Choice(['anthropic', 'openai', 'bedrock', 'local']), required=True)
+@click.option('--model', 'model', default=None, help='Model name; the provider default when omitted')
+@click.option('--input', 'input_path', required=True, type=click.Path(exists=True, dir_okay=False),
+              help='JSON with system, messages and tools')
+@click.option('--endpoint', default=None, help='A local model endpoint (default OLLAMA_HOST or http://localhost:11434)')
+def assistant_turn(provider, model, input_path, endpoint):
+    """Ask the model what to do next. The app runs the tools; this makes no AWS calls of its own."""
+    from pathlib import Path as _Path
+    from warpcore.assistant import converse
+
+    data = json.loads(_Path(input_path).read_text())
+    try:
+        turn = converse(provider, model, data.get('system') or '', data.get('messages') or [], data.get('tools') or [],
+                        max_tokens=int(data.get('max_tokens') or 4096), endpoint=endpoint)
+    except Exception as e:  # noqa: BLE001 - the app shows the message
+        click.echo(json.dumps({'error': str(e)}))
+        sys.exit(1)
+    click.echo(json.dumps(turn.to_dict(), default=str))
 
 
 @cli.group()

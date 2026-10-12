@@ -240,3 +240,8 @@ form, scenario and environment editors routed through it. Next: the chat
 panel over the registry (confirm cards, receipts as transcript lines), and
 the bridge so `warpcore mcp` and an outside agent reach the running app
 rather than the file.
+
+Shipped the same day: the assistant panel over the registry (any
+provider, one turn at a time, the card for anything that changes AWS) and
+the bridge that makes the running app's commands MCP tools. See
+DESIGN_GUIDANCE.md §16.

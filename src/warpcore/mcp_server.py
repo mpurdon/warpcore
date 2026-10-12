@@ -13,25 +13,129 @@ one every client speaks. The `mcp` package is optional (`pip install
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
 
 
-def build_server(config_path: str, profile: Optional[str] = None, region: Optional[str] = None):
-    """A FastMCP server over one project. Imported lazily so the CLI loads without `mcp`."""
+APP_FILE = Path.home() / ".warpcore" / "app.json"
+APP_TIMEOUT = 240  # seconds a command may wait on the operator's confirmation
+
+
+class AppBridge:
+    """The running Visual Builder, reached over its local bridge.
+
+    The app writes ~/.warpcore/app.json with its port and a token when it
+    starts; every request carries the token, so only something that can
+    read the operator's home directory can drive their app.
+    """
+
+    def __init__(self, port: int, token: str):
+        self.port = port
+        self.token = token
+
+    @classmethod
+    def find(cls, app_file: Path = APP_FILE) -> Optional["AppBridge"]:
+        try:
+            data = json.loads(app_file.read_text())
+            bridge = cls(int(data["port"]), str(data["token"]))
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        return bridge if bridge.alive() else None
+
+    def _request(self, method: str, route: str, body: Optional[Dict[str, Any]] = None, timeout: float = APP_TIMEOUT) -> Dict[str, Any]:
+        import urllib.request
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{route}", data=data, method=method,
+                                     headers={"Content-Type": "application/json", "X-Warpcore-Token": self.token})
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - loopback, token-checked
+            return json.loads(r.read() or b"{}")
+
+    def alive(self) -> bool:
+        try:
+            return bool(self._request("GET", "/health", timeout=2).get("ok"))
+        except Exception:  # noqa: BLE001 - not running is the common case
+            return False
+
+    def tools(self) -> List[Dict[str, Any]]:
+        return list(self._request("GET", "/tools", timeout=15).get("tools") or [])
+
+    def run(self, command: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/command", {"command": command, "args": args})
+
+
+def _app_tool(bridge: AppBridge, spec: Dict[str, Any]):
+    """A function with the command's own signature, so FastMCP publishes its schema."""
+    import inspect
+    import keyword
+
+    props = (spec.get("input_schema") or {}).get("properties") or {}
+    required = set((spec.get("input_schema") or {}).get("required") or [])
+    kinds = {"string": str, "number": float, "integer": int, "boolean": bool, "array": list, "object": dict}
+    params = []
+    # A command may call an argument `from`; Python cannot. The tool takes
+    # `from_` and hands the command the name it declared.
+    names = {(f"{name}_" if keyword.iskeyword(name) else name): name for name in props}
+    for pyname, name in names.items():
+        p = props[name]
+        annotation = kinds.get(p.get("type", "string"), Any)
+        if name in required:
+            params.append(inspect.Parameter(pyname, inspect.Parameter.KEYWORD_ONLY, annotation=annotation))
+        else:
+            params.append(inspect.Parameter(pyname, inspect.Parameter.KEYWORD_ONLY, default=None, annotation=Optional[annotation]))
+    command = spec["name"].replace("_", ".", 1)
+
+    def tool(**kwargs):
+        args = {names[k]: v for k, v in kwargs.items() if v is not None}
+        return bridge.run(command, args)
+
+    tool.__name__ = spec["name"]
+    tool.__doc__ = spec.get("description", "")
+    tool.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
+    tool.__annotations__ = {p.name: p.annotation for p in params}
+    return tool
+
+
+def attach_app(server, bridge: AppBridge) -> List[str]:
+    """Register the running app's commands as tools. Returns their names."""
+    names = []
+    for spec in bridge.tools():
+        kind = spec.get("kind", "")
+        desc = spec.get("description", "")
+        if kind == "aws-change":
+            desc += " The operator confirms it in the app before it runs; the call waits for their answer."
+        server.add_tool(_app_tool(bridge, spec), name=spec["name"], description=desc)
+        names.append(spec["name"])
+    return names
+
+
+def build_server(config_path: str, profile: Optional[str] = None, region: Optional[str] = None, app: Optional[AppBridge] = None,
+                 attach_running_app: bool = True):
+    """A FastMCP server over one project. Imported lazily so the CLI loads without `mcp`.
+
+    When the Visual Builder is running, its commands are tools too: the
+    canvas as it is on screen, selection, lenses, scenarios, deploys with
+    the operator's confirmation. Without it, the file is what there is.
+    """
     from mcp.server.fastmcp import FastMCP
 
     path = Path(config_path).resolve()
     project_dir = path.parent
+    bridge = app if app is not None else (AppBridge.find() if attach_running_app else None)
     server = FastMCP(
         "warpcore",
         instructions=(
             f"The warpcore project at {path}. Read the canvas first (project_summary, list_resources); "
             "resource ids are the canvas node ids. Live tools call AWS with the project's profile and are slower."
+            + (" The Visual Builder is running: tools named group_action (query_project, canvas_addNode, view_select, account_deploy, ...) "
+               "act on the open canvas as the operator sees it, and the file tools below read what was last saved. Prefer the app's "
+               "query_* tools for the current state." if bridge else "")
         ),
     )
+    if bridge:
+        attach_app(server, bridge)
 
     def load() -> Dict[str, Any]:
         return yaml.safe_load(path.read_text()) or {}
@@ -204,7 +308,7 @@ def tool_names(server) -> List[str]:
     return sorted(t.name for t in asyncio.run(server.list_tools()))
 
 
-__all__ = ["build_server", "serve", "tool_names"]
+__all__ = ["AppBridge", "attach_app", "build_server", "serve", "tool_names"]
 
 if __name__ == "__main__":  # pragma: no cover
     import sys

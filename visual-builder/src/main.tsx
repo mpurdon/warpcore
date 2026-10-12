@@ -17,8 +17,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 if (import.meta.env.DEV) {
   Promise.all([
     import('./store/useStore'), import('./utils/canvasActions'), import('./utils/projectFromAccount'), import('./utils/demoAccount'),
-    import('./utils/holodeckLibrary'), import('./utils/holodeckActions'), import('./commands'),
-  ]).then(([store, actions, account, demo, library, holodeck, commands]) => {
+    import('./utils/holodeckLibrary'), import('./utils/holodeckActions'), import('./commands'), import('./assistant/loop'), import('./assistant/confirm'),
+  ]).then(([store, actions, account, demo, library, holodeck, commands, loop, confirm]) => {
     (window as unknown as { __warpcore?: unknown }).__warpcore = {
       useStore: store.useStore,
       canvas: actions.canvas,
@@ -33,6 +33,8 @@ if (import.meta.env.DEV) {
         run: (id: string, args: Record<string, unknown> = {}, confirmed = false) => commands.run(id, args, { source: 'dev', confirmed }),
         tools: commands.toolSpecs,
       },
+      // The assistant: send a message, answer the card, or swap the model turn for a fake.
+      assistant: { send: loop.sendMessage, answer: confirm.answerPending, setTurn: loop._setTurn, tools: loop.modelTools, system: loop.systemPrompt },
       holodeck: {
         entries: library.HOLODECK_ENTRIES,
         preview: (id: string) => { const e = library.findEntry(id); return e ? holodeck.previewEntry(e) : `no entry ${id}`; },

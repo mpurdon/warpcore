@@ -125,6 +125,16 @@ define({
 });
 
 define({
+  id: 'view.assistant', title: (s) => `${s.assistantOpen ? 'Hide' : 'Show'} assistant`,
+  description: 'Show or hide the assistant panel. Omit `open` to toggle.', group: 'View', kind: 'view',
+  params: { open: { type: 'boolean', description: 'Open (true) or close (false)' } },
+  shortcut: { key: 'j', mod: true, label: '⌘J' },
+  keywords: ['chat', 'ai', 'model', 'help'],
+  describe: (a, s) => `${((a.open as boolean | undefined) ?? !s.assistantOpen) ? 'Show' : 'Hide'} assistant`,
+  run: (a, { state }) => state.setAssistantOpen((a.open as boolean | undefined) ?? !state.assistantOpen),
+});
+
+define({
   id: 'view.closeDialog', title: 'Close dialog', description: 'Close whatever dialog is open.', group: 'View', kind: 'view', hidden: true,
   run: (_a, { state }) => state.closeDialog(),
 });
