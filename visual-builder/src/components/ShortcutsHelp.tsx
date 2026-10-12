@@ -13,6 +13,7 @@ export const SHORTCUT_GROUPS: { title: string; items: { keys: string[]; what: st
     title: 'Find and move',
     items: [
       { keys: [`${MOD} K`], what: 'Command palette: find a resource or run anything' },
+      { keys: [`${MOD} J`], what: 'The assistant: ask about the canvas, or ask for a change' },
       { keys: [`${MOD} 0`], what: 'Fit the whole canvas in view' },
       { keys: [`${MOD} =`, `${MOD} -`], what: 'Zoom in and out' },
       { keys: ['Esc'], what: 'Close what is open, else clear the selection' },

@@ -41,7 +41,7 @@ export function useShortcuts({ deleteSelected }: { deleteSelected: () => void })
         // Registry shortcuts: ⌘K, ⌘S, ⌘O, ⌘D, ⌘Z, ⇧⌘Z, ⌘0, ⌘=, ⌘-, ⌘,
         const hit = shortcuts().find((sc) => sc.mod && sc.key === key && sc.shift === e.shiftKey);
         if (hit) {
-          if (hit.command.startsWith('project.undo') || hit.command.startsWith('project.redo')) { if (editable) return; }
+          if ((hit.command === 'project.undo' || hit.command === 'project.redo') && editable) return;
           e.preventDefault();
           void runFromUi(hit.command, {}, 'shortcut');
           return;

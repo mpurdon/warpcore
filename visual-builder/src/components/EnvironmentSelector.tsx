@@ -70,12 +70,11 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
   const handleAddEnvironment = () => {
     if (!newEnvName.trim()) return;
 
-    const [kind, key] = newEnvBase.split(':');
+    const [, key] = newEnvBase.split(':');
     void runFromUi('project.addEnvironment', { name: newEnvName.trim(), from: key }).then((r) => {
       if (!r.ok) return;
       void runFromUi('project.switchEnvironment', { environment: (r.result as { key: string }).key });
     });
-    void kind; void baseConfig;
     setShowNewEnvInput(false);
     setNewEnvName('');
     setIsOpen(false);

@@ -9,25 +9,24 @@
 // operator never faces two cards.
 
 import { invoke } from '@tauri-apps/api/core';
-import { run, toolSpecs, commandForTool } from '../commands';
-import { useStore } from '../store/useStore';
-import { askOperator } from './confirm';
-import type { Block, Message, TurnResult } from './types';
+import { confirmQuestion, get, run, toolSpecs, type CommandResult, type CommandSpec } from '../commands';
+import { countByType } from '../commands/query';
+import { selectCurrentEnvName, useStore } from '../store/useStore';
+import { assistantConfig } from '../utils/assistant';
+import { confirmOnCard } from './confirm';
+import type { Block, ChatItemKind, Message, TurnResult } from './types';
 
 export const MAX_TURNS = 12;
 
-/** Commands the model never needs: they move the operator's own chrome. */
-const NOT_FOR_MODEL = new Set(['view.palette', 'view.closeDialog', 'view.shortcuts', 'project.open', 'canvas.removeSelected']);
-
+/** The commands a model is offered: every one not marked as the operator's own chrome. */
 export function modelTools() {
-  return toolSpecs().filter((t) => !NOT_FOR_MODEL.has(t.name.replace('_', '.')));
+  return toolSpecs({ forModel: true });
 }
 
 export function systemPrompt(): string {
   const s = useStore.getState();
-  const envName = s.environmentConfigs[s.currentEnvironment]?.name ?? s.currentEnvironment;
-  const counts: Record<string, number> = {};
-  for (const n of s.nodes) { if (!n.hidden && !['application', 'band', 'enclosure'].includes(n.type || '')) counts[n.type || '?'] = (counts[n.type || '?'] ?? 0) + 1; }
+  const envName = selectCurrentEnvName(s);
+  const counts = countByType(s.nodes);
   return [
     "You are the assistant inside warpcore's Visual Builder, a desktop app that explores and deploys AWS infrastructure drawn as a canvas of resources and the connections between them.",
     'Everything you can do, you do through the tools, which are the app\'s own commands: the same ones the operator\'s buttons run. Tool names are group_action.',
@@ -43,15 +42,12 @@ export function systemPrompt(): string {
   ].join('\n');
 }
 
-function provider(): { provider: string; model: string } | null {
-  const p = useStore.getState().prefs;
-  return p.assistantProvider ? { provider: p.assistantProvider, model: p.assistantModel } : null;
-}
+const NO_MODEL = 'No assistant model is configured. Choose a provider in Settings › Exploration › Assistant.';
 
-/** One model turn, through the host. Replaceable for tests. */
+/** One model turn, through the host's long-lived worker. Replaceable for tests. */
 export let turn: (system: string, messages: Message[]) => Promise<TurnResult> = async (system, messages) => {
-  const p = provider();
-  if (!p) throw new Error('No assistant model is configured. Choose a provider in Settings › Exploration › Assistant.');
+  const p = assistantConfig();
+  if (!p) throw new Error(NO_MODEL);
   const raw = await invoke<string>('assistant_turn', {
     provider: p.provider, model: p.model || null,
     input: JSON.stringify({ system, messages, tools: modelTools(), max_tokens: 4096 }),
@@ -65,8 +61,23 @@ export function _setTurn(fn: typeof turn): void {
   turn = fn;
 }
 
-function push(kind: Parameters<ReturnType<typeof useStore.getState>['pushChatItem']>[0]['kind'], text: string, extra: Record<string, unknown> = {}): void {
+function push(kind: ChatItemKind, text: string, extra: Record<string, unknown> = {}): void {
   useStore.getState().pushChatItem({ kind, text, at: Date.now(), ...extra });
+}
+
+/**
+ * A command's outcome as a transcript line, for any caller that is not the
+ * operator. Queries are silent (their answer is for the model); everything
+ * else prints its receipt, a decline, or the failure.
+ */
+export function noteResult(spec: CommandSpec | undefined, r: CommandResult, suffix = ''): void {
+  if (r.ok) {
+    if (spec?.kind !== 'query') push('tool', `${r.summary}${suffix}`, { command: spec?.id, ok: true });
+  } else if (r.declined) {
+    push('action', `Declined: ${r.summary}${suffix}`, { command: spec?.id, ok: false });
+  } else {
+    push('tool', `${r.summary}${suffix}: ${r.error}`, { command: spec?.id, ok: false });
+  }
 }
 
 /** The operator's message: appended, then the loop runs until the model stops or a card is waiting. */
@@ -80,7 +91,7 @@ export async function sendMessage(text: string): Promise<void> {
 
 export async function drive(): Promise<void> {
   const store = useStore.getState();
-  if (!provider()) { push('error', 'No assistant model is configured. Choose a provider in Settings › Exploration › Assistant.'); return; }
+  if (!assistantConfig()) { push('error', NO_MODEL); return; }
   store.setChatBusy(true);
   try {
     for (let i = 0; i < MAX_TURNS; i++) {
@@ -113,30 +124,18 @@ async function runTools(uses: Extract<Block, { type: 'tool_use' }>[]): Promise<B
   const out: Block[] = [];
   let confirmedOne = false;
   for (const use of uses) {
-    const spec = commandForTool(use.name);
+    const spec = get(use.name.replace('_', '.'));
     if (!spec) { out.push({ type: 'tool_result', tool_use_id: use.id, content: `no such tool ${use.name}`, is_error: true }); continue; }
-    const needsCard = spec.kind === 'aws-change' || Boolean(spec.confirm);
+    const needsCard = confirmQuestion(spec, use.input, useStore.getState()) !== null;
     if (needsCard && confirmedOne) {
       out.push({ type: 'tool_result', tool_use_id: use.id, content: 'One confirmed action at a time; ask again after the pending one resolves.', is_error: true });
       continue;
     }
     if (needsCard) confirmedOne = true;
-    const summary = spec.describe ? spec.describe(use.input, useStore.getState()) : typeof spec.title === 'function' ? spec.title(useStore.getState()) : spec.title;
-    const r = await run(spec.id, use.input, {
-      source: 'assistant',
-      confirm: (question) => askOperator({ question, summary, command: spec.id, args: use.input, source: 'assistant' }),
-    });
-    if (r.ok) {
-      if (spec.kind !== 'query') push('tool', r.summary, { command: spec.id, ok: true });
-      out.push({ type: 'tool_result', tool_use_id: use.id, content: r.result === undefined ? { ok: true } : r.result });
-    } else {
-      push(r.declined ? 'action' : 'tool', r.declined ? `Declined: ${r.summary}` : `${r.summary}: ${r.error}`, { command: spec.id, ok: false });
-      out.push({ type: 'tool_result', tool_use_id: use.id, content: r.declined ? 'The operator declined this action.' : r.error, is_error: !r.declined });
-    }
+    const r = await run(spec.id, use.input, { source: 'assistant', confirm: confirmOnCard('assistant') });
+    noteResult(spec, r);
+    if (r.ok) out.push({ type: 'tool_result', tool_use_id: use.id, content: r.result === undefined ? { ok: true } : r.result });
+    else out.push({ type: 'tool_result', tool_use_id: use.id, content: r.declined ? 'The operator declined this action.' : r.error, is_error: !r.declined });
   }
   return out;
-}
-
-export function clearChat(): void {
-  useStore.getState().clearChat();
 }

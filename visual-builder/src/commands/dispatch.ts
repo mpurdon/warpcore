@@ -6,21 +6,36 @@
 // written by the command.
 
 import { useStore } from '../store/useStore';
-import { ArgError, blocked, get, validate } from './registry';
+import { ArgError, blocked, confirmQuestion, get, summaryOf, validate } from './registry';
 import type { Args, CommandResult, Receipt, Source } from './types';
+
+/** What a confirmation callback is told, so it can draw the card without re-deriving anything. */
+export interface ConfirmInfo { summary: string; command: string; args: Args }
 
 export interface RunOptions {
   source: Source;
   /** The caller already asked; skip the question. */
   confirmed?: boolean;
   /** How to ask. Without one, a command that needs confirming returns `needsConfirmation` instead of running. */
-  confirm?: (question: string) => Promise<boolean>;
+  confirm?: (question: string, info: ConfirmInfo) => Promise<boolean>;
 }
 
 const RECEIPTS_KEPT = 200;
+let seq = 0;
 
-function record(receipt: Receipt): void {
-  useStore.setState((s) => ({ receipts: [...s.receipts, receipt].slice(-RECEIPTS_KEPT) }));
+/**
+ * Keep the receipt. A run of the same command on the same thing straight
+ * after the last one (a field typed into, a slider dragged) replaces it,
+ * so the audit stays readable.
+ */
+function record(receipt: Omit<Receipt, 'seq'>): void {
+  useStore.setState((s) => {
+    const last = s.receipts[s.receipts.length - 1];
+    const same = last && last.id === receipt.id && last.ok === receipt.ok && last.source === receipt.source
+      && (receipt.args as { id?: unknown }).id !== undefined && (last.args as { id?: unknown }).id === (receipt.args as { id?: unknown }).id;
+    const kept = same ? s.receipts.slice(0, -1) : s.receipts;
+    return { receipts: [...kept, { ...receipt, seq: ++seq }].slice(-RECEIPTS_KEPT) };
+  });
 }
 
 export async function run(id: string, rawArgs: Args = {}, opts: RunOptions = { source: 'ui' }): Promise<CommandResult> {
@@ -40,7 +55,7 @@ export async function run(id: string, rawArgs: Args = {}, opts: RunOptions = { s
     return { ok: false, summary: id, error };
   }
   const state = useStore.getState();
-  const summary = spec.describe ? spec.describe(args, state) : typeof spec.title === 'function' ? spec.title(state) : spec.title;
+  const summary = summaryOf(spec, args, state);
 
   const reason = blocked(spec, state);
   if (reason) {
@@ -48,12 +63,12 @@ export async function run(id: string, rawArgs: Args = {}, opts: RunOptions = { s
     return { ok: false, summary, error: reason, blocked: true };
   }
 
-  const question = spec.confirm ? spec.confirm(args, state) : spec.kind === 'aws-change' ? `${summary}?` : null;
+  const question = confirmQuestion(spec, args, state);
   if (question && !opts.confirmed) {
     if (!opts.confirm) {
       return { ok: false, summary, error: 'needs confirmation', needsConfirmation: question };
     }
-    if (!(await opts.confirm(question))) {
+    if (!(await opts.confirm(question, { summary, command: id, args }))) {
       record({ id, args, source: opts.source, at, ok: false, summary, error: 'declined' });
       return { ok: false, summary, error: 'declined', declined: true };
     }

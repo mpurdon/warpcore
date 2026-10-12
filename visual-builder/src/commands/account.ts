@@ -2,9 +2,8 @@
 // when asked; changes are confirmed by the dispatcher whoever asks.
 
 import type { Node } from 'reactflow';
-import { useStore } from '../store/useStore';
-import { projectProfile } from '../utils/accountExplorer';
-import { fetchResourceDetail } from '../utils/accountExplorer';
+import { selectCurrentEnvName as envName, useStore } from '../store/useStore';
+import { fetchResourceDetail, projectProfile } from '../utils/accountExplorer';
 import { blockedReason, runDeployment } from '../utils/deployRunner';
 import { fetchConnectPlan, openConnectSession } from '../utils/connect';
 import { setMuted } from '../utils/findings';
@@ -13,10 +12,7 @@ import { displayNameFor } from '../utils/nodeName';
 import { runReview } from '../utils/review';
 import { takeOver } from '../utils/takeover';
 import { define } from './registry';
-import { findNode } from './view';
-
-const envName = (s: { environmentConfigs: Record<string, { name: string }>; currentEnvironment: string }) =>
-  s.environmentConfigs[s.currentEnvironment]?.name ?? s.currentEnvironment;
+import { findNode, nameOf } from './view';
 
 const needProfile = () => {
   const s = useStore.getState();
@@ -31,7 +27,6 @@ define({
   keywords: ['run', 'apply'],
   available: () => blockedReason('deploy'),
   confirm: (_a, s) => `Deploy the project to ${envName(s)}? This runs warpcore deploy against AWS.`,
-  describe: (_a, s) => `Deploy to ${envName(s)}`,
   run: () => runDeployment('deploy'),
 });
 
@@ -40,7 +35,6 @@ define({
   keywords: ['delete', 'teardown', 'remove'],
   available: () => blockedReason('destroy'),
   confirm: (_a, s) => `Destroy every resource in the ${envName(s)} environment?\n\nThis runs warpcore destroy against AWS.`,
-  describe: (_a, s) => `Destroy ${envName(s)}`,
   run: () => runDeployment('destroy'),
 });
 
@@ -108,8 +102,8 @@ define({
 define({
   id: 'account.connect', title: 'Connect to an instance', description: 'Open a terminal session to an EC2 instance using the method the connect plan chose.', group: 'Account', kind: 'aws-change', hidden: true,
   params: { id: { type: 'string', description: 'Node id or label of an instance', required: true } },
-  confirm: (a, s) => { const n = findNode(s, a.id as string); return `Open a terminal session to ${n ? displayNameFor(n as Node) : a.id}?`; },
-  describe: (a, s) => { const n = findNode(s, a.id as string); return `Connect to ${n ? displayNameFor(n as Node) : a.id}`; },
+  confirm: (a, s) => `Open a terminal session to ${nameOf(s, a.id as string)}?`,
+  describe: (a, s) => `Connect to ${nameOf(s, a.id as string)}`,
   run: async (a, { state }) => {
     const node = findNode(state, a.id as string) as Node | undefined;
     if (!node?.data?.arn) throw new Error(`no discovered instance ${a.id}`);
@@ -124,18 +118,25 @@ define({
   confirm: (a) => `Take over ${(a.ids as string[]).length} resource(s)? Deploy will then enforce the canvas configuration on them.`,
   describe: (a) => `Take over ${(a.ids as string[]).join(', ')}`,
   run: async (a, { state }) => {
-    const ids = (a.ids as string[]).map((r) => { const n = findNode(state, r) as Node | undefined; if (!n) throw new Error(`no resource ${r}`); return n.id; });
+    const ids = (a.ids as string[]).map((r) => { const n = findNode(state, r); if (!n) throw new Error(`no resource ${r} on the canvas`); return n.id; });
     return takeOver(state.configPath!, state.currentEnvironment, ids);
   },
 });
 
 define({
-  id: 'account.muteFinding', title: 'Mute a finding', description: 'Accept a finding with a reason; it leaves the open list. Writes .warpcore/findings-mutes.yaml beside the project.', group: 'Account', kind: 'project', ignoresLock: true, hidden: true,
+  id: 'account.muteFinding', title: 'Mute a finding', description: 'Accept a finding with a reason; it leaves the open list. Writes .warpcore/findings-mutes.yaml beside the project.', group: 'Account', kind: 'file', hidden: true,
   params: { findingId: { type: 'string', description: 'The finding id from the review', required: true }, reason: { type: 'string', description: 'Why it is accepted; empty unmutes' } },
   available: (s) => (!s.configPath ? 'Save the project first' : null),
   describe: (a) => `${a.reason ? 'Mute' : 'Unmute'} finding ${a.findingId}`,
   run: async (a, { state }) => {
-    await setMuted(state.configPath!, a.findingId as string, (a.reason as string | undefined) || null);
-    await runReview(state.review?.window_hours ?? 24);
+    const reason = (a.reason as string | undefined) || null;
+    await setMuted(state.configPath!, a.findingId as string, reason);
+    // The file is the truth; the review on screen is patched to match rather
+    // than read again, which would mean every metric over the window.
+    const review = useStore.getState().review;
+    if (review) {
+      const findings = review.findings.map((f) => (f.id === a.findingId ? { ...f, status: reason ? 'muted' as const : 'open' as const, mute_reason: reason } : f));
+      useStore.getState().setReview({ ...review, findings });
+    }
   },
 });

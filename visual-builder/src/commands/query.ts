@@ -5,12 +5,34 @@
 import type { Edge, Node } from 'reactflow';
 import type { StoreState } from '../store/useStore';
 import { estimateCost } from '../utils/costEstimation';
-import { displayNameFor } from '../utils/nodeName';
+import { displayNameById, displayNameFor } from '../utils/nodeName';
 import { validateCanvas } from '../utils/validation';
 import { define } from './registry';
 import { findNode } from './view';
 
-const CONTAINERS = new Set(['application', 'band', 'enclosure']);
+/** Node types that hold resources rather than being one. */
+export const CONTAINERS = new Set(['application', 'band', 'enclosure']);
+
+/** Visible resources by type, containers left out: the canvas in one line. */
+export function countByType(nodes: Node[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const n of nodes) {
+    if (CONTAINERS.has(n.type || '') || n.hidden) continue;
+    out[n.type || '?'] = (out[n.type || '?'] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** Neighbours over the drawn edges, built once per query. */
+function adjacency(edges: Edge[], direction: 'out' | 'in' | 'both'): Map<string, Edge[]> {
+  const map = new Map<string, Edge[]>();
+  const add = (from: string, e: Edge) => map.set(from, [...(map.get(from) ?? []), e]);
+  for (const e of edges) {
+    if (direction !== 'in') add(e.source, e);
+    if (direction !== 'out') add(e.target, e);
+  }
+  return map;
+}
 
 function brief(n: Node) {
   const meta = (n.data?.meta ?? {}) as Record<string, unknown>;
@@ -21,8 +43,7 @@ function brief(n: Node) {
   };
 }
 
-function edgeBrief(e: Edge, state: StoreState) {
-  const name = (id: string) => { const n = state.nodes.find((x) => x.id === id); return n ? displayNameFor(n) : id; };
+function edgeBrief(e: Edge, state: StoreState, name = displayNameById(state.nodes)) {
   const meta = (e.data?.meta ?? {}) as Record<string, unknown>;
   return { id: e.id, source: e.source, sourceName: name(e.source), target: e.target, targetName: name(e.target), layer: meta.layer ?? 'access', meta, config: e.data?.config ?? null, isResourceBased: Boolean(e.data?.isResourceBased) };
 }
@@ -30,8 +51,7 @@ function edgeBrief(e: Edge, state: StoreState) {
 define({
   id: 'query.project', title: 'Project summary', description: 'The project: name, file, environments, lock state, counts of resources by type, scenarios, what is running.', group: 'Queries', kind: 'query', hidden: true,
   run: (_a, { state }) => {
-    const byType: Record<string, number> = {};
-    for (const n of state.nodes) { if (CONTAINERS.has(n.type || '') || n.hidden) continue; byType[n.type || '?'] = (byType[n.type || '?'] ?? 0) + 1; }
+    const byType = countByType(state.nodes);
     return {
       name: state.projectName, path: state.configPath, locked: state.locked, preview: state.holodeckPreview, unsaved: state.hasUnsavedChanges,
       environment: state.currentEnvironment, environments: Object.keys(state.environmentConfigs),
@@ -76,7 +96,8 @@ define({
   run: (a, { state }) => {
     const n = a.id ? (findNode(state, a.id as string) as Node | undefined) : undefined;
     if (a.id && !n) throw new Error(`no resource ${a.id} on the canvas`);
-    return state.edges.filter((e) => !n || e.source === n.id || e.target === n.id).map((e) => edgeBrief(e, state));
+    const name = displayNameById(state.nodes);
+    return state.edges.filter((e) => !n || e.source === n.id || e.target === n.id).map((e) => edgeBrief(e, state, name));
   },
 });
 
@@ -93,7 +114,8 @@ define({
     if (!from || !to) throw new Error(`no resource ${!from ? a.from : a.to} on the canvas`);
     const path = shortestPath(state.edges, from.id, to.id, Boolean(a.undirected));
     if (!path) return { found: false, hops: [] };
-    return { found: true, hops: path.map((e) => edgeBrief(e, state)) };
+    const name = displayNameById(state.nodes);
+    return { found: true, hops: path.map((e) => edgeBrief(e, state, name)) };
   },
 });
 
@@ -103,17 +125,19 @@ define({
   run: (a, { state }) => {
     const n = findNode(state, a.id as string) as Node | undefined;
     if (!n) throw new Error(`no resource ${a.id} on the canvas`);
+    const adj = adjacency(state.edges, a.inbound ? 'in' : 'out');
     const dist = new Map<string, number>([[n.id, 0]]);
     const queue = [n.id];
-    while (queue.length) {
-      const cur = queue.shift()!;
-      for (const e of state.edges) {
-        const next = a.inbound ? (e.target === cur ? e.source : null) : (e.source === cur ? e.target : null);
-        if (next && !dist.has(next)) { dist.set(next, dist.get(cur)! + 1); queue.push(next); }
+    for (let i = 0; i < queue.length; i++) {
+      const cur = queue[i];
+      for (const e of adj.get(cur) ?? []) {
+        const next = a.inbound ? e.source : e.target;
+        if (!dist.has(next)) { dist.set(next, dist.get(cur)! + 1); queue.push(next); }
       }
     }
     dist.delete(n.id);
-    return [...dist.entries()].map(([id, hops]) => { const x = state.nodes.find((m) => m.id === id); return { id, name: x ? displayNameFor(x) : id, type: x?.type, hops }; }).sort((p, q) => p.hops - q.hops);
+    const byId = new Map(state.nodes.map((m) => [m.id, m]));
+    return [...dist.entries()].map(([id, hops]) => { const x = byId.get(id); return { id, name: x ? displayNameFor(x) : id, type: x?.type, hops }; }).sort((p, q) => p.hops - q.hops);
   },
 });
 
@@ -142,14 +166,15 @@ define({
 /** Breadth-first over the edges; the path as the edges crossed. */
 export function shortestPath(edges: Edge[], from: string, to: string, undirected: boolean): Edge[] | null {
   if (from === to) return [];
+  const adj = adjacency(edges, undirected ? 'both' : 'out');
   const prev = new Map<string, Edge>();
   const seen = new Set([from]);
   const queue = [from];
-  while (queue.length) {
-    const cur = queue.shift()!;
-    for (const e of edges) {
-      const next = e.source === cur ? e.target : undirected && e.target === cur ? e.source : null;
-      if (!next || seen.has(next)) continue;
+  for (let i = 0; i < queue.length; i++) {
+    const cur = queue[i];
+    for (const e of adj.get(cur) ?? []) {
+      const next = e.source === cur ? e.target : e.source;
+      if (seen.has(next)) continue;
       seen.add(next);
       prev.set(next, e);
       if (next === to) {

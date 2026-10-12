@@ -8,6 +8,7 @@ import { LAYERS, type Layer } from '../utils/layers';
 import { LENSES, type Lens } from '../utils/lenses';
 import { displayNameFor } from '../utils/nodeName';
 import { DISCOVERED_TYPES, discoveredTypeLabel } from '../utils/discoveredTypes';
+import { SECTION_LABEL } from '../utils/settingsSections';
 import { define } from './registry';
 
 const DIALOGS: readonly Dialog[] = ['holodeck', 'explorer', 'discovery', 'shortcuts', 'findings'];
@@ -20,10 +21,6 @@ const DIALOG_DESCRIPTION: Record<Dialog, string> = {
   discovery: "Scan this project's code for Strands SDK components",
   shortcuts: 'Every keyboard shortcut in the app',
   findings: 'What the resources are doing, and what is wrong, wasteful or fragile',
-};
-const SECTION_LABELS: Record<SettingsSection, string> = {
-  general: 'General', regions: 'Regions', exploration: 'Exploration', logs: 'Logs', audit: 'Audit trail',
-  sessions: 'Dev sessions', storage: 'Storage', projects: 'Projects', about: 'About',
 };
 const TONE = {
   draft: 'muted', warning: 'warn', configured: 'info', deploying: 'info', deployed: 'ok', failed: 'bad', present: 'muted',
@@ -98,7 +95,7 @@ define({
 });
 
 define({
-  id: 'view.palette', title: 'Command palette', description: 'Open the command palette.', group: 'View', kind: 'view', hidden: true,
+  id: 'view.palette', title: 'Command palette', description: 'Open the command palette.', group: 'View', kind: 'view', hidden: true, notForModel: true,
   shortcut: { key: 'k', mod: true, label: '⌘K' },
   run: (_a, { state }) => state.setPaletteOpen(!state.paletteOpen),
 });
@@ -108,8 +105,8 @@ define({
   params: { section: { type: 'string', description: 'The settings section', enum: SETTINGS_SECTIONS } },
   shortcut: { key: ',', mod: true, label: '⌘,' },
   keywords: ['preferences', 'settings'],
-  instances: () => SETTINGS_SECTIONS.map((section) => ({ key: section, args: { section }, title: `Settings: ${SECTION_LABELS[section]}` })),
-  describe: (a) => `Settings: ${SECTION_LABELS[(a.section as SettingsSection) ?? 'general']}`,
+  instances: () => SETTINGS_SECTIONS.map((section) => ({ key: section, args: { section }, title: `Settings: ${SECTION_LABEL[section]}` })),
+  describe: (a) => `Settings: ${SECTION_LABEL[(a.section as SettingsSection) ?? 'general']}`,
   run: (a, { state }) => state.openSettings(a.section as SettingsSection | undefined),
 });
 
@@ -135,12 +132,12 @@ define({
 });
 
 define({
-  id: 'view.closeDialog', title: 'Close dialog', description: 'Close whatever dialog is open.', group: 'View', kind: 'view', hidden: true,
+  id: 'view.closeDialog', title: 'Close dialog', description: 'Close whatever dialog is open.', group: 'View', kind: 'view', hidden: true, notForModel: true,
   run: (_a, { state }) => state.closeDialog(),
 });
 
 define({
-  id: 'view.shortcuts', title: 'Keyboard shortcuts', description: 'The shortcuts sheet.', group: 'View', kind: 'view',
+  id: 'view.shortcuts', title: 'Keyboard shortcuts', description: 'The shortcuts sheet.', group: 'View', kind: 'view', notForModel: true,
   shortcut: { key: '?', label: '?' },
   run: (_a, { state }) => state.openDialog('shortcuts'),
 });
@@ -154,7 +151,7 @@ define({
     keywords: [n.type || '', String(n.data?.arn || ''), String(n.data?.region || '')].filter(Boolean),
     tone: TONE[(n.data?.status as keyof typeof TONE | undefined) ?? 'draft'],
   })),
-  describe: (a, s) => { const n = findNode(s, a.id as string); return `Select ${n ? displayNameFor(n) : a.id}`; },
+  describe: (a, s) => `Select ${nameOf(s, a.id as string)}`,
   run: (a, { state }) => {
     const node = findNode(state, a.id as string);
     if (!node) throw new Error(`no resource ${a.id} on the canvas`);
@@ -184,6 +181,12 @@ define({
     state.setEditingNode(node.id);
   },
 });
+
+/** A resource's display name for a ref that may or may not resolve: for receipts and cards. */
+export function nameOf(state: { nodes: Node[] }, ref: string): string {
+  const node = findNode(state, ref);
+  return node ? displayNameFor(node) : ref;
+}
 
 /** A node by id, else by unique label. */
 export function findNode(state: { nodes: Node[] }, ref: string): Node | undefined {

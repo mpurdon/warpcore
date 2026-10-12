@@ -21,7 +21,7 @@ describe('registry', () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const c of all()) {
       expect(c.description.length, c.id).toBeGreaterThan(10);
-      expect(['view', 'project', 'aws-read', 'aws-change', 'query']).toContain(c.kind);
+      expect(['view', 'project', 'file', 'aws-read', 'aws-change', 'query']).toContain(c.kind);
     }
     expect(ids).toEqual(expect.arrayContaining(['canvas.addNode', 'canvas.connect', 'account.deploy', 'scenario.new', 'query.path', 'view.lens']));
   });
@@ -30,6 +30,8 @@ describe('registry', () => {
     expect(tool.input_schema.required).toEqual(['type']);
     expect(tool.input_schema.properties.config).toEqual({ type: 'object', description: expect.any(String) });
     expect(tool.description).toContain('can be undone');
+    expect(tool.command).toBe('canvas.addNode');
+    expect(toolSpecs({ forModel: true }).some((t) => t.name === 'view_palette')).toBe(false);
     expect(toolSpecs().find((t) => t.name === 'account_deploy')!.description).toContain('confirmation');
     expect(commandForTool('view_lens')?.id).toBe('view.lens');
     const lens = toolSpecs().find((t) => t.name === 'view_lens')!;
@@ -62,6 +64,8 @@ describe('dispatch', () => {
     const bad = await run('view.lens', { lens: 'x-ray' }, dev);
     expect((bad as { error: string }).error).toContain('one of');
     expect(useStore.getState().receipts.map((x) => x.ok)).toEqual([false, false]);
+    const seqs = useStore.getState().receipts.map((x) => x.seq);
+    expect(seqs[1]).toBeGreaterThan(seqs[0]);
   });
   it('blocks every project command under the lock, in one place', async () => {
     useStore.setState({ locked: true });
@@ -82,11 +86,14 @@ describe('dispatch', () => {
     expect(asked).toEqual(['Open a terminal session to bastion?']);
     expect(useStore.getState().receipts[useStore.getState().receipts.length - 1]).toMatchObject({ id: 'account.connect', ok: false, error: 'declined', source: 'test' });
   });
-  it('records a receipt for every run, with the command\'s own summary', async () => {
-    await run('canvas.addNode', { type: 'dynamodb', label: 'orders' }, dev);
+  it('records a receipt for every run, with the command\'s own summary, folding a repeated edit of one thing', async () => {
+    await run('canvas.addNode', { type: 'dynamodb', label: 'orders', id: 'tbl' }, dev);
     await run('view.lens', { lens: 'security' }, { source: 'palette' });
+    await run('canvas.setConfig', { id: 'tbl', config: { name: 'o' } }, dev);
+    await run('canvas.setConfig', { id: 'tbl', config: { name: 'or' } }, dev);
+    await run('canvas.setConfig', { id: 'tbl', config: { name: 'ord' } }, dev);
     expect(useStore.getState().receipts.map((r) => [r.source, r.ok, r.summary])).toEqual([
-      ['test', true, 'Add dynamodb "orders"'], ['palette', true, 'Lens: Security'],
+      ['test', true, 'Add dynamodb "orders"'], ['palette', true, 'Lens: Security'], ['test', true, 'Configure orders: name'],
     ]);
   });
 });
@@ -131,8 +138,10 @@ describe('scenario and query commands', () => {
     expect((await run('scenario.addStep', { id: 'Order', at: 'q' }, dev)).ok).toBe(true);
     const sc = useStore.getState().scenarios[0];
     expect(sc.steps).toEqual([{ at: 'fn', takes: 120 }, { at: 'q' }]);
+    expect((await run('scenario.addStep', { id: 'Order', at: 'q', outcome: 'fail', retry: 2 }, dev)).ok).toBe(true);
+    expect(useStore.getState().scenarios[0].steps[2]).toEqual({ at: 'q', outcome: 'fail', retry: 2 });
     const check = await run('scenario.check', { id: 'Order' }, dev);
-    expect((check as { result: { steps: unknown[] } }).result.steps).toHaveLength(2);
+    expect((check as { result: { steps: unknown[] } }).result.steps).toHaveLength(3);
     const path = await run('query.path', { from: 'api', to: 'q' }, dev);
     expect((path as { result: { found: boolean; hops: { source: string; target: string }[] } }).result).toMatchObject({ found: true, hops: [{ source: 'api', target: 'fn' }, { source: 'fn', target: 'q' }] });
     const none = await run('query.path', { from: 'q', to: 'api' }, dev);
@@ -140,7 +149,7 @@ describe('scenario and query commands', () => {
     const reach = await run('query.reach', { id: 'api' }, dev);
     expect((reach as { result: { id: string; hops: number }[] }).result.map((r) => [r.id, r.hops])).toEqual([['fn', 1], ['q', 2]]);
     const w = await run('scenario.whatIf', { removed: ['fn'] }, dev);
-    expect((w as { result: { scenario: string; brokenSteps: number[] }[] }).result).toMatchObject([{ scenario: 'Order', brokenSteps: [0, 1] }]);
+    expect((w as { result: { scenario: string; brokenSteps: number[] }[] }).result).toMatchObject([{ scenario: 'Order', brokenSteps: [0, 1, 2] }]);
     expect((await run('scenario.play', { id: 'Order' }, dev)).ok).toBe(true);
     expect(useStore.getState().playhead?.scenarioId).toBe(sc.id);
     expect((await run('scenario.setPlaying', { playing: false }, dev)).ok).toBe(true);

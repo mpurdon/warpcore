@@ -6,12 +6,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, CornerDownLeft } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { groupItems, PaletteItem, PaletteKind, rankItems } from '../utils/palette';
+import { groupItems, PaletteItem, rankItems } from '../utils/palette';
 import { paletteRows, runFromUi } from '../commands';
 import { StatusDot } from './inspector/InspectorHeader';
-
-/** How a command's group reads in the palette: resources get a status dot, the rest a label. */
-const KIND_FOR: Record<string, PaletteKind> = { view: 'command', project: 'command', canvas: 'command', scenario: 'command', account: 'command', query: 'command' };
 
 export default function CommandPalette() {
   const s = useStore();
@@ -39,7 +36,7 @@ export default function CommandPalette() {
     if (!paletteOpen) return [];
     return paletteRows(s).map((row) => ({
       id: row.id,
-      kind: row.command === 'view.select' ? 'resource' : row.command === 'view.lens' ? 'lens' : row.command === 'view.layer' ? 'layer' : row.command === 'view.settings' ? 'setting' : row.command.endsWith('Environment') ? 'environment' : KIND_FOR[row.command.split('.')[0]] ?? 'command',
+      kind: 'command',
       group: row.group,
       title: row.title,
       subtitle: row.subtitle,

@@ -3,6 +3,7 @@
 // of an object in the system. Opens in the workspace with a section list on
 // the left, the way UniFi does it. See DESIGN_GUIDANCE.md §4.2.
 
+import { SECTION_LABEL } from '../../utils/settingsSections';
 import { LucideIcon, Bug, ClipboardList, FileText, FolderOpen, Globe, HardDrive, Info, Radar, Settings, X } from 'lucide-react';
 import { SETTINGS_SECTIONS, SettingsSection, useStore } from '../../store/useStore';
 import AboutSection from './AboutSection';
@@ -16,15 +17,15 @@ import SessionsSection from './SessionsSection';
 import StorageSection from './StorageSection';
 
 const SECTION_META: Record<SettingsSection, { label: string; icon: LucideIcon; group: string }> = {
-  general: { label: 'General', icon: Settings, group: 'Behaviour' },
-  regions: { label: 'Regions', icon: Globe, group: 'Behaviour' },
-  exploration: { label: 'Exploration', icon: Radar, group: 'Behaviour' },
-  logs: { label: 'Logs', icon: FileText, group: 'On this machine' },
-  audit: { label: 'Audit trail', icon: ClipboardList, group: 'On this machine' },
-  sessions: { label: 'Dev sessions', icon: Bug, group: 'On this machine' },
-  storage: { label: 'Storage', icon: HardDrive, group: 'On this machine' },
-  projects: { label: 'Projects', icon: FolderOpen, group: 'On this machine' },
-  about: { label: 'About', icon: Info, group: 'App' },
+  general: { label: SECTION_LABEL['general'], icon: Settings, group: 'Behaviour' },
+  regions: { label: SECTION_LABEL['regions'], icon: Globe, group: 'Behaviour' },
+  exploration: { label: SECTION_LABEL['exploration'], icon: Radar, group: 'Behaviour' },
+  logs: { label: SECTION_LABEL['logs'], icon: FileText, group: 'On this machine' },
+  audit: { label: SECTION_LABEL['audit'], icon: ClipboardList, group: 'On this machine' },
+  sessions: { label: SECTION_LABEL['sessions'], icon: Bug, group: 'On this machine' },
+  storage: { label: SECTION_LABEL['storage'], icon: HardDrive, group: 'On this machine' },
+  projects: { label: SECTION_LABEL['projects'], icon: FolderOpen, group: 'On this machine' },
+  about: { label: SECTION_LABEL['about'], icon: Info, group: 'App' },
 };
 
 const SECTION_BODY: Record<SettingsSection, () => JSX.Element> = {

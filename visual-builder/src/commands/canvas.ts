@@ -11,7 +11,7 @@ import { generateLogGroupPath } from '../utils/logGroupPath';
 import { displayNameFor } from '../utils/nodeName';
 import { isResourceBasedConnection } from '../utils/rolePolicy';
 import { define } from './registry';
-import { findNode } from './view';
+import { findNode, nameOf } from './view';
 
 /** Every type a node can be: the palette's resources and the discovered types. */
 export const NODE_TYPES: Record<string, string> = {
@@ -28,10 +28,20 @@ export function newNodeId(type: string, taken: Set<string>): string {
 }
 
 const need = (state: StoreState, ref: string): Node => {
-  const node = findNode(state, ref) as Node | undefined;
+  const node = findNode(state, ref);
   if (!node) throw new Error(`no resource ${ref} on the canvas`);
   return node;
 };
+
+/** Remove nodes and every edge that touched them; the selection and the open form follow. */
+function removeNodeIds(ids: string[]): void {
+  const gone = new Set(ids);
+  const s = useStore.getState();
+  s.setNodes((nodes) => nodes.filter((n) => !gone.has(n.id)));
+  s.setEdges((edges) => edges.filter((e) => !gone.has(e.source) && !gone.has(e.target)));
+  if (s.selectedNode && gone.has(s.selectedNode)) s.setSelectedNode(null);
+  if (s.editingNode && gone.has(s.editingNode)) s.setEditingNode(null);
+}
 
 /** The edge a connection makes, with the data the canvas gives it. */
 export function makeEdge(source: Node, target: Node, handles?: { sourceHandle?: string | null; targetHandle?: string | null }): Edge {
@@ -77,32 +87,26 @@ define({
 define({
   id: 'canvas.removeNodes', title: 'Remove resources', description: 'Remove resources from the canvas with every edge that touched them.', group: 'Canvas', kind: 'project', hidden: true,
   params: { ids: { type: 'string[]', description: 'Node ids (or unique labels)', required: true } },
-  describe: (a, s) => { const ids = a.ids as string[]; return `Remove ${ids.length === 1 ? (findNode(s, ids[0]) ? displayNameFor(findNode(s, ids[0]) as Node) : ids[0]) : `${ids.length} resources`}`; },
+  describe: (a, s) => { const ids = a.ids as string[]; return `Remove ${ids.length === 1 ? nameOf(s, ids[0]) : `${ids.length} resources`}`; },
   run: (a, { state }) => {
     const ids = (a.ids as string[]).map((r) => need(state, r).id);
-    const gone = new Set(ids);
-    const s = useStore.getState();
-    s.setNodes((nodes) => nodes.filter((n) => !gone.has(n.id)));
-    s.setEdges((edges) => edges.filter((e) => !gone.has(e.source) && !gone.has(e.target)));
-    if (s.selectedNode && gone.has(s.selectedNode)) s.setSelectedNode(null);
-    if (s.editingNode && gone.has(s.editingNode)) s.setEditingNode(null);
+    removeNodeIds(ids);
     return { removed: ids };
   },
 });
 
 define({
-  id: 'canvas.removeSelected', title: 'Delete the selection', description: 'Remove the selected resources, or the selected connection.', group: 'Canvas', kind: 'project', hidden: true,
+  id: 'canvas.removeSelected', title: 'Delete the selection', description: 'Remove the selected resources, or the selected connection.', group: 'Canvas', kind: 'project', hidden: true, notForModel: true,
   params: { edgeId: { type: 'string', description: 'The selected edge, when no node is selected' } },
   shortcut: { key: 'delete', label: '⌫' },
+  describe: (a, s) => {
+    const ids = s.nodes.filter((n) => n.selected).map((n) => n.id);
+    return ids.length ? `Remove ${ids.length === 1 ? nameOf(s, ids[0]) : `${ids.length} resources`}` : a.edgeId ? 'Remove a connection' : 'Nothing selected';
+  },
   run: (a, { state }) => {
     const ids = state.nodes.filter((n) => n.selected).map((n) => n.id);
     if (ids.length) {
-      const gone = new Set(ids);
-      const s = useStore.getState();
-      s.setNodes((nodes) => nodes.filter((n) => !gone.has(n.id)));
-      s.setEdges((edges) => edges.filter((e) => !gone.has(e.source) && !gone.has(e.target)));
-      s.setSelectedNode(null);
-      s.setEditingNode(null);
+      removeNodeIds(ids);
       return { removed: ids };
     }
     if (a.edgeId) {
@@ -121,7 +125,7 @@ define({
     sourceHandle: { type: 'string', description: 'Handle id on the source, from a drag' },
     targetHandle: { type: 'string', description: 'Handle id on the target' },
   },
-  describe: (a, s) => `Connect ${findNode(s, a.source as string) ? displayNameFor(findNode(s, a.source as string) as Node) : a.source} → ${findNode(s, a.target as string) ? displayNameFor(findNode(s, a.target as string) as Node) : a.target}`,
+  describe: (a, s) => `Connect ${nameOf(s, a.source as string)} → ${nameOf(s, a.target as string)}`,
   run: (a, { state }) => {
     const source = need(state, a.source as string);
     const target = need(state, a.target as string);
@@ -168,7 +172,7 @@ define({
     id: { type: 'string', description: 'Node id or unique label', required: true },
     config: { type: 'object', description: 'Fields to set', required: true },
   },
-  describe: (a, s) => `Configure ${findNode(s, a.id as string) ? displayNameFor(findNode(s, a.id as string) as Node) : a.id}: ${Object.keys(a.config as object).join(', ')}`,
+  describe: (a, s) => `Configure ${nameOf(s, a.id as string)}: ${Object.keys(a.config as object).join(', ')}`,
   run: (a, { state }) => {
     const node = need(state, a.id as string);
     const patch = a.config as Record<string, unknown>;

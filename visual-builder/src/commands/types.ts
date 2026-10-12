@@ -14,9 +14,11 @@
 // assistant settled on, kept here):
 //   view        this operator's screen: selection, lens, panels, playback.
 //               Free, immediate, undone by doing the opposite.
-//   project     the project file: canvas, scenarios, environments. Respects
-//               the lock and the Holodeck preview; canvas edits land in the
-//               undo history because they go through the store's setters.
+//   project     the project: canvas, scenarios, environments. Respects the
+//               lock and the Holodeck preview; canvas edits land in the undo
+//               history because they go through the store's setters.
+//   file        the project's own files beside it: save, the lock itself,
+//               finding mutes. Immediate, not undoable, not under the lock.
 //   aws-read    reads the account (health, review, drift, detail). Slow and
 //               costs API calls, but changes nothing; immediate.
 //   aws-change  changes the account or the deployment state (deploy,
@@ -27,12 +29,14 @@
 
 import type { StoreState } from '../store/useStore';
 
-export type CommandKind = 'view' | 'project' | 'aws-read' | 'aws-change' | 'query';
+export type CommandKind = 'view' | 'project' | 'file' | 'aws-read' | 'aws-change' | 'query';
 
 /** Where a run came from; receipts carry it, audit reads it. */
 export type Source = 'ui' | 'palette' | 'shortcut' | 'assistant' | 'mcp' | 'dev' | 'test';
 
-export type Group = 'Actions' | 'View' | 'Canvas' | 'Scenarios' | 'Environments' | 'Settings' | 'Account' | 'Queries';
+/** Palette groups, in the order the palette shows them. */
+export const GROUPS = ['Actions', 'View', 'Scenarios', 'Canvas', 'Environments', 'Account', 'Settings', 'Queries'] as const;
+export type Group = (typeof GROUPS)[number];
 
 export type ParamType = 'string' | 'number' | 'boolean' | 'string[]' | 'object';
 
@@ -83,10 +87,8 @@ export interface CommandSpec {
   params?: Record<string, Param>;
   shortcut?: Shortcut;
   keywords?: string[];
-  /** Why it cannot run right now, or null. Project commands are also blocked by the lock unless `ignoresLock`. */
+  /** Why it cannot run right now, or null. Project commands are also blocked by the lock. */
   available?: (state: StoreState) => string | null;
-  /** A project command the lock does not cover: unlock itself, finding mutes. */
-  ignoresLock?: boolean;
   /**
    * The question to ask before running, or null to run without asking.
    * Defaults to a generic question for aws-change commands and to none
@@ -97,12 +99,16 @@ export interface CommandSpec {
   describe?: (args: Args, state: StoreState) => string;
   /** Not listed in the palette: queries, and commands only meaningful with arguments a person would not type. */
   hidden?: boolean;
+  /** Not offered to a model: the operator's own chrome (the palette, file pickers, the selection). */
+  notForModel?: boolean;
   /** Palette rows, one per instance, when the command is about a particular thing. */
   instances?: (state: StoreState) => Instance[];
   run: (args: Args, ctx: RunContext) => unknown | Promise<unknown>;
 }
 
 export interface Receipt {
+  /** Monotonic within the session; the stable key for a list. */
+  seq: number;
   id: string;
   args: Args;
   source: Source;

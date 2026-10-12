@@ -34,6 +34,46 @@ class Turn:
         return {"content": self.content, "stop_reason": self.stop_reason, "model": self.model, "usage": self.usage}
 
 
+STOP_REASONS = {"end_turn", "tool_use", "max_tokens"}
+
+
+def _stop(reason: Optional[str]) -> str:
+    return reason if reason in STOP_REASONS else "other"
+
+
+def _blocks(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """A message's content as blocks; a bare string is one text block."""
+    c = message["content"]
+    return c if isinstance(c, list) else [{"type": "text", "text": str(c)}]
+
+
+def _function_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Tools in the OpenAI function shape, which Ollama speaks too."""
+    return [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""), "parameters": t["input_schema"]}} for t in tools]
+
+
+def serve_turns(stdin, stdout) -> None:
+    """Answer requests line by line until stdin closes (`warpcore assistant serve`)."""
+    for line in stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except json.JSONDecodeError as e:
+            stdout.write(json.dumps({"id": None, "error": f"bad request: {e}"}) + "\n")
+            stdout.flush()
+            continue
+        rid = req.get("id")
+        try:
+            turn = converse(req["provider"], req.get("model"), req.get("system") or "", req.get("messages") or [], req.get("tools") or [],
+                            max_tokens=int(req.get("max_tokens") or MAX_TOKENS), endpoint=req.get("endpoint"))
+            stdout.write(json.dumps({"id": rid, "result": turn.to_dict()}, default=str) + "\n")
+        except Exception as e:  # noqa: BLE001 - the app shows the message and keeps the worker
+            stdout.write(json.dumps({"id": rid, "error": str(e)}) + "\n")
+        stdout.flush()
+
+
 def converse(provider: str, model: Optional[str], system: str, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]],
              max_tokens: int = MAX_TOKENS, client: Any = None, endpoint: Optional[str] = None) -> Turn:
     """Ask the model for its next move. `client` overrides the SDK client (tests)."""
@@ -68,9 +108,8 @@ def _anthropic(client, model, system, messages, tools, max_tokens) -> Turn:
             content.append({"type": "text", "text": block.text})
         elif kind == "tool_use":
             content.append({"type": "tool_use", "id": block.id, "name": block.name, "input": dict(block.input or {})})
-    stop = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}.get(getattr(resp, "stop_reason", "") or "", "other")
     usage = getattr(resp, "usage", None)
-    return Turn(content, stop, getattr(resp, "model", model) or model,
+    return Turn(content, _stop(getattr(resp, "stop_reason", None)), getattr(resp, "model", model) or model,
                 {"input": int(getattr(usage, "input_tokens", 0) or 0), "output": int(getattr(usage, "output_tokens", 0) or 0)})
 
 
@@ -79,7 +118,7 @@ def _anthropic(client, model, system, messages, tools, max_tokens) -> Turn:
 def _to_openai_messages(system, messages) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = [{"role": "system", "content": system}]
     for m in messages:
-        blocks = m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": str(m["content"])}]
+        blocks = _blocks(m)
         if m["role"] == "assistant":
             text = "".join(b["text"] for b in blocks if b["type"] == "text")
             calls = [{"id": b["id"], "type": "function", "function": {"name": b["name"], "arguments": json.dumps(b.get("input") or {})}}
@@ -103,7 +142,7 @@ def _openai(client, model, system, messages, tools, max_tokens) -> Turn:
         raise RuntimeError("the openai client is not initialised: install openai and set OPENAI_API_KEY")
     resp = client.chat.completions.create(
         model=model, max_tokens=max_tokens, messages=_to_openai_messages(system, messages),
-        tools=[{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""), "parameters": t["input_schema"]}} for t in tools] or None,
+        tools=_function_tools(tools) or None,
     )
     choice = resp.choices[0]
     msg = choice.message
@@ -128,7 +167,7 @@ def _openai(client, model, system, messages, tools, max_tokens) -> Turn:
 def _to_bedrock_messages(messages) -> List[Dict[str, Any]]:
     out = []
     for m in messages:
-        blocks = m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": str(m["content"])}]
+        blocks = _blocks(m)
         converted = []
         for b in blocks:
             if b["type"] == "text":
@@ -159,9 +198,8 @@ def _bedrock(client, model, system, messages, tools, max_tokens) -> Turn:
         elif "toolUse" in b:
             tu = b["toolUse"]
             content.append({"type": "tool_use", "id": tu["toolUseId"], "name": tu["name"], "input": tu.get("input") or {}})
-    stop = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}.get(resp.get("stopReason", ""), "other")
     usage = resp.get("usage") or {}
-    return Turn(content, stop, model, {"input": int(usage.get("inputTokens", 0)), "output": int(usage.get("outputTokens", 0))})
+    return Turn(content, _stop(resp.get("stopReason")), model, {"input": int(usage.get("inputTokens", 0)), "output": int(usage.get("outputTokens", 0))})
 
 
 # ------------------------------------------------------------ local (ollama)
@@ -170,7 +208,7 @@ def _local(endpoint, model, system, messages, tools) -> Turn:
     body = {
         "model": model, "stream": False,
         "messages": [{"role": "system", "content": system}] + _to_ollama_messages(messages),
-        "tools": [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""), "parameters": t["input_schema"]}} for t in tools],
+        "tools": _function_tools(tools),
     }
     req = urllib.request.Request(f"{endpoint.rstrip('/')}/api/chat", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=300) as r:  # noqa: S310 - a local endpoint the operator configured
@@ -189,7 +227,7 @@ def _local(endpoint, model, system, messages, tools) -> Turn:
 def _to_ollama_messages(messages) -> List[Dict[str, Any]]:
     out = []
     for m in messages:
-        blocks = m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": str(m["content"])}]
+        blocks = _blocks(m)
         if m["role"] == "assistant":
             out.append({"role": "assistant", "content": "".join(b["text"] for b in blocks if b["type"] == "text"),
                         "tool_calls": [{"function": {"name": b["name"], "arguments": b.get("input") or {}}} for b in blocks if b["type"] == "tool_use"]})

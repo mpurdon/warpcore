@@ -10,7 +10,7 @@ import { Lens, LENS_LAYERS } from '../utils/lenses';
 import type { RunEvent, RunKind, RunState } from '../utils/deployEvents';
 import { appendOutput, applyRunEvent, isActive, newRun } from '../utils/deployEvents';
 import type { Playhead, Scenario } from '../utils/scenarios';
-import { advance as advancePlayhead, canBeStep, createScenario, seekTo } from '../utils/scenarios';
+import { advance as advancePlayhead, canBeStep, seekTo } from '../utils/scenarios';
 import type { HolodeckMeta } from '../utils/holodeck';
 
 // Sections of the application settings view. Order here is display order.
@@ -397,8 +397,6 @@ export interface StoreState {
   /** Replace every scenario, e.g. after opening a file. Dirty only when asked. */
   setScenarios: (scenarios: Scenario[], dirty?: boolean) => void;
   addScenario: (scenario: Scenario) => void;
-  /** A fresh scenario triggered at the node, or at the most entry-like one, opened in the inspector. */
-  newScenario: (triggerAt?: string) => void;
   updateScenario: (id: string, update: (scenario: Scenario) => Scenario) => void;
   removeScenario: (id: string) => void;
   inspectedScenario: string | null;
@@ -496,7 +494,6 @@ export interface StoreState {
   // receipt per run, whoever asked. The Activity drawer's audit, the
   // assistant's transcript lines.
   receipts: Receipt[];
-  clearReceipts: () => void;
   // The assistant (assistant/): its transcript, the model's messages, and
   // the card waiting for the operator. Session-only.
   chat: ChatState;
@@ -771,11 +768,6 @@ export const useStore = create<StoreState>((set, get) => ({
     rightPanelVisible: true,
     settingsOpen: false,
   })),
-  newScenario: (triggerAt) => {
-    const state = get();
-    const scenario = createScenario(state.nodes, state.scenarios, triggerAt);
-    if (scenario) state.addScenario(scenario);
-  },
   updateScenario: (id, update) => set((state) => {
     let next: Scenario | undefined;
     const scenarios = state.scenarios.map((s) => {
@@ -903,7 +895,6 @@ export const useStore = create<StoreState>((set, get) => ({
   importDiff: null,
   setImportDiff: (importDiff) => set({ importDiff }),
   receipts: [],
-  clearReceipts: () => set({ receipts: [] }),
   chat: EMPTY_CHAT,
   assistantOpen: false,
   setAssistantOpen: (assistantOpen) => set({ assistantOpen }),

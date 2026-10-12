@@ -211,9 +211,8 @@ function Flow() {
   const assistantOpen = useStore((s) => s.assistantOpen);
   // The bridge: `warpcore mcp` and outside agents run commands through here.
   useEffect(() => {
-    let stop: (() => void) | null = null;
-    void startBridge().then((un) => { stop = un; });
-    return () => { stop?.(); };
+    const started = startBridge();
+    return () => { void started.then((un) => un?.()); };
   }, []);
   const driftCheckMinutes = useStore((s) => s.prefs.driftCheckMinutes);
   const liveClasses = useMemo(() => {
@@ -597,9 +596,6 @@ function Flow() {
 
       if (targetNode) {
         // Dropped on/near a node - create connection to it
-        const sourceType = pendingConnection.nodeType;
-        const targetType = targetNode.type || '';
-
         // Determine best target handle based on relative position
         const dx = flowPos.x - (targetNode.position.x + 90); // Center of node
         const dy = flowPos.y - (targetNode.position.y + 40);
@@ -611,19 +607,8 @@ function Flow() {
           targetHandle = dy > 0 ? 'bottom-2-target' : 'top-2-target';
         }
 
-        const newEdge = {
-          id: `${pendingConnection.nodeId}-${targetNode.id}-${Date.now()}`,
-          source: pendingConnection.nodeId,
-          sourceHandle: pendingConnection.handleId,
-          target: targetNode.id,
-          targetHandle,
-          type: 'permission',
-          data: {
-            isResourceBased: isResourceBasedConnection(sourceType, targetType),
-          },
-        };
-
-        setEdges([...edges, newEdge]);
+        // Through the command, like a drawn edge: lock, log-group path, receipt.
+        void runFromUi('canvas.connect', { source: pendingConnection.nodeId, target: targetNode.id, sourceHandle: pendingConnection.handleId ?? undefined, targetHandle });
         setPendingConnection(null);
         return;
       }

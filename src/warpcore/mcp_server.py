@@ -85,7 +85,7 @@ def _app_tool(bridge: AppBridge, spec: Dict[str, Any]):
             params.append(inspect.Parameter(pyname, inspect.Parameter.KEYWORD_ONLY, annotation=annotation))
         else:
             params.append(inspect.Parameter(pyname, inspect.Parameter.KEYWORD_ONLY, default=None, annotation=Optional[annotation]))
-    command = spec["name"].replace("_", ".", 1)
+    command = spec.get("command") or spec["name"].replace("_", ".", 1)
 
     def tool(**kwargs):
         args = {names[k]: v for k, v in kwargs.items() if v is not None}
@@ -102,11 +102,8 @@ def attach_app(server, bridge: AppBridge) -> List[str]:
     """Register the running app's commands as tools. Returns their names."""
     names = []
     for spec in bridge.tools():
-        kind = spec.get("kind", "")
-        desc = spec.get("description", "")
-        if kind == "aws-change":
-            desc += " The operator confirms it in the app before it runs; the call waits for their answer."
-        server.add_tool(_app_tool(bridge, spec), name=spec["name"], description=desc)
+        # The description already says what asks first; the app wrote it.
+        server.add_tool(_app_tool(bridge, spec), name=spec["name"], description=spec.get("description", ""))
         names.append(spec["name"])
     return names
 

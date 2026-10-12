@@ -38,6 +38,7 @@ describe('the assistant loop', () => {
     expect(names).toContain('canvas_addNode');
     expect(names).toContain('query_path');
     expect(names).not.toContain('view_palette');
+    expect(names).toContain('project_unlock');
     expect(systemPrompt()).toContain('1 api-gateway, 1 lambda');
   });
 

@@ -636,7 +636,9 @@ Parity between the UI and an agent is therefore a property of the design,
 not a list someone keeps in step.
 
 Kinds are split by consequence: `view` (this operator's screen), `project`
-(the file; respects the lock, lands in undo), `aws-read` (slow, changes
+(the canvas and scenarios; respects the lock, lands in undo), `file` (the
+project's own files beside it: save, the lock itself, finding mutes;
+immediate, not undoable, not under the lock), `aws-read` (slow, changes
 nothing), `aws-change` (always confirmed), `query` (exact answers from
 what the app holds, so a model never has to guess at the graph).
 
@@ -669,9 +671,10 @@ state is `aws-change` and gets a `confirm` that says what will happen.
 [2026-10-12. `visual-builder/src/assistant/`, `src-tauri/src/main.rs` (Bridge), `warpcore/assistant/`, `warpcore/mcp_server.py`.]
 
 The assistant is the command layer with a model in front of it. The loop
-runs in the app (`assistant/loop.ts`): one model turn at a time through
-`warpcore assistant turn`, which maps one message shape to every provider
-and keeps no state; every tool the model calls is a command run through
+runs in the app (`assistant/loop.ts`): one model turn at a time through a
+`warpcore assistant serve` worker the host keeps for the session (the
+bundled CLI takes seconds to start), which maps one message shape to every
+provider and keeps no state between turns; every tool the model calls is a command run through
 the dispatcher with the source marked `assistant`. Queries give it exact
 answers, so it is told to read before it acts. An `aws-change` command
 waits on a card (`assistant/confirm.ts`), one at a time; a second in the

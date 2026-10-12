@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Check, Eraser, Send, Sparkles, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { answerPending } from '../assistant/confirm';
-import { sendMessage, clearChat } from '../assistant/loop';
+import { sendMessage } from '../assistant/loop';
 import type { ChatItem } from '../assistant/types';
 
 export const ASSISTANT_WIDTH = 360;
@@ -22,7 +22,12 @@ const LINE: Record<ChatItem['kind'], string> = {
 };
 
 export default function AssistantPanel() {
-  const { chat, prefs, openSettings, setAssistantOpen } = useStore();
+  const chat = useStore((s) => s.chat);
+  const provider = useStore((s) => s.prefs.assistantProvider);
+  const model = useStore((s) => s.prefs.assistantModel);
+  const openSettings = useStore((s) => s.openSettings);
+  const setAssistantOpen = useStore((s) => s.setAssistantOpen);
+  const clearChat = useStore((s) => s.clearChat);
   const [draft, setDraft] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -44,7 +49,7 @@ export default function AssistantPanel() {
         <Bot size={15} className="text-gray-500" />
         <span className="text-sm font-medium text-gray-900">Assistant</span>
         <span className="text-[11px] text-gray-400 truncate">
-          {prefs.assistantProvider ? `${prefs.assistantProvider}${chat.model ? ` · ${chat.model}` : prefs.assistantModel ? ` · ${prefs.assistantModel}` : ''}` : 'no model configured'}
+          {provider ? `${provider}${chat.model ? ` · ${chat.model}` : model ? ` · ${model}` : ''}` : 'no model configured'}
           {chat.usage.turns > 0 && ` · ${chat.usage.turns} turn${chat.usage.turns === 1 ? '' : 's'} · ${chat.usage.input + chat.usage.output} tokens`}
         </span>
         <span className="flex-1" />
@@ -57,7 +62,7 @@ export default function AssistantPanel() {
           <div className="text-xs text-gray-500 space-y-2">
             <p>Ask about the canvas, or ask for a change. The assistant works through the app's own commands: it reads the graph exactly, edits the project under the same lock as you, and anything that touches AWS or the deployment state waits for your yes on a card here.</p>
             <p>Try: <em>which resources can the API reach?</em> · <em>add a dead-letter queue to the indexer</em> · <em>draft a scenario for a webhook and play it</em> · <em>what would break if the index queue went away?</em></p>
-            {!prefs.assistantProvider && (
+            {!provider && (
               <p className="text-amber-700">No model is configured. <button className="underline" onClick={() => openSettings('exploration')}>Choose one in Settings</button>. Credentials come from the environment the CLI runs in; the app stores none.</p>
             )}
           </div>

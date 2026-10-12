@@ -1,5 +1,6 @@
 """Main CLI entry point."""
 
+import json
 import sys
 import yaml
 from pathlib import Path
@@ -836,10 +837,11 @@ def mcp(ctx, config_path, list_tools):
     except ImportError:
         console.print('[red]The mcp package is not installed.[/red] Install it with: pip install "warpcore[mcp]"')
         sys.exit(1)
-    server = build_server(config_path, profile=ctx.obj.get('profile'), region=ctx.obj.get('region'))
+    from warpcore.mcp_server import AppBridge
+    bridge = AppBridge.find()
+    server = build_server(config_path, profile=ctx.obj.get('profile'), region=ctx.obj.get('region'), app=bridge, attach_running_app=False)
     if list_tools:
-        from warpcore.mcp_server import AppBridge
-        console.print("The Visual Builder is running; its commands are tools." if AppBridge.find() else "The Visual Builder is not running; file tools only.")
+        console.print("The Visual Builder is running; its commands are tools." if bridge else "The Visual Builder is not running; file tools only.")
         for name in tool_names(server):
             console.print(f"  {name}")
         return
@@ -859,10 +861,9 @@ def assistant():
 @click.option('--endpoint', default=None, help='A local model endpoint (default OLLAMA_HOST or http://localhost:11434)')
 def assistant_turn(provider, model, input_path, endpoint):
     """Ask the model what to do next. The app runs the tools; this makes no AWS calls of its own."""
-    from pathlib import Path as _Path
     from warpcore.assistant import converse
 
-    data = json.loads(_Path(input_path).read_text())
+    data = json.loads(Path(input_path).read_text())
     try:
         turn = converse(provider, model, data.get('system') or '', data.get('messages') or [], data.get('tools') or [],
                         max_tokens=int(data.get('max_tokens') or 4096), endpoint=endpoint)
@@ -870,6 +871,18 @@ def assistant_turn(provider, model, input_path, endpoint):
         click.echo(json.dumps({'error': str(e)}))
         sys.exit(1)
     click.echo(json.dumps(turn.to_dict(), default=str))
+
+
+@assistant.command('serve')
+def assistant_serve():
+    """Answer model turns over stdin/stdout, one JSON line each, until stdin closes.
+
+    The app keeps one of these per session instead of starting the CLI for
+    every turn. A request is {"id", "provider", "model", "system", "messages",
+    "tools", "max_tokens", "endpoint"}; the reply is {"id", "result"} or {"id", "error"}.
+    """
+    from warpcore.assistant import serve_turns
+    serve_turns(sys.stdin, sys.stdout)
 
 
 @cli.group()

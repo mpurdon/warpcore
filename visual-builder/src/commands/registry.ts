@@ -4,14 +4,19 @@
 
 import type { StoreState } from '../store/useStore';
 import { selectReadOnly } from '../store/useStore';
-import type { Args, CommandSpec, Instance, Param } from './types';
+import { GROUPS, type Args, type CommandSpec, type Instance, type Param } from './types';
 
 const registry = new Map<string, CommandSpec>();
+// Derived tables, built once the registry is complete; a define() resets them.
+let toolCache: ToolSpec[] | null = null;
+let shortcutCache: ShortcutRow[] | null = null;
 
 export function define(spec: CommandSpec): CommandSpec {
   if (registry.has(spec.id)) throw new Error(`command ${spec.id} is defined twice`);
   if (!/^[a-z]+\.[a-zA-Z]+$/.test(spec.id)) throw new Error(`command id ${spec.id} is not group.name`);
   registry.set(spec.id, spec);
+  toolCache = null;
+  shortcutCache = null;
   return spec;
 }
 
@@ -23,13 +28,21 @@ export function all(): CommandSpec[] {
   return [...registry.values()];
 }
 
-/** For tests that build their own registry. */
-export function _clear(): void {
-  registry.clear();
-}
-
 export function titleOf(spec: CommandSpec, state: StoreState): string {
   return typeof spec.title === 'function' ? spec.title(state) : spec.title;
+}
+
+/** The one line for a run of the command with these args: the receipt, the card, the transcript. */
+export function summaryOf(spec: CommandSpec, args: Args, state: StoreState): string {
+  return spec.describe ? spec.describe(args, state) : titleOf(spec, state);
+}
+
+/**
+ * What to ask before running, or null. A command's own question wins; an
+ * aws-change command without one is asked about anyway, whoever calls.
+ */
+export function confirmQuestion(spec: CommandSpec, args: Args, state: StoreState): string | null {
+  return spec.confirm?.(args, state) ?? (spec.kind === 'aws-change' ? `${summaryOf(spec, args, state)}?` : null);
 }
 
 /**
@@ -37,7 +50,7 @@ export function titleOf(spec: CommandSpec, state: StoreState): string {
  * block every project command in one place, so no command can forget.
  */
 export function blocked(spec: CommandSpec, state: StoreState): string | null {
-  if (spec.kind === 'project' && !spec.ignoresLock && selectReadOnly(state)) {
+  if (spec.kind === 'project' && selectReadOnly(state)) {
     return state.holodeckPreview ? 'The Holodeck preview is read-only' : 'The project is locked. Unlock it to edit.';
   }
   return spec.available?.(state) ?? null;
@@ -78,8 +91,12 @@ export function validate(spec: CommandSpec, args: Args): Args {
 
 export interface ToolSpec {
   name: string;
+  /** The command id the tool stands for, so no caller has to map names back. */
+  command: string;
   description: string;
   kind: CommandSpec['kind'];
+  /** Whether a model is offered it; the bridge and the assistant filter on this. */
+  forModel: boolean;
   input_schema: { type: 'object'; properties: Record<string, unknown>; required: string[] };
 }
 
@@ -93,25 +110,30 @@ function jsonSchema(p: Param): Record<string, unknown> {
   }
 }
 
-/** Every command as a tool a model can call. The kind is in the description so the model knows what asks first. */
-export function toolSpecs(): ToolSpec[] {
-  const note: Record<CommandSpec['kind'], string> = {
-    view: 'Changes only the operator\'s view; applies immediately.',
-    project: 'Edits the project; applies immediately and can be undone.',
-    'aws-read': 'Reads the AWS account; slow, changes nothing.',
-    'aws-change': 'Changes the AWS account or deployment state; pauses for the operator\'s confirmation.',
-    query: 'Answers from what the app holds; exact, immediate.',
-  };
-  return all().map((spec) => ({
+const KIND_NOTE: Record<CommandSpec['kind'], string> = {
+  view: 'Changes only the operator\'s view; applies immediately.',
+  project: 'Edits the project; applies immediately, can be undone, and is refused while the project is locked.',
+  file: 'Writes the project\'s own files beside it; applies immediately.',
+  'aws-read': 'Reads the AWS account; slow, changes nothing.',
+  'aws-change': 'Changes the AWS account or deployment state; pauses for the operator\'s confirmation.',
+  query: 'Answers from what the app holds; exact, immediate.',
+};
+
+/** Every command as a tool. The kind is in the description so a model knows what asks first. Built once. */
+export function toolSpecs(opts: { forModel?: boolean } = {}): ToolSpec[] {
+  toolCache ??= all().map((spec) => ({
     name: spec.id.replace('.', '_'),
-    description: `${spec.description} ${note[spec.kind]}`,
+    command: spec.id,
+    description: `${spec.description} ${KIND_NOTE[spec.kind]}`,
     kind: spec.kind,
+    forModel: !spec.notForModel,
     input_schema: {
       type: 'object',
       properties: Object.fromEntries(Object.entries(spec.params ?? {}).map(([k, p]) => [k, jsonSchema(p)])),
       required: Object.entries(spec.params ?? {}).filter(([, p]) => p.required).map(([k]) => k),
     },
   }));
+  return opts.forModel ? toolCache.filter((t) => t.forModel) : toolCache;
 }
 
 /** A tool name back to the command id. */
@@ -136,8 +158,6 @@ export interface PaletteRow {
   blockedReason: string | null;
 }
 
-const GROUP_ORDER: CommandSpec['group'][] = ['Actions', 'View', 'Scenarios', 'Canvas', 'Environments', 'Account', 'Settings', 'Queries'];
-
 /** Every row the palette shows, from the registry and the state, actions first. */
 export function paletteRows(state: StoreState): PaletteRow[] {
   const rows: PaletteRow[] = [];
@@ -159,12 +179,15 @@ export function paletteRows(state: StoreState): PaletteRow[] {
       subtitle: reason ?? spec.description, keywords: spec.keywords, shortcut: spec.shortcut?.label, blockedReason: reason,
     });
   }
-  return rows.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
+  return rows.sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group));
 }
 
-/** Every shortcut, for the key handler and the help sheet. */
-export function shortcuts(): { command: string; key: string; mod: boolean; shift: boolean; label: string }[] {
-  return all().filter((s) => s.shortcut).map((s) => ({
+export interface ShortcutRow { command: string; key: string; mod: boolean; shift: boolean; label: string }
+
+/** Every shortcut, for the key handler and the help sheet. Built once. */
+export function shortcuts(): ShortcutRow[] {
+  shortcutCache ??= all().filter((s) => s.shortcut).map((s) => ({
     command: s.id, key: s.shortcut!.key, mod: Boolean(s.shortcut!.mod), shift: Boolean(s.shortcut!.shift), label: s.shortcut!.label,
   }));
+  return shortcutCache;
 }

@@ -6,7 +6,7 @@ import { closePreview } from '../utils/holodeckActions';
 import { define } from './registry';
 
 define({
-  id: 'project.open', title: 'Open project…', description: 'Open a warpcore.yaml. With `path`, open that file; without, show the file chooser.', group: 'Actions', kind: 'view',
+  id: 'project.open', title: 'Open project…', description: 'Open a warpcore.yaml. With `path`, open that file; without, show the file chooser.', group: 'Actions', kind: 'view', notForModel: true,
   params: { path: { type: 'string', description: 'Absolute path to a warpcore.yaml' } },
   shortcut: { key: 'o', mod: true, label: '⌘O' },
   describe: (a) => (a.path ? `Open ${a.path}` : 'Open a project'),
@@ -14,7 +14,7 @@ define({
 });
 
 define({
-  id: 'project.save', title: 'Save project', description: 'Write the project to its warpcore.yaml now (changes also auto-save).', group: 'Actions', kind: 'project', ignoresLock: true,
+  id: 'project.save', title: 'Save project', description: 'Write the project to its warpcore.yaml now (changes also auto-save).', group: 'Actions', kind: 'file',
   shortcut: { key: 's', mod: true, label: '⌘S' },
   available: (s) => (s.configPath ? null : 'No file yet: open or create a project first'),
   describe: (_a, s) => `Save ${s.configPath ?? 'the project'}`,
@@ -22,13 +22,13 @@ define({
 });
 
 define({
-  id: 'project.lock', title: 'Lock the project', description: 'Back to view-only: the canvas cannot be edited and Deploy and Destroy are off.', group: 'Actions', kind: 'project', ignoresLock: true,
+  id: 'project.lock', title: 'Lock the project', description: 'Back to view-only: the canvas cannot be edited and Deploy and Destroy are off.', group: 'Actions', kind: 'file',
   available: (s) => (!s.configPath ? 'Nothing is open' : s.locked ? 'Already locked' : null),
   run: (_a, { state }) => state.lock(),
 });
 
 define({
-  id: 'project.unlock', title: 'Unlock the project', description: 'Allow edits and deploys. Changes auto-save to the file.', group: 'Actions', kind: 'project', ignoresLock: true,
+  id: 'project.unlock', title: 'Unlock the project', description: 'Allow edits and deploys. Changes auto-save to the file.', group: 'Actions', kind: 'file',
   available: (s) => (!s.configPath ? 'Nothing is open' : s.holodeckPreview ? 'A Holodeck preview cannot be unlocked; save a copy first' : !s.locked ? 'Already unlocked' : null),
   run: (_a, { state }) => state.unlock(),
 });

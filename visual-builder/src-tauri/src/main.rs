@@ -1126,26 +1126,31 @@ async fn assistant_suggest(
     if kind != "names" && kind != "scenario" {
         return Err(format!("unknown suggestion kind: {kind}"));
     }
-    let dir = home_dir()?.join(".warpcore").join("cache").join("assistant");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let path = dir.join(format!("{kind}-{stamp}.json"));
-    std::fs::write(&path, input).map_err(|e| format!("could not write {}: {e}", path.display()))?;
-    let path_str = path.to_string_lossy().into_owned();
-    let mut args: Vec<&str> = vec!["discover", "suggest", &kind, "--input", &path_str, "--llm-provider", &llm_provider];
-    if let Some(model) = llm_model.as_deref().filter(|m| !m.is_empty()) {
-        args.push("--llm-model");
+    let mut args: Vec<String> = vec!["discover".into(), "suggest".into(), kind.clone(), "--llm-provider".into(), llm_provider];
+    if let Some(model) = llm_model.filter(|m| !m.is_empty()) {
+        args.push("--llm-model".into());
         args.push(model);
     }
-    let ask_text = ask.unwrap_or_default();
-    if !ask_text.is_empty() {
-        args.push("--ask");
-        args.push(&ask_text);
+    if let Some(ask_text) = ask.filter(|a| !a.is_empty()) {
+        args.push("--ask".into());
+        args.push(ask_text);
     }
-    let result = run_warpcore_json(&args).await;
+    run_warpcore_with_input(&kind, &input, &args).await
+}
+
+/// Run a CLI command that takes its input as a JSON file: the file lives in
+/// the assistant cache for the length of the call and is removed either way.
+async fn run_warpcore_with_input(prefix: &str, input: &str, args: &[String]) -> Result<String, String> {
+    let dir = home_dir()?.join(".warpcore").join("cache").join("assistant");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let path = dir.join(format!("{prefix}-{stamp}.json"));
+    std::fs::write(&path, input).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    let path_str = path.to_string_lossy().into_owned();
+    let mut full: Vec<&str> = args.iter().map(String::as_str).collect();
+    full.push("--input");
+    full.push(&path_str);
+    let result = run_warpcore_json(&full).await;
     let _ = std::fs::remove_file(&path);
     result
 }
@@ -1287,14 +1292,6 @@ fn bridge_respond(bridge: tauri::State<'_, Bridge>, request_id: String, payload:
     }
 }
 
-/// Where the bridge is listening, for the operator and for a check.
-#[tauri::command]
-fn bridge_info() -> Result<serde_json::Value, String> {
-    let file = home_dir()?.join(".warpcore").join("app.json");
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    serde_json::from_str(&text).map_err(|e| e.to_string())
-}
-
 fn http_response(status: &str, body: &str) -> Vec<u8> {
     format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: null\r\n\r\n{body}", body.len()).into_bytes()
 }
@@ -1321,7 +1318,7 @@ async fn bridge_serve_one(app: tauri::AppHandle, mut socket: tokio::net::TcpStre
     for line in lines {
         let lower = line.to_ascii_lowercase();
         if let Some(v) = lower.strip_prefix("content-length:") { length = v.trim().parse().unwrap_or(0); }
-        if lower.starts_with("x-warpcore-token:") { token = line[17..].trim().to_string(); }
+        if let Some(v) = lower.strip_prefix("x-warpcore-token:") { token = v.trim().to_string(); }
     }
     let mut body = buf[header_end..].to_vec();
     while body.len() < length {
@@ -1383,24 +1380,82 @@ async fn bridge_start(app: tauri::AppHandle) {
     }
 }
 
-/// One model turn for the in-app assistant: the transcript and the tools go
-/// to `warpcore assistant turn`, which makes no AWS calls of its own.
-#[tauri::command]
-async fn assistant_turn(provider: String, model: Option<String>, input: String) -> Result<String, String> {
-    let dir = home_dir()?.join(".warpcore").join("cache").join("assistant");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    let path = dir.join(format!("turn-{stamp}.json"));
-    std::fs::write(&path, input).map_err(|e| format!("could not write {}: {e}", path.display()))?;
-    let path_str = path.to_string_lossy().into_owned();
-    let mut args: Vec<&str> = vec!["assistant", "turn", "--provider", &provider, "--input", &path_str];
-    if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
-        args.push("--model");
-        args.push(m);
+// ------------------------------------------------------- the assistant worker
+//
+// The bundled CLI takes seconds to start, and the assistant asks for a
+// turn several times per message, so one `warpcore assistant serve` is
+// kept for the session: a JSON line in, a JSON line out. It is started on
+// the first turn and started again if it has gone away.
+
+struct AssistantWorker(tokio::sync::Mutex<Option<WorkerProc>>);
+
+struct WorkerProc {
+    child: tokio::process::Child,
+    stdin: tokio::process::ChildStdin,
+    lines: tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>,
+    next_id: u64,
+}
+
+impl WorkerProc {
+    fn start() -> Result<WorkerProc, String> {
+        use tokio::io::AsyncBufReadExt;
+        let mut child = warpcore_command()
+            .args(["assistant", "serve"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+            .map_err(|e| format!("could not start the assistant worker: {e}"))?;
+        let stdin = child.stdin.take().ok_or("the worker has no stdin")?;
+        let stdout = child.stdout.take().ok_or("the worker has no stdout")?;
+        Ok(WorkerProc { child, stdin, lines: tokio::io::BufReader::new(stdout).lines(), next_id: 1 })
     }
-    let result = run_warpcore_json(&args).await;
-    let _ = std::fs::remove_file(&path);
-    result
+
+    async fn ask(&mut self, request: &serde_json::Value) -> Result<String, String> {
+        use tokio::io::AsyncWriteExt;
+        let id = self.next_id;
+        self.next_id += 1;
+        let mut req = request.clone();
+        req["id"] = serde_json::json!(id);
+        let mut line = req.to_string();
+        line.push('\n');
+        self.stdin.write_all(line.as_bytes()).await.map_err(|e| format!("the assistant worker went away: {e}"))?;
+        loop {
+            let reply = self.lines.next_line().await.map_err(|e| format!("the assistant worker went away: {e}"))?
+                .ok_or_else(|| "the assistant worker exited".to_string())?;
+            let v: serde_json::Value = match serde_json::from_str(&reply) { Ok(v) => v, Err(_) => continue };
+            if v.get("id").and_then(|i| i.as_u64()) != Some(id) { continue; }
+            return match v.get("result") {
+                Some(result) => Ok(result.to_string()),
+                None => Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("the assistant worker gave no answer").to_string()),
+            };
+        }
+    }
+}
+
+/// One model turn for the in-app assistant, through the worker. `input` is
+/// the request body (system, messages, tools, max_tokens); the provider and
+/// model ride alongside so the worker can serve any provider.
+#[tauri::command]
+async fn assistant_turn(worker: tauri::State<'_, AssistantWorker>, provider: String, model: Option<String>, input: String) -> Result<String, String> {
+    let mut request: serde_json::Value = serde_json::from_str(&input).map_err(|e| format!("bad turn input: {e}"))?;
+    request["provider"] = serde_json::json!(provider);
+    request["model"] = serde_json::json!(model);
+    let mut slot = worker.0.lock().await;
+    if slot.is_none() {
+        *slot = Some(WorkerProc::start()?);
+    }
+    let first = slot.as_mut().unwrap().ask(&request).await;
+    match first {
+        Ok(out) => Ok(out),
+        Err(e) if e.contains("went away") || e.contains("exited") => {
+            // The worker died (a crash, a rebuilt sidecar): start another and ask once more.
+            if let Some(mut old) = slot.take() { let _ = old.child.start_kill(); }
+            *slot = Some(WorkerProc::start()?);
+            slot.as_mut().unwrap().ask(&request).await
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Take over adopted resources: from then on the canvas config is what a
@@ -1846,6 +1901,7 @@ fn main() {
     tauri::Builder::default()
         .manage(ActiveScan::default())
         .manage(Bridge::new())
+        .manage(AssistantWorker(tokio::sync::Mutex::new(None)))
         // Only the dialog plugin is used: the frontend opens a file picker.
         // All file IO happens in Rust commands via tokio::fs/std::fs, which
         // needs no plugin and is not reachable from the webview.
@@ -1888,7 +1944,6 @@ fn main() {
             assistant_suggest,
             assistant_turn,
             bridge_respond,
-            bridge_info,
             takeover_resources,
             mute_finding,
             cancel_scan,

@@ -2,7 +2,7 @@
 
 import type { Node } from 'reactflow';
 import { useStore, type StoreState } from '../store/useStore';
-import { canBeStep, checkScenario, createScenario, hopIndex, parseTakes, suggestPath, type Scenario, type ScenarioStep } from '../utils/scenarios';
+import { canBeStep, checkScenario, createScenario, hopIndex, stepFromRaw, suggestPath, type Scenario, type ScenarioStep } from '../utils/scenarios';
 import { displayNameFor } from '../utils/nodeName';
 import { scenariosBrokenBy, whatIf } from '../utils/whatIf';
 import { define } from './registry';
@@ -19,7 +19,7 @@ function needScenario(state: StoreState, ref: string): Scenario {
 }
 
 function needStepNode(state: StoreState, ref: string): Node {
-  const node = findNode(state, ref) as Node | undefined;
+  const node = findNode(state, ref);
   if (!node) throw new Error(`no resource ${ref} on the canvas`);
   if (!canBeStep(node)) throw new Error(`${displayNameFor(node)} cannot be a step (log groups and roles never are)`);
   return node;
@@ -80,7 +80,10 @@ define({
   run: (a, { state }) => {
     const sc = needScenario(state, a.id as string);
     const at = a.at ? needStepNode(state, a.at as string).id : sc.trigger.at;
-    useStore.getState().updateScenario(sc.id, (s) => ({ ...s, trigger: { at, ...(a.event === undefined ? (s.trigger.event ? { event: s.trigger.event } : {}) : a.event ? { event: String(a.event) } : {}) } }));
+    useStore.getState().updateScenario(sc.id, (s) => {
+      const event = a.event === undefined ? s.trigger.event : String(a.event) || undefined;
+      return { ...s, trigger: { at, ...(event ? { event } : {}) } };
+    });
   },
 });
 
@@ -106,7 +109,7 @@ define({
     note: { type: 'string', description: 'What happens there' },
     takes: { type: 'string', description: 'How long it takes, e.g. "120ms" or "2s"' },
     index: { type: 'number', description: 'Insert before this 0-based step; default appends' },
-    outcome: { type: 'string', description: 'ok, fails or times-out', enum: ['ok', 'fails', 'times-out'] },
+    outcome: { type: 'string', description: 'What the last attempt does: ok, fail or timeout', enum: ['ok', 'fail', 'timeout'] },
     retry: { type: 'number', description: 'Retries before the outcome' },
     detached: { type: 'boolean', description: 'Fire and forget' },
   },
@@ -213,7 +216,7 @@ define({
   id: 'scenario.whatIf', title: 'What if', description: 'What a scenario loses if resources were removed: the steps that lose their evidence and the new problems. With no `id`, every scenario the removal would break.', group: 'Queries', kind: 'query', hidden: true,
   params: { removed: { type: 'string[]', description: 'Node ids or labels to take away', required: true }, id: { type: 'string', description: 'One scenario; omit for all' } },
   run: (a, { state }) => {
-    const removed = new Set((a.removed as string[]).map((r) => { const n = findNode(state, r); if (!n) throw new Error(`no resource ${r}`); return n.id; }));
+    const removed = new Set((a.removed as string[]).map((r) => { const n = findNode(state, r); if (!n) throw new Error(`no resource ${r} on the canvas`); return n.id; }));
     if (a.id) {
       const w = whatIf(needScenario(state, a.id as string), state.nodes, state.edges, removed);
       return { scenario: w.scenario.name, brokenSteps: w.brokenSteps, newProblems: w.newProblems };
@@ -222,14 +225,9 @@ define({
   },
 });
 
+/** A step from a command's input: the YAML rules, with `at` resolved to a node that can be a step. */
 function normaliseStep(state: StoreState, raw: unknown): ScenarioStep {
-  const r = (raw ?? {}) as Record<string, unknown>;
-  if (typeof r.at !== 'string') throw new Error('each step needs `at`');
-  const step: ScenarioStep = { at: needStepNode(state, r.at).id };
-  if (typeof r.note === 'string' && r.note) step.note = r.note;
-  if (r.takes !== undefined) { const ms = parseTakes(r.takes as string | number); if (ms !== undefined) step.takes = ms; }
-  if (r.detached === true) step.detached = true;
-  if (typeof r.outcome === 'string' && r.outcome !== 'ok') step.outcome = r.outcome as ScenarioStep['outcome'];
-  if (typeof r.retry === 'number' && r.retry > 0) step.retry = r.retry;
-  return step;
+  const step = stepFromRaw(raw);
+  if (!step) throw new Error('each step needs `at`');
+  return { ...step, at: needStepNode(state, step.at).id };
 }

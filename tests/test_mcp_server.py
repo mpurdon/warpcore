@@ -87,7 +87,7 @@ class FakeBridge:
         return [
             {"name": "canvas_addNode", "kind": "project", "description": "Add a resource.",
              "input_schema": {"type": "object", "properties": {"type": {"type": "string"}, "x": {"type": "number"}, "config": {"type": "object"}}, "required": ["type"]}},
-            {"name": "account_deploy", "kind": "aws-change", "description": "Deploy.", "input_schema": {"type": "object", "properties": {}, "required": []}},
+            {"name": "account_deploy", "kind": "aws-change", "description": "Deploy. Pauses for the operator's confirmation.", "input_schema": {"type": "object", "properties": {}, "required": []}},
             {"name": "query_path", "kind": "query", "description": "Path.", "input_schema": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"]}},
         ]
 
@@ -106,7 +106,7 @@ def test_the_running_app_becomes_tools(project):
     assert tool.inputSchema["required"] == ["type"]
     assert "x" in tool.inputSchema["properties"]
     deploy = next(t for t in asyncio.run(server.list_tools()) if t.name == "account_deploy")
-    assert "confirms it in the app" in deploy.description
+    assert "confirmation" in deploy.description
     out = _call(server, "canvas_addNode", type="sqs", x=10.0)
     assert out == {"ok": True, "summary": "canvas.addNode", "result": {"id": "sqs-1"}}
     assert bridge.calls == [("canvas.addNode", {"type": "sqs", "x": 10.0})]

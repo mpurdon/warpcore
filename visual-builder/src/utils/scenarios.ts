@@ -82,6 +82,20 @@ export interface Scenario {
   steps: ScenarioStep[];
 }
 
+/** One step from loose input (YAML, a command, a model): only what is valid is kept; no `at` is no step. */
+export function stepFromRaw(raw: unknown): ScenarioStep | null {
+  if (!raw || typeof raw !== 'object' || typeof (raw as { at?: unknown }).at !== 'string') return null;
+  const s = raw as { at: string; note?: unknown; takes?: unknown; detached?: unknown; outcome?: unknown; retry?: unknown };
+  const step: ScenarioStep = { at: s.at };
+  if (typeof s.note === 'string' && s.note) step.note = s.note;
+  const takes = parseTakes(s.takes as string | number | undefined);
+  if (takes !== undefined) step.takes = takes;
+  if (s.detached) step.detached = true;
+  if (s.outcome === 'fail' || s.outcome === 'timeout') step.outcome = s.outcome;
+  if (typeof s.retry === 'number' && s.retry > 0) step.retry = Math.floor(s.retry);
+  return step;
+}
+
 /** The `scenarios:` list as it appears in warpcore.yaml. */
 export interface ScenarioYaml {
   name: string;
@@ -130,15 +144,8 @@ export function scenariosFromYaml(list: unknown): Scenario[] {
     if (!at) continue;
     const steps: ScenarioStep[] = [];
     for (const s of y.steps || []) {
-      if (!s || typeof s !== 'object' || typeof (s as { at?: unknown }).at !== 'string') continue;
-      const step: ScenarioStep = { at: (s as { at: string }).at };
-      if (typeof s.note === 'string' && s.note) step.note = s.note;
-      const takes = parseTakes(s.takes);
-      if (takes !== undefined) step.takes = takes;
-      if (s.detached) step.detached = true;
-      if (s.outcome === 'fail' || s.outcome === 'timeout') step.outcome = s.outcome;
-      if (typeof s.retry === 'number' && s.retry > 0) step.retry = Math.floor(s.retry);
-      steps.push(step);
+      const step = stepFromRaw(s);
+      if (step) steps.push(step);
     }
     out.push({
       id: uniqueScenarioId(name, out),

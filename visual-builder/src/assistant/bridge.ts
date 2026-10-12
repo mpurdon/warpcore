@@ -6,10 +6,9 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { get, run, toolSpecs } from '../commands';
-import { useStore } from '../store/useStore';
-import { askOperator } from './confirm';
-import { modelTools } from './loop';
+import { get, run } from '../commands';
+import { confirmOnCard } from './confirm';
+import { modelTools, noteResult } from './loop';
 
 interface BridgeRequest {
   id: string;
@@ -23,23 +22,16 @@ async function respond(id: string, payload: unknown): Promise<void> {
 }
 
 export async function handleBridgeRequest(req: BridgeRequest): Promise<unknown> {
-  if (req.kind === 'tools') return { tools: modelTools(), all: toolSpecs().length };
+  if (req.kind === 'tools') return { tools: modelTools() };
   if (req.kind === 'command' && req.command) {
-    const spec = get(req.command);
-    const args = req.args ?? {};
-    const state = useStore.getState();
-    const summary = spec ? (spec.describe ? spec.describe(args, state) : typeof spec.title === 'function' ? spec.title(state) : spec.title) : req.command;
-    const r = await run(req.command, args, {
-      source: 'mcp',
-      confirm: (question) => askOperator({ question, summary, command: req.command!, args, source: 'mcp' }),
-    });
-    if (r.ok) useStore.getState().pushChatItem({ kind: 'tool', text: `${r.summary} (from MCP)`, at: Date.now(), command: req.command, ok: true });
+    const r = await run(req.command, req.args ?? {}, { source: 'mcp', confirm: confirmOnCard('mcp') });
+    noteResult(get(req.command), r, ' (from MCP)');
     return r;
   }
   return { ok: false, error: `bad bridge request ${req.kind}` };
 }
 
-/** Start answering bridge requests. Returns the unlistener; a no-op outside Tauri. */
+/** Start answering bridge requests. Resolves to the unlistener; null outside Tauri. */
 export async function startBridge(): Promise<UnlistenFn | null> {
   if (!('__TAURI_INTERNALS__' in window)) return null;
   return listen<BridgeRequest>('bridge-request', (e) => {

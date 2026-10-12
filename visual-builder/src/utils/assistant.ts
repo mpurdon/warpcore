@@ -6,13 +6,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Edge, Node } from 'reactflow';
 import { hopIndex, Scenario, uniqueScenarioId } from './scenarios';
-import { getPreferences } from './preferences';
+import { useStore } from '../store/useStore';
 
 export interface AssistantConfig { provider: string; model: string }
 
-/** The assistant preference, or null when none is configured. */
+/** The assistant preference, or null when none is configured. The store's copy is the one Settings edits. */
 export function assistantConfig(): AssistantConfig | null {
-  const prefs = getPreferences();
+  const prefs = useStore.getState().prefs;
   return prefs.assistantProvider ? { provider: prefs.assistantProvider, model: prefs.assistantModel } : null;
 }
 

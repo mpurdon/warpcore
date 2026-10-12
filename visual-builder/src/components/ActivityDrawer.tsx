@@ -250,15 +250,14 @@ export default function ActivityDrawer() {
   );
 }
 
-/** What a planned change does: properties, code, permissions. Folded by default. */
 /** The receipts, newest first: what ran, from where, and whether it worked. */
 function Receipts({ receipts }: { receipts: Receipt[] }) {
   return (
     <div className="flex-1 overflow-y-auto min-h-0 px-3 py-2 text-xs" data-testid="receipts">
       {receipts.length === 0 && <p className="text-gray-500">Nothing has run yet. Every command, from a button, a key, the palette or an assistant, lands here.</p>}
       <ul className="space-y-0.5">
-        {[...receipts].reverse().map((r, i) => (
-          <li key={`${r.at}-${i}`} className="flex items-baseline gap-2">
+        {[...receipts].reverse().map((r) => (
+          <li key={r.seq} className="flex items-baseline gap-2">
             <span className="text-gray-400 tabular-nums w-20 shrink-0 whitespace-nowrap">{new Date(r.at).toLocaleTimeString()}</span>
             <span className={`w-14 shrink-0 ${r.source === 'ui' ? 'text-gray-400' : 'text-blue-700'}`}>{r.source}</span>
             <span className={r.ok ? 'text-gray-800' : 'text-red-700'}>{r.ok ? '✓' : '✕'} {r.summary}</span>
@@ -271,6 +270,7 @@ function Receipts({ receipts }: { receipts: Receipt[] }) {
   );
 }
 
+/** What a planned change does: properties, code, permissions. Folded by default. */
 function PlanDetail({ r }: { r: RunResource }) {
   const props = r.properties ?? [];
   const iam = r.iam;
