@@ -209,9 +209,10 @@ def _validate_vpc_config(config) -> List[ValidationError]:
     """Validate VPC configuration."""
     errors = []
     
-    if hasattr(config, 'shared') and hasattr(config.shared, 'vpc'):
-        vpc_config = config.shared.vpc
-        
+    # A file that declares no shared VPC (every project the Visual Builder
+    # writes) has nothing to check here.
+    vpc_config = getattr(getattr(config, 'shared', None), 'vpc', None)
+    if vpc_config is not None:
         if vpc_config.enabled:
             # Check CIDR format
             if hasattr(vpc_config, 'cidr'):
@@ -224,7 +225,7 @@ def _validate_vpc_config(config) -> List[ValidationError]:
                     ))
             
             # Check IPAM configuration
-            if hasattr(vpc_config, 'ipam') and vpc_config.ipam.enabled:
+            if vpc_config.ipam is not None and vpc_config.ipam.enabled:
                 if not hasattr(vpc_config.ipam, 'pool_id'):
                     errors.append(ValidationError(
                         field='shared.vpc.ipam',

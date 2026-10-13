@@ -12,7 +12,9 @@ let toolCache: ToolSpec[] | null = null;
 let shortcutCache: ShortcutRow[] | null = null;
 
 export function define(spec: CommandSpec): CommandSpec {
-  if (registry.has(spec.id)) throw new Error(`command ${spec.id} is defined twice`);
+  // A dev build re-runs a group module when it is edited, so a redefinition
+  // there is the new version of the command, not a mistake.
+  if (registry.has(spec.id) && !import.meta.env.DEV) throw new Error(`command ${spec.id} is defined twice`);
   if (!/^[a-z]+\.[a-zA-Z]+$/.test(spec.id)) throw new Error(`command id ${spec.id} is not group.name`);
   registry.set(spec.id, spec);
   toolCache = null;
