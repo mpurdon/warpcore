@@ -23,7 +23,7 @@ describe('registry', () => {
       expect(c.description.length, c.id).toBeGreaterThan(10);
       expect(['view', 'project', 'file', 'aws-read', 'aws-change', 'query']).toContain(c.kind);
     }
-    expect(ids).toEqual(expect.arrayContaining(['canvas.addNode', 'canvas.connect', 'account.deploy', 'scenario.new', 'query.path', 'view.lens']));
+    expect(ids).toEqual(expect.arrayContaining(['canvas.addNode', 'canvas.connect', 'account.deploy', 'scenario.new', 'query.path', 'view.lens', 'holodeck.preview']));
   });
   it('turns params into tool schemas, and tool names back into commands', () => {
     const tool = toolSpecs().find((t) => t.name === 'canvas_addNode')!;
