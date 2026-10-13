@@ -57,6 +57,8 @@ interface Built {
   root: THREE.Group;
   cards: Map<string, CardObject>;
   links: Map<string, LinkObject>;
+  /** The bands and sheets, with the token each paints, so a theme change can recolour them. */
+  slabs: { mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>; token: string }[];
 }
 
 /** The request travelling a hop: which link, which way, and its clock. */
@@ -108,14 +110,16 @@ function buildScene(layout: SystemLayout, pal: Palette = palette()): Built {
   const root = new THREE.Group();
   const cards = new Map<string, CardObject>();
   const links = new Map<string, LinkObject>();
+  const slabs: Built['slabs'] = [];
 
   for (const s of layout.slabs) {
     const geo = new THREE.BoxGeometry(s.w, s.t, s.d);
-    const mat = new THREE.MeshStandardMaterial({ color: s.color, transparent: s.kind !== 'band', opacity: s.kind === 'band' ? 1 : 0.55, roughness: 0.95, metalness: 0 });
+    const mat = new THREE.MeshStandardMaterial({ color: cssColorHex(s.color), transparent: s.kind !== 'band', opacity: s.kind === 'band' ? 1 : 0.55, roughness: 0.95, metalness: 0 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(s.x, s.y, s.z);
     mesh.receiveShadow = true;
     root.add(mesh);
+    slabs.push({ mesh, token: s.color });
     if (s.label) {
       const el = document.createElement('div');
       el.className = `sv-slab-label sv-slab-${s.kind}`;
@@ -180,7 +184,7 @@ function buildScene(layout: SystemLayout, pal: Palette = palette()): Built {
     links.set(l.id, { link: l, curve, mesh });
   }
 
-  return { root, cards, links };
+  return { root, cards, links, slabs };
 }
 
 function disposeBuilt(b: Built): void {
@@ -401,6 +405,7 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     if (!st || !b) return;
     const pal = palette();
     paintGround(st.scene, pal);
+    for (const slab of b.slabs) slab.mesh.material.color.set(cssColorHex(slab.token));
     const sv = scenarioView;
     const head = sv?.head ?? null;
     const playing = Boolean(head);

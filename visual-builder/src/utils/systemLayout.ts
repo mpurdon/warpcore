@@ -24,8 +24,9 @@ export const CARD_H = 0.2;
 /** Height of a VPC or subnet slab, and how far a card inside one is raised. */
 export const SLAB_T = 0.04;
 
-export const BAND_COLORS: Record<BandKind, number> = {
-  entry: 0xddd6fe, compute: 0xbae6fd, bus: 0xe9d5ff, data: 0xfed7aa, platform: 0xe5e7eb,
+/** Each band's slab colour, as a theme token (utils/theme.ts resolves it for three.js). */
+export const BAND_COLORS: Record<BandKind, string> = {
+  entry: 'violet-200', compute: 'sky-200', bus: 'purple-200', data: 'orange-200', platform: 'gray-200',
 };
 export const BAND_TITLES: Record<BandKind, string> = {
   entry: 'Entry', compute: 'Compute', bus: 'Bus', data: 'Data', platform: 'Platform',
@@ -41,7 +42,8 @@ export interface Slab {
   /** Centre of the slab, world units. */
   x: number; y: number; z: number;
   w: number; d: number; t: number;
-  color: number;
+  /** A theme token, e.g. 'violet-200'. */
+  color: string;
 }
 
 export interface Card {
@@ -155,7 +157,7 @@ export function layoutSystem(nodes: Node[], edges: Edge[], view: ViewOverrides =
       const lift = PLATE_T / 2 + depth(n) * SLAB_T + SLAB_T / 2;
       slabs.push({
         id: n.id, kind: n.type, label: displayNameFor(n), band,
-        x: cx, y: base + lift, z: cz, w: w / UNIT, d: h / UNIT, t: SLAB_T, color: n.type === 'vpc' ? 0xc7d2fe : 0xe0e7ff,
+        x: cx, y: base + lift, z: cz, w: w / UNIT, d: h / UNIT, t: SLAB_T, color: n.type === 'vpc' ? 'indigo-200' : 'indigo-100',
       });
       continue;
     }
@@ -195,7 +197,7 @@ export function layoutSystem(nodes: Node[], edges: Edge[], view: ViewOverrides =
     const maxX = Math.max(...cards.map((c) => c.x + c.w / 2)) + 0.5;
     const minZ = Math.min(...cards.map((c) => c.z - c.d / 2)) - 0.5;
     const maxZ = Math.max(...cards.map((c) => c.z + c.d / 2)) + 0.5;
-    slabs.push({ id: 'sheet', kind: 'sheet', label: '', x: (minX + maxX) / 2, y: -PLATE_T / 2, z: (minZ + maxZ) / 2, w: maxX - minX, d: maxZ - minZ, t: PLATE_T, color: 0xf3f4f6 });
+    slabs.push({ id: 'sheet', kind: 'sheet', label: '', x: (minX + maxX) / 2, y: -PLATE_T / 2, z: (minZ + maxZ) / 2, w: maxX - minX, d: maxZ - minZ, t: PLATE_T, color: 'gray-100' });
   }
 
   const links: Link[] = [];
