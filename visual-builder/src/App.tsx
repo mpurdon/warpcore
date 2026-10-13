@@ -41,7 +41,7 @@ import SystemView from './components/SystemView';
 import { edgeView, isPlainEdge, ScenarioMarksContext, useLensView, useScenarioView } from './hooks/useCanvasView';
 import { fusedLevel, isStale, loadImportHistory, refreshDrift, refreshLive } from './utils/live';
 import { usePlaybackClock } from './hooks/usePlaybackClock';
-import { registerCanvas } from './utils/canvasActions';
+import { canvas, registerCanvas } from './utils/canvasActions';
 import { runFromUi } from './commands';
 import AssistantPanel from './components/AssistantPanel';
 import { startBridge } from './assistant/bridge';
@@ -117,7 +117,7 @@ function Flow() {
           maxX = Math.max(maxX, p.x + (n.width ?? 180));
           maxY = Math.max(maxY, p.y + (n.height ?? 80));
         }
-        const zoom = Math.min(1.25, Math.max(0.5, getZoom()));
+        const zoom = Math.min(1.25, Math.max(0.35, getZoom()));
         const drawer = drawerHeightRef.current;
         // Centre in the part of the canvas the drawer does not cover.
         setCenter((minX + maxX) / 2, (minY + maxY) / 2 + drawer / (2 * zoom), { zoom, duration: 400 });
@@ -195,6 +195,16 @@ function Flow() {
 
   // The scenario on show and the lens re-flow, shared with the system view.
   const scenarioView = useScenarioView();
+  // Follow the playhead: as the request moves, keep the resource it is at
+  // (and the one it left) in view. Off when the operator turns it off on
+  // the transport bar, so they can look elsewhere while it plays.
+  const followPlayhead = useStore((s) => s.followPlayhead);
+  const focusAt = scenarioView?.focus?.at ?? null;
+  const focusFrom = scenarioView?.focus?.from ?? null;
+  useEffect(() => {
+    if (!followPlayhead || !focusAt || !scenarioView?.head) return;
+    canvas.fitToNodes(focusFrom ? [focusFrom, focusAt] : [focusAt]);
+  }, [followPlayhead, focusAt, focusFrom]); // eslint-disable-line react-hooks/exhaustive-deps
   const { emphasis, reflow } = useLensView();
   // The live lens: colours from the account's last word and the review,
   // and drift marks from the state check. Read on demand, kept for the
@@ -905,6 +915,8 @@ function Flow() {
             // Deletion is handled by useShortcuts so it respects the lock,
             // dialogs and the palette; React Flow's own handler stays off.
             deleteKeyCode={null}
+            // A wide stack layout needs to zoom well below React Flow's default floor of 0.5 to fit.
+            minZoom={0.08}
             nodesConnectable={!readOnly}
             edgesUpdatable={!readOnly}
             className="h-full w-full"

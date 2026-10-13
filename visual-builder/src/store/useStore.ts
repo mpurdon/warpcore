@@ -838,7 +838,7 @@ export const useStore = create<StoreState>((set, get) => ({
   stepBack: () => set(withPlayback((scenario, head) => seekTo(scenario, head, head.phase === 'end' ? scenario.steps.length - 1 : head.index - 1))),
   stepForward: () => set(withPlayback((scenario, head) => (head.phase === 'end' ? head : seekTo(scenario, head, head.index + 1)))),
   setPlaybackSpeed: (speed) => set(withPlayback((_scenario, head) => ({ ...head, speed }))),
-  followPlayhead: false,
+  followPlayhead: true,
   setFollowPlayhead: (on) => set({ followPlayhead: on }),
 
   // Project lock
