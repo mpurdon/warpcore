@@ -200,11 +200,11 @@ function Flow() {
   // the transport bar, so they can look elsewhere while it plays.
   const followPlayhead = useStore((s) => s.followPlayhead);
   const focusAt = scenarioView?.focus?.at ?? null;
-  const focusFrom = scenarioView?.focus?.from ?? null;
   useEffect(() => {
     if (!followPlayhead || !focusAt || !scenarioView?.head) return;
-    canvas.fitToNodes(focusFrom ? [focusFrom, focusAt] : [focusAt]);
-  }, [followPlayhead, focusAt, focusFrom]); // eslint-disable-line react-hooks/exhaustive-deps
+    // The resource the request is at, with its card, always in view; the hop it came by is drawn by the pulse.
+    canvas.fitToNodes([focusAt]);
+  }, [followPlayhead, focusAt]); // eslint-disable-line react-hooks/exhaustive-deps
   const { emphasis, reflow } = useLensView();
   // The live lens: colours from the account's last word and the review,
   // and drift marks from the state check. Read on demand, kept for the
@@ -335,6 +335,7 @@ function Flow() {
       const state = marks.state.get(n.id);
       const involved = marks.numbers.has(n.id) || marks.logging.has(n.id);
       if (state) classes.push(`scn-${state}`);
+      if (marks.card?.nodeId === n.id) out = { ...out, zIndex: RESOURCE_Z + 1 };
       if (marks.logging.has(n.id)) classes.push('scn-logging');
       if (head && !involved && !n.data?.meta?.isGroup) classes.push('scn-dim');
     }

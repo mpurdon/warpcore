@@ -529,9 +529,29 @@ export interface PlaybackMarks {
   logEdges: Set<string>;
   /** Log groups receiving lines right now. */
   logging: Set<string>;
+  /** What is happening where the request is, drawn over that node so the canvas tells the story on its own. */
+  card: StepCard | null;
 }
 
-export function playbackMarks(scenario: Scenario, head: Playhead | null, check: ScenarioCheck): PlaybackMarks {
+export interface StepCard {
+  nodeId: string;
+  /** 0 for the trigger, else the 1-based step number. */
+  number: number;
+  total: number;
+  phase: 'travel' | 'dwell';
+  /** The trigger's event, or the step's note. */
+  text?: string;
+  takes?: number;
+  /** Where the request came from and the evidence for the hop, for a step. */
+  from?: string;
+  via?: string;
+  outcome?: StepOutcome;
+  retry?: number;
+  attempt: number;
+  detached?: boolean;
+}
+
+export function playbackMarks(scenario: Scenario, head: Playhead | null, check: ScenarioCheck, name: (id: string) => string = (id) => id): PlaybackMarks {
   const numbers = new Map<string, number[]>();
   const push = (id: string, n: number) => numbers.set(id, [...(numbers.get(id) || []), n]);
   push(scenario.trigger.at, 0);
@@ -540,7 +560,7 @@ export function playbackMarks(scenario: Scenario, head: Playhead | null, check: 
   const logEdges = new Set<string>();
   const logging = new Set<string>();
   let pulse: PlaybackMarks['pulse'] = null;
-  if (!head) return { numbers, state, pulse, logEdges, logging };
+  if (!head) return { numbers, state, pulse, logEdges, logging, card: null };
 
   const doneThrough = stepsDone(scenario, head) - 1;
   state.set(scenario.trigger.at, head.index < 0 && head.phase !== 'end' ? 'active' : 'visited');
@@ -556,6 +576,7 @@ export function playbackMarks(scenario: Scenario, head: Playhead | null, check: 
   });
 
   const current = head.phase !== 'end' ? check.steps[head.index] : undefined;
+  let card: StepCard | null = null;
   if (current) {
     const ev = current.evidence;
     if (head.phase === 'travel' && ev) pulse = { edgeId: ev.edgeId, reverse: ev.reverse, attempt: head.attempt };
@@ -563,8 +584,15 @@ export function playbackMarks(scenario: Scenario, head: Playhead | null, check: 
       for (const g of current.logGroups) logging.add(g);
       for (const e of current.logEdges) logEdges.add(e);
     }
+    const step = scenario.steps[head.index];
+    card = {
+      nodeId: step.at, number: head.index + 1, total: scenario.steps.length, phase: head.phase === 'travel' ? 'travel' : 'dwell', text: step.note, takes: step.takes,
+      from: ev ? name(ev.from) : undefined, via: ev?.label, outcome: step.outcome, retry: step.retry, attempt: head.attempt, detached: step.detached,
+    };
+  } else if (head.phase !== 'end' && head.index < 0) {
+    card = { nodeId: scenario.trigger.at, number: 0, total: scenario.steps.length, phase: 'dwell', text: scenario.trigger.event, attempt: 0 };
   }
-  return { numbers, state, pulse, logEdges, logging };
+  return { numbers, state, pulse, logEdges, logging, card };
 }
 
 // ------------------------------------------------------------ synthetic logs

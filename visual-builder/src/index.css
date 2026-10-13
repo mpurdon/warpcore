@@ -440,6 +440,46 @@ code {
 
 /* ------------------------------------------------------------- scenarios */
 
+/* What is happening where the request is: a card above the node, so the
+   canvas tells the story without the inspector. */
+.scn-card {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 280px;
+  background: rgb(var(--c-surface));
+  color: rgb(var(--c-gray-800));
+  border: 1px solid rgb(var(--c-blue-300));
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 11px;
+  line-height: 1.35;
+  box-shadow: 0 8px 20px -8px rgb(0 0 0 / 0.35), 0 0 0 3px rgb(var(--c-blue-500) / 0.12);
+  pointer-events: none;
+  z-index: 30;
+  animation: scn-card-in 180ms ease-out;
+}
+.scn-card::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgb(var(--c-blue-300));
+}
+.scn-card-bad { border-color: rgb(var(--c-red-300)); box-shadow: 0 8px 20px -8px rgb(0 0 0 / 0.35), 0 0 0 3px rgb(var(--c-red-500) / 0.14); }
+.scn-card-bad::after { border-top-color: rgb(var(--c-red-300)); }
+.scn-card-head { display: flex; gap: 8px; justify-content: space-between; font-weight: 600; color: rgb(var(--c-blue-700)); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.scn-card-bad .scn-card-head { color: rgb(var(--c-red-700)); }
+.scn-card-dim { font-weight: 500; color: rgb(var(--c-gray-500)); text-transform: none; letter-spacing: 0; }
+.scn-card-text { margin-top: 3px; color: rgb(var(--c-gray-900)); }
+.scn-card-from { margin-top: 3px; color: rgb(var(--c-gray-500)); font-size: 10px; }
+.scn-card-outcome { margin-top: 3px; color: rgb(var(--c-red-700)); font-weight: 600; font-size: 10px; }
+@keyframes scn-card-in { from { opacity: 0; transform: translateX(-50%) translateY(4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
 /* While a scenario plays, what it does not touch steps back. Opacity only:
    a filter on every node is a paint layer each. */
 .react-flow__node.scn-dim {

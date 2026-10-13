@@ -8,7 +8,7 @@ import { STATUS_META } from '../../utils/nodeStatus';
 import { MessageSquareText, X } from 'lucide-react';
 import { Node } from 'reactflow';
 import { NodeStatus, useReadOnly, useStore } from '../../store/useStore';
-import { badgeLabel, badgeTone } from '../../utils/scenarios';
+import { badgeLabel, badgeTone, formatTakes } from '../../utils/scenarios';
 import { useScenarioMarks } from '../../hooks/useCanvasView';
 import { estimateCost, formatCost } from '../../utils/costEstimation';
 import { SEVERITY_COLOR, worst } from '../../utils/findings';
@@ -42,6 +42,7 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
   const numbers = marks?.numbers.get(nodeId);
   const state = marks?.state.get(nodeId);
   const logging = marks?.logging.has(nodeId) ?? false;
+  const card = marks?.card && marks.card.nodeId === nodeId ? marks.card : null;
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent node selection
@@ -68,6 +69,21 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
     >
       {children}
 
+      {card && (
+        <div className={`scn-card ${card.outcome && card.outcome !== 'ok' && card.phase === 'dwell' ? 'scn-card-bad' : ''}`} role="status" aria-live="polite">
+          <div className="scn-card-head">
+            <span>{card.number === 0 ? 'Request' : `Step ${card.number} of ${card.total}`}</span>
+            {card.phase === 'travel' && <span className="scn-card-dim">on its way{card.attempt > 0 ? ` · retry ${card.attempt}` : ''}</span>}
+            {card.phase === 'dwell' && card.takes != null && <span className="scn-card-dim">{formatTakes(card.takes)}</span>}
+            {card.detached && <span className="scn-card-dim">detached</span>}
+          </div>
+          {card.text && <div className="scn-card-text">{card.text}</div>}
+          {card.from && <div className="scn-card-from">from {card.from}{card.via ? ` · ${card.via}` : ''}</div>}
+          {card.outcome && card.outcome !== 'ok' && card.phase === 'dwell' && (
+            <div className="scn-card-outcome">{card.outcome === 'fail' ? 'fails here' : 'times out here'}{card.retry ? ` · ${card.attempt < card.retry ? 'retrying' : 'out of retries'}` : ''}</div>
+          )}
+        </div>
+      )}
       {numbers && numbers.length > 0 && (
         <span className="scn-badges" aria-label={`Scenario step ${numbers.join(', ')}`}>
           {numbers.slice(0, 3).map((n) => (

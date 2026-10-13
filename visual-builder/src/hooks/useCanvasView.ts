@@ -72,7 +72,7 @@ export function useScenarioView(): ScenarioView | null {
   return useMemo(() => {
     if (!scenario || !check) return null;
     const head = playhead && playhead.scenarioId === scenario.id ? playhead : null;
-    const marks = playbackMarks(scenario, head, check);
+    const marks = playbackMarks(scenario, head, check, index.name);
     const pathEdges = new Map<string, number>();
     check.steps.forEach((st, i) => {
       if (st.evidence && !pathEdges.has(st.evidence.edgeId)) pathEdges.set(st.evidence.edgeId, i);
