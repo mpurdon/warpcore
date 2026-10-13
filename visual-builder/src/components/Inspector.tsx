@@ -19,7 +19,7 @@ export default function Inspector() {
   const scenario = inspectedScenario ? scenarios.find((s) => s.id === inspectedScenario) : undefined;
 
   return (
-    <aside className="w-96 bg-white border-l border-gray-200 flex flex-col h-full min-h-0 text-gray-900">
+    <aside className="w-96 bg-surface border-l border-gray-200 flex flex-col h-full min-h-0 text-gray-900">
       {environment ? (
         <EnvironmentInspector key={environment} env={environment} />
       ) : scenario ? (

@@ -105,7 +105,7 @@ code {
 /* Present: White - found in the account; health unknown, so no colour is claimed */
 .react-flow__node .node-inner.node-present,
 .node-inner.node-present {
-  background-color: rgb(var(--c-white)) !important;
+  background-color: rgb(var(--c-surface)) !important;
   box-shadow: 0 0 0 1px rgb(var(--c-gray-200)), 0 1px 3px 0 rgb(0 0 0 / 0.08) !important;
 }
 
@@ -198,7 +198,7 @@ code {
   top: 0;
   bottom: 0;
   width: 500px;
-  background: white;
+  background: rgb(var(--c-surface));
   border-left: 1px solid rgb(var(--c-gray-200));
   box-shadow: -4px 0 6px -1px rgb(0 0 0 / 0.1);
   transform: translateX(100%);
@@ -230,7 +230,7 @@ code {
   width: 12px;
   height: 12px;
   background: rgb(var(--c-blue-500));
-  border: 2px solid white;
+  border: 2px solid rgb(var(--c-surface));
   transition: box-shadow 0.15s ease, background 0.15s ease, opacity 0.15s ease;
   opacity: 0;
 }
@@ -375,7 +375,7 @@ code {
 
 /* React Flow's own chrome follows the theme: the minimap, the controls, the attribution. */
 .react-flow__minimap {
-  background-color: rgb(var(--c-white)) !important;
+  background-color: rgb(var(--c-surface)) !important;
   border: 1px solid rgb(var(--c-gray-200));
   border-radius: 6px;
 }
@@ -383,7 +383,7 @@ code {
   box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.12) !important;
 }
 .react-flow__controls button {
-  background-color: rgb(var(--c-white)) !important;
+  background-color: rgb(var(--c-surface)) !important;
   border-bottom: 1px solid rgb(var(--c-gray-200)) !important;
   color: rgb(var(--c-gray-700));
 }
@@ -434,7 +434,7 @@ code {
   width: 7px;
   height: 7px;
   border-radius: 9999px;
-  box-shadow: 0 0 0 2px rgb(var(--c-white) / 0.9);
+  box-shadow: 0 0 0 2px rgb(var(--c-surface) / 0.9);
 }
 
 /* ------------------------------------------------------------- scenarios */
@@ -531,14 +531,14 @@ code {
   padding: 0 5px;
   border-radius: 9999px;
   background: rgb(var(--c-gray-900));
-  color: rgb(var(--c-white));
+  color: rgb(var(--c-surface));
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 0 2px rgb(var(--c-white));
+  box-shadow: 0 0 0 2px rgb(var(--c-surface));
   font-variant-numeric: tabular-nums;
 }
 .scn-badge.trigger { background: rgb(var(--c-blue-600)); font-size: 8px; }
@@ -554,13 +554,13 @@ code {
   height: 18px;
   padding: 0 5px;
   border-radius: 9999px;
-  color: rgb(var(--c-white));
+  color: rgb(var(--c-surface));
   font-size: 10px;
   font-weight: 700;
   line-height: 18px;
   text-align: center;
   z-index: 12;
-  box-shadow: 0 0 0 2px rgb(var(--c-white));
+  box-shadow: 0 0 0 2px rgb(var(--c-surface));
 }
 /* A resource carrying a note. */
 .node-note-marker {
@@ -590,7 +590,7 @@ code {
   gap: 2px;
   height: 12px;
   padding: 2px 4px;
-  background: rgb(var(--c-white));
+  background: rgb(var(--c-surface));
   border: 1px solid rgb(var(--c-amber-300));
   border-radius: 9999px;
   z-index: 11;
@@ -649,7 +649,7 @@ code {
   max-width: 220px;
   padding: 2px 6px;
   border-radius: 6px;
-  background: rgb(var(--c-white) / 0.92);
+  background: rgb(var(--c-surface) / 0.92);
   border: 1px solid rgb(var(--c-gray-200));
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   font-size: 11px;
@@ -669,7 +669,7 @@ code {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: rgb(var(--c-gray-700));
-  background: rgb(var(--c-white) / 0.7);
+  background: rgb(var(--c-surface) / 0.7);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -678,7 +678,7 @@ code {
   font-size: 14px;
   font-weight: 700;
   color: rgb(var(--c-gray-900));
-  background: rgb(var(--c-white) / 0.85);
+  background: rgb(var(--c-surface) / 0.85);
   padding: 2px 8px;
   border-radius: 6px;
   border: 1px solid rgb(var(--c-gray-200));

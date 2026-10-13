@@ -79,7 +79,7 @@ function PolicySelector({
                 ? isInheritedDefault
                   ? 'bg-gray-50 text-gray-500 border-gray-300 border-dashed'
                   : `${opt.color} ring-1 ring-offset-1 ring-blue-500`
-                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                : 'bg-surface text-gray-600 border-gray-200 hover:border-gray-400'
             }`}
           >
             {opt.label}

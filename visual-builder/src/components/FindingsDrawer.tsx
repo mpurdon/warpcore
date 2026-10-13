@@ -40,8 +40,8 @@ export default function FindingsDrawer({ onClose }: { onClose: () => void }) {
   const kinds = (['cost', 'security', 'reliability', 'operability'] as FindingKind[]).map((k) => [k, (review?.findings ?? []).filter((f) => f.kind === k).length] as const);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white text-gray-900 rounded-lg shadow-xl w-[720px] max-w-[95vw] h-[85vh] flex flex-col overflow-hidden" role="dialog" aria-label="Review">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-surface text-gray-900 rounded-lg shadow-xl w-[720px] max-w-[95vw] h-[85vh] flex flex-col overflow-hidden" role="dialog" aria-label="Review">
         <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-3">
           <div className="min-w-0">
             <h2 className="text-base font-semibold">Review</h2>
@@ -148,7 +148,7 @@ export default function FindingsDrawer({ onClose }: { onClose: () => void }) {
                       <button
                         onClick={() => go(f)}
                         disabled={!onCanvas}
-                        className="w-full text-left rounded-lg border border-gray-200 p-3 hover:border-blue-300 hover:bg-blue-50/30 disabled:cursor-default disabled:hover:border-gray-200 disabled:hover:bg-white"
+                        className="w-full text-left rounded-lg border border-gray-200 p-3 hover:border-blue-300 hover:bg-blue-50/30 disabled:cursor-default disabled:hover:border-gray-200 disabled:hover:bg-surface"
                       >
                         <div className="flex items-start gap-2">
                           <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded border text-[10px] uppercase tracking-wide ${SEVERITY_CLASS[f.severity]}`}>{f.severity}</span>

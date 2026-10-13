@@ -711,11 +711,13 @@ The dark palette is designed by role, not inverted. Grey is hand-picked
 (it is the chrome). For a hue, the tint steps become dark tints mixed
 towards the canvas, the solids stay as bright as the light 500 so icons
 and buttons keep their weight, and the text steps become the hue's light
-steps so words on a tint stay readable. Two surfaces are themed on
-purpose rather than by scale: `strong` is the inverse surface (a black
-button on light, a white one on dark) and `chrome` is dark in both (code,
-logs, the transport bar). A region that must keep the light palette
-whatever the theme wears `.theme-light`.
+steps so words on a tint stay readable. Four roles are themed on purpose
+rather than by scale: `white` is always white (text on a coloured
+button); `surface` is what a card or panel paints (white, or the dark
+surface); `strong` is the inverse surface (a black button on light, a
+white one on dark); `chrome` is dark in both (code, logs, the transport
+bar). Nothing opts out of the theme: a surface that must stay dark uses
+`chrome`, and the one dark dialog became a light one like the rest.
 
 The preference (`appearance`: system, light, dark) lives in application
 settings, follows the OS when asked, and is a command (`view.appearance`)
@@ -723,7 +725,12 @@ so the palette and an assistant can switch it. `theme.test.ts` fails the
 build when a colour class has no token or a component paints a literal
 colour the theme cannot reach.
 
-Rules: never write a hex colour in a component; use a scale class or
-`cssColor()` for a canvas. A new hue goes into the generator, not into
-one file. A surface that must stay dark uses `chrome`; one that must
-invert uses `strong`.
+Rules: never write a hex colour in a component or stylesheet; put a
+`var(--c-…)` in a class or a style prop, where CSS resolves it. SVG
+presentation attributes and icon props do not resolve `var()`, so colour
+them through `style` too; `rc()` and `cssColorHex()` exist only for a
+library callback and three.js, and re-read on a theme change through
+`useThemeVersion()`. A new hue goes into `scripts/theme-palette.mjs`,
+which the generator and the Tailwind config share. A surface that must
+stay dark uses `chrome`; one that must invert uses `strong`; a panel
+paints `surface`, never `white`.

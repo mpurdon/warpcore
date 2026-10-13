@@ -84,7 +84,7 @@ export default function ActivityDrawer() {
   if (!run) {
     if (receipts.length === 0) return null;
     return (
-      <div className="absolute left-0 right-0 bottom-0 z-30 bg-white border-t border-gray-200 shadow-[0_-4px_12px_-6px_rgba(0,0,0,0.12)]">
+      <div className="absolute left-0 right-0 bottom-0 z-30 bg-surface border-t border-gray-200 shadow-[0_-4px_12px_-6px_rgba(0,0,0,0.12)]">
         <button onClick={() => setActivityOpen(!activityOpen)} className="w-full flex items-center gap-3 px-3 text-left hover:bg-gray-50" style={{ height: ACTIVITY_BAR_HEIGHT }} title={activityOpen ? 'Collapse' : 'Expand'}>
           <span className="text-sm font-medium text-gray-900">Commands · {receipts.length}</span>
           <span className="text-xs text-gray-500 truncate">{receipts[receipts.length - 1].summary}</span>
@@ -111,7 +111,7 @@ export default function ActivityDrawer() {
   const summary = `${run.counts.successful} ok · ${run.counts.failed} failed${run.counts.skipped ? ` · ${run.counts.skipped} skipped` : ''}`;
 
   return (
-    <div className="absolute left-0 right-0 bottom-0 z-30 bg-white border-t border-gray-200 shadow-[0_-4px_12px_-6px_rgba(0,0,0,0.12)]">
+    <div className="absolute left-0 right-0 bottom-0 z-30 bg-surface border-t border-gray-200 shadow-[0_-4px_12px_-6px_rgba(0,0,0,0.12)]">
       {/* Header bar: always visible while a run exists. */}
       <button
         onClick={() => setActivityOpen(!activityOpen)}

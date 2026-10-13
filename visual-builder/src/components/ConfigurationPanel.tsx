@@ -53,7 +53,7 @@ function ScheduleBuilder({
           className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
             schedule.type === 'rate'
               ? 'bg-blue-50 text-blue-700 border-r border-blue-200'
-              : 'bg-white text-gray-600 hover:bg-gray-50 border-r border-gray-200'
+              : 'bg-surface text-gray-600 hover:bg-gray-50 border-r border-gray-200'
           }`}
         >
           Rate
@@ -64,7 +64,7 @@ function ScheduleBuilder({
           className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
             schedule.type === 'cron'
               ? 'bg-blue-50 text-blue-700'
-              : 'bg-white text-gray-600 hover:bg-gray-50'
+              : 'bg-surface text-gray-600 hover:bg-gray-50'
           }`}
         >
           Cron
@@ -152,7 +152,7 @@ function RuleTypeSelector({
           className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
             ruleType === 'pattern'
               ? 'bg-purple-50 text-purple-700 border-r border-purple-200'
-              : 'bg-white text-gray-600 hover:bg-gray-50 border-r border-gray-200'
+              : 'bg-surface text-gray-600 hover:bg-gray-50 border-r border-gray-200'
           }`}
         >
           Event Pattern
@@ -163,7 +163,7 @@ function RuleTypeSelector({
           className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
             ruleType === 'schedule'
               ? 'bg-purple-50 text-purple-700'
-              : 'bg-white text-gray-600 hover:bg-gray-50'
+              : 'bg-surface text-gray-600 hover:bg-gray-50'
           }`}
         >
           Schedule
@@ -576,7 +576,7 @@ function DLQSelector({
           }`}
         >
           <span
-            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-surface transition-transform ${
               dlqConfig.enabled ? 'translate-x-5' : 'translate-x-1'
             }`}
           />
@@ -597,7 +597,7 @@ function DLQSelector({
                 <select
                   value={dlqConfig.targetId || ''}
                   onChange={(e) => handleTargetChange(e.target.value || undefined)}
-                  className="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-amber-500"
                 >
                   <option value="">Select queue...</option>
                   {availableTargets.map((node) => (
@@ -1234,7 +1234,7 @@ export default function ConfigurationPanel({ node, onClose }: ConfigurationPanel
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${getToggleColor()}`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              className={`inline-block h-4 w-4 transform rounded-full bg-surface transition-transform ${
                 value ? 'translate-x-6' : 'translate-x-1'
               }`}
             />
@@ -1490,7 +1490,7 @@ export default function ConfigurationPanel({ node, onClose }: ConfigurationPanel
                 }`}
               >
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  className={`inline-block h-4 w-4 transform rounded-full bg-surface transition-transform ${
                     value ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
@@ -1528,7 +1528,7 @@ export default function ConfigurationPanel({ node, onClose }: ConfigurationPanel
       <div className="absolute inset-0 bg-black/10" />
 
       <div
-        className="config-sheet relative bg-white border-l border-gray-200 shadow-2xl flex flex-col w-[480px] max-w-[92vw] h-full"
+        className="config-sheet relative bg-surface border-l border-gray-200 shadow-2xl flex flex-col w-[480px] max-w-[92vw] h-full"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -1576,7 +1576,7 @@ export default function ConfigurationPanel({ node, onClose }: ConfigurationPanel
                         }`}
                       >
                         <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          className={`inline-block h-4 w-4 transform rounded-full bg-surface transition-transform ${
                             value ? 'translate-x-6' : 'translate-x-1'
                           }`}
                         />

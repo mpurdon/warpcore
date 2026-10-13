@@ -172,8 +172,8 @@ export default function HolodeckDrawer({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white text-gray-900 rounded-lg shadow-xl w-[95vw] h-[90vh] flex flex-col overflow-hidden" role="dialog" aria-label="Holodeck">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-surface text-gray-900 rounded-lg shadow-xl w-[95vw] h-[90vh] flex flex-col overflow-hidden" role="dialog" aria-label="Holodeck">
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-4">
           <div className="flex items-center gap-3 shrink-0">
@@ -188,7 +188,7 @@ export default function HolodeckDrawer({ onClose }: { onClose: () => void }) {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`text-xs px-3 py-1 rounded ${tab === t ? 'bg-white shadow-sm text-gray-900 font-medium' : 'text-gray-600 hover:text-gray-900'}`}
+                className={`text-xs px-3 py-1 rounded ${tab === t ? 'bg-surface shadow-sm text-gray-900 font-medium' : 'text-gray-600 hover:text-gray-900'}`}
               >
                 {t === 'holodeck' ? `Library · ${HOLODECK_ENTRIES.length}` : `Mine · ${templates.length}`}
               </button>
@@ -224,7 +224,7 @@ export default function HolodeckDrawer({ onClose }: { onClose: () => void }) {
                     <button
                       key={f.id}
                       onClick={() => { setFamily(f.id); setSelectedId(null); }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-md text-sm flex items-center gap-2 ${on ? 'bg-white shadow-sm text-gray-900 font-medium' : 'text-gray-700 hover:bg-white/70'}`}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-md text-sm flex items-center gap-2 ${on ? 'bg-surface shadow-sm text-gray-900 font-medium' : 'text-gray-700 hover:bg-surface/70'}`}
                       title={f.description}
                     >
                       <span className="flex-1 truncate">{f.label}</span>

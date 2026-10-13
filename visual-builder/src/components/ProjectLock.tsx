@@ -26,7 +26,7 @@ export function UnlockDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white text-gray-900 rounded-lg shadow-2xl w-[460px] overflow-hidden">
+      <div className="bg-surface text-gray-900 rounded-lg shadow-2xl w-[460px] overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 flex items-start gap-3">
           <div className="mt-0.5 p-2 rounded-full bg-amber-100 text-amber-700"><Lock size={18} /></div>
           <div className="flex-1">
@@ -58,7 +58,7 @@ export function UnlockDialog({ onClose }: { onClose: () => void }) {
           )}
         </div>
         <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
-          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-white">Keep locked</button>
+          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-surface">Keep locked</button>
           <button
             onClick={confirm}
             disabled={!matches}

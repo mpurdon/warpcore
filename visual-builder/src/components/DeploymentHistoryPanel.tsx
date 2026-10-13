@@ -306,8 +306,8 @@ export default function DeploymentHistoryPanel() {
 
       {/* Rollback confirmation modal */}
       {showConfirmRollback && selected && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-[450px] p-6">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-surface rounded-lg shadow-xl w-[450px] p-6">
             <div className="flex items-start gap-3 mb-4">
               <div className="p-2 bg-amber-100 rounded-full">
                 <AlertTriangle size={24} className="text-amber-600" />

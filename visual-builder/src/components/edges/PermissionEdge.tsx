@@ -1,5 +1,6 @@
 import { BaseEdge, EdgeLabelRenderer, EdgeProps, getBezierPath, useReactFlow } from 'reactflow';
-import { rc } from '../../utils/theme';
+import { STATUS_META } from '../../utils/nodeStatus';
+import type { NodeStatus } from '../../store/useStore';
 import { Eye, Pencil, Zap, Route, AlertTriangle } from 'lucide-react';
 import { TRAFFIC_KINDS } from '../../utils/layers';
 import { isDlqEdge } from '../../utils/scenarios';
@@ -229,13 +230,9 @@ export default function PermissionEdge({
     edgeStyle = { stroke: PERMISSION_COLORS.relationship, strokeWidth: 1.5, strokeDasharray: '4 4' };
   } else if (isDLQ) {
     // DLQ edge - amber dashed line
-    edgeStyle = { stroke: 'var(--c-amber-500)', strokeWidth: 2, strokeDasharray: '5 5' };
-  } else if (status === 'deployed') {
-    edgeStyle = { stroke: 'var(--c-emerald-500)', strokeWidth: 2 };
-  } else if (status === 'failed') {
-    edgeStyle = { stroke: 'var(--c-red-500)', strokeWidth: 2 };
-  } else if (status === 'deploying') {
-    edgeStyle = { stroke: 'var(--c-blue-500)', strokeWidth: 2 };
+    edgeStyle = { stroke: PERMISSION_COLORS.write, strokeWidth: 2, strokeDasharray: '5 5' };
+  } else if (status === 'deployed' || status === 'failed' || status === 'deploying') {
+    edgeStyle = { stroke: STATUS_META[status as NodeStatus].dot, strokeWidth: 2 };
   } else if (!hasRole && !isResourceBased) {
     // No role assigned - gray dashed line
     edgeStyle = { stroke: PERMISSION_COLORS.none, strokeWidth: 2, strokeDasharray: '5 5' };
@@ -246,7 +243,7 @@ export default function PermissionEdge({
   }
 
   if (view.logging) {
-    edgeStyle = { stroke: 'var(--c-amber-500)', strokeWidth: 2.5, strokeDasharray: '4 6' };
+    edgeStyle = { stroke: PERMISSION_COLORS.write, strokeWidth: 2.5, strokeDasharray: '4 6' };
   } else if (view.ahead) {
     edgeStyle = { ...edgeStyle, strokeWidth: Number(edgeStyle.strokeWidth ?? 2) + 0.5, strokeDasharray: '6 6' };
   } else if (view.onPath) {
@@ -293,7 +290,7 @@ export default function PermissionEdge({
               y2={targetY}
             >
               {gradientInfo.stops.map((stop, i) => (
-                <stop key={i} offset={stop.offset} stopColor={rc(stop.color)} />
+                <stop key={i} offset={stop.offset} style={{ stopColor: stop.color }} />
               ))}
             </linearGradient>
           </defs>
@@ -331,7 +328,7 @@ export default function PermissionEdge({
           {/* Discovered relationship: access verb, or what the arrow means */}
           {access ? (
             <div
-              className={`flex items-center gap-1 bg-white/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-gray-200 `}
+              className={`flex items-center gap-1 bg-surface/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-gray-200 `}
               title={`${access.level} via ${access.via}\n${access.actions.join('\n')}`}
             >
               {access.level === 'admin' ? (
@@ -346,7 +343,7 @@ export default function PermissionEdge({
               <span className="text-[10px] text-gray-400">via {access.via}</span>
             </div>
           ) : discovered ? (
-            <div className={`bg-white/90 rounded-full px-2 py-0.5 shadow-sm border border-gray-200 text-[10px] text-gray-500 `}>
+            <div className={`bg-surface/90 rounded-full px-2 py-0.5 shadow-sm border border-gray-200 text-[10px] text-gray-500 `}>
               {discovered.detail || discovered.kind}
             </div>
           ) : isDLQ ? (
@@ -358,7 +355,7 @@ export default function PermissionEdge({
             </div>
           ) : (
             /* Permission badges */
-            <div className="flex items-center gap-0.5 bg-white/90 backdrop-blur-sm rounded-full px-1.5 py-0.5 shadow-sm border border-gray-200">
+            <div className="flex items-center gap-0.5 bg-surface/90 backdrop-blur-sm rounded-full px-1.5 py-0.5 shadow-sm border border-gray-200">
               {permissionBadges.length > 0 ? (
                 <>
                   {permissionBadges.map(({ icon: Icon, color, label }) => (

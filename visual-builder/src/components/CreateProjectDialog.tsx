@@ -248,7 +248,7 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center" onClick={(e) => { if (e.target === e.currentTarget && phase === 'form') onClose(); }}>
-      <div className="bg-white text-gray-900 rounded-lg shadow-2xl w-[880px] max-h-[88vh] flex flex-col overflow-hidden">
+      <div className="bg-surface text-gray-900 rounded-lg shadow-2xl w-[880px] max-h-[88vh] flex flex-col overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold">Create a project from this account</h2>
@@ -419,7 +419,7 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
                 </div>
                 <label className="block">
                   <span className="text-xs font-medium text-gray-700">Inherit settings from</span>
-                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1 bg-white">
+                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1 bg-surface">
                     {templateOptions.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                   </select>
                   <span className="block text-[11px] text-gray-500 mt-1">
@@ -525,7 +525,7 @@ export default function CreateProjectDialog({ inventory, profile, scannedAllRegi
             <>
               <div className="text-xs text-red-600">{problems[0] || ''}</div>
               <div className="flex items-center gap-2">
-                <button onClick={onClose} className="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-white">Cancel</button>
+                <button onClick={onClose} className="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-surface">Cancel</button>
                 <button
                   onClick={run}
                   disabled={problems.length > 0}

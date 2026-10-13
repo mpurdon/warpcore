@@ -41,7 +41,7 @@ export default function RailFooter() {
         onClick={() => (settingsOpen ? closeSettings() : openSettings())}
         className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-l-2 ${
           settingsOpen
-            ? 'bg-white text-blue-700 border-blue-600'
+            ? 'bg-surface text-blue-700 border-blue-600'
             : 'text-gray-700 hover:bg-gray-100 border-transparent'
         }`}
         title="Application settings (⌘,)"

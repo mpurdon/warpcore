@@ -46,7 +46,7 @@ export default function SaveCopyDialog({ entry, onClose }: { entry: HolodeckEntr
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
-      <div className="bg-white text-gray-900 rounded-lg shadow-2xl w-[520px] overflow-hidden">
+      <div className="bg-surface text-gray-900 rounded-lg shadow-2xl w-[520px] overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold">Save a copy of {entry.meta.name}</h2>
@@ -90,7 +90,7 @@ export default function SaveCopyDialog({ entry, onClose }: { entry: HolodeckEntr
         <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
           <span className="text-xs text-red-600">{problem || ''}</span>
           <span className="flex items-center gap-2">
-            <button onClick={onClose} disabled={busy} className="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-white disabled:opacity-50">Cancel</button>
+            <button onClick={onClose} disabled={busy} className="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-surface disabled:opacity-50">Cancel</button>
             <button onClick={run} disabled={busy || Boolean(problem)} className="text-sm px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
               {busy ? 'Writing…' : 'Create project'}
             </button>

@@ -9,12 +9,11 @@
 // of length L with offset (L - t) ends exactly at the bead at progress t.
 
 import { useLayoutEffect, useRef } from 'react';
-import { rc } from '../../utils/theme';
 
 export const PULSE_COLOR = 'var(--c-blue-600)';
 /** The comet is light on the wire: its edge is usually this same blue. */
 const PALE = 'var(--c-blue-200)';
-const CORE = 'var(--c-white)';
+const CORE = 'var(--c-surface)';
 
 /** Tail layers, widest and faintest first; length is a fraction of the hop. */
 const TAIL = [
@@ -74,7 +73,7 @@ export default function FlowPulse({ path, reverse, durationMs, playing }: Props)
     <g className="scn-pulse" style={{ pointerEvents: 'none' }}>
       <path ref={measure} d={path} fill="none" stroke="none" />
       {/* The hop, lit while the request is on it. */}
-      <path className="scn-wire" d={path} fill="none" stroke={rc(PULSE_COLOR)} strokeWidth={14} strokeLinecap="round" />
+      <path className="scn-wire" d={path} fill="none" style={{ stroke: PULSE_COLOR }} strokeWidth={14} strokeLinecap="round" />
       {/* The tail: three dashes that end at the bead, fading outwards. */}
       {TAIL.map((layer, i) => (
         <path
@@ -82,8 +81,7 @@ export default function FlowPulse({ path, reverse, durationMs, playing }: Props)
           ref={(el) => { tails.current[i] = el; }}
           d={path}
           pathLength={1}
-          fill="none"
-          stroke={rc(layer.color)}
+          fill="none" style={{ stroke: layer.color }}
           strokeWidth={layer.width}
           strokeOpacity={layer.opacity}
           strokeLinecap="round"
@@ -92,9 +90,9 @@ export default function FlowPulse({ path, reverse, durationMs, playing }: Props)
       ))}
       {/* The bead: a soft aura around a bright core. */}
       <g ref={bead} className="scn-bead">
-        <circle r={14} fill={rc(PULSE_COLOR)} fillOpacity={0.18} />
-        <circle r={8} fill={rc(PALE)} fillOpacity={0.6} />
-        <circle r={4.5} fill={rc(CORE)} stroke={rc(PULSE_COLOR)} strokeWidth={2} />
+        <circle r={14} style={{ fill: PULSE_COLOR }} fillOpacity={0.18} />
+        <circle r={8} style={{ fill: PALE }} fillOpacity={0.6} />
+        <circle r={4.5} style={{ fill: CORE, stroke: PULSE_COLOR }} strokeWidth={2} />
       </g>
     </g>
   );

@@ -32,8 +32,8 @@ interface Props {
 // VPCs and subnets have their own look; enclosures carry theirs in ENCLOSURES.
 const CONTAINER_STYLE: Record<string, { border: string; bg: string; header: string; icon: typeof Cloud }> = {
   vpc: { border: 'border-indigo-300 border-dashed', bg: 'bg-indigo-50/40', header: 'text-indigo-800', icon: Cloud },
-  subnet: { border: 'border-indigo-200', bg: 'bg-white/70', header: 'text-indigo-700', icon: Layers },
-  application: { border: 'border-gray-300', bg: 'bg-white', header: 'text-gray-900', icon: LayoutGrid },
+  subnet: { border: 'border-indigo-200', bg: 'bg-surface/70', header: 'text-indigo-700', icon: Layers },
+  application: { border: 'border-gray-300', bg: 'bg-surface', header: 'text-gray-900', icon: LayoutGrid },
 };
 
 function styleFor(type: string, kind: string) {
@@ -72,7 +72,7 @@ function ContainerNode({ id, data, selected, type }: Props) {
     const zone = az.replace(/^.*?(\d[a-z])$/, '$1') || az;
     return (
       <div
-        className={`relative w-full h-full rounded-lg border ${style.border} bg-white/50 ${selected ? 'ring-2 ring-blue-500' : ''} flex flex-col items-center py-2 gap-1`}
+        className={`relative w-full h-full rounded-lg border ${style.border} bg-surface/50 ${selected ? 'ring-2 ring-blue-500' : ''} flex flex-col items-center py-2 gap-1`}
         style={{ minWidth: 48, minHeight: 100 }}
         title={`${cfg.name || data.label} · ${cfg.public ? 'public' : 'private'} · ${az}${cfg.cidrBlock ? ' · ' + cfg.cidrBlock : ''} · empty`}
       >
@@ -153,7 +153,7 @@ function ContainerNode({ id, data, selected, type }: Props) {
         {band && hiddenCount > 0 && (
           <button
             onClick={(e) => { e.stopPropagation(); setLens('all'); }}
-            className="nodrag ml-auto inline-flex items-center gap-1 text-[10px] normal-case tracking-normal font-medium opacity-80 hover:opacity-100 bg-white/70 rounded-full px-2 py-px border border-current/20"
+            className="nodrag ml-auto inline-flex items-center gap-1 text-[10px] normal-case tracking-normal font-medium opacity-80 hover:opacity-100 bg-surface/70 rounded-full px-2 py-px border border-current/20"
             title={`${hiddenCount} hidden by the ${lens} lens. Click to show everything.`}
           >
             <EyeOff size={10} /> {hiddenCount} hidden
@@ -170,7 +170,7 @@ function ContainerNode({ id, data, selected, type }: Props) {
       {type === 'vpc' && !readOnly && (
         <button
           onClick={(e) => { e.stopPropagation(); addSubnet(id); }}
-          className="nodrag absolute right-3 top-10 bottom-3 w-10 rounded-lg border-2 border-dashed border-indigo-200 text-indigo-300 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white/60 flex items-center justify-center"
+          className="nodrag absolute right-3 top-10 bottom-3 w-10 rounded-lg border-2 border-dashed border-indigo-200 text-indigo-300 hover:text-indigo-600 hover:border-indigo-400 hover:bg-surface/60 flex items-center justify-center"
           title="Add a subnet"
         >
           <Plus size={16} />

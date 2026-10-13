@@ -67,7 +67,13 @@ export interface Preferences {
   appearance: Appearance;
 }
 
-export type Appearance = 'system' | 'light' | 'dark';
+/** The appearance choices, for the settings control and the command alike. */
+export const APPEARANCES = [
+  { value: 'system', label: 'Follow the system' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+] as const;
+export type Appearance = (typeof APPEARANCES)[number]['value'];
 
 export const DEFAULT_PREFERENCES: Preferences = {
   debugMode: false,

@@ -44,7 +44,7 @@ export default function AssistantPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-white border-l border-gray-200" style={{ width: ASSISTANT_WIDTH }} data-testid="assistant-panel">
+    <div className="h-full flex flex-col bg-surface border-l border-gray-200" style={{ width: ASSISTANT_WIDTH }} data-testid="assistant-panel">
       <div className="h-10 flex items-center gap-2 px-3 border-b border-gray-100">
         <Bot size={15} className="text-gray-500" />
         <span className="text-sm font-medium text-gray-900">Assistant</span>
@@ -81,11 +81,11 @@ export default function AssistantPanel() {
             <div className="font-medium text-gray-900">{chat.pending.summary}</div>
             <div className="text-xs text-gray-700 mt-1 whitespace-pre-wrap">{chat.pending.question}</div>
             {Object.keys(chat.pending.args).length > 0 && (
-              <pre className="text-[10px] bg-white/70 rounded p-1.5 mt-2 overflow-x-auto">{JSON.stringify(chat.pending.args, null, 1)}</pre>
+              <pre className="text-[10px] bg-surface/70 rounded p-1.5 mt-2 overflow-x-auto">{JSON.stringify(chat.pending.args, null, 1)}</pre>
             )}
             <div className="flex gap-2 mt-2">
               <button onClick={() => answerPending(true)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-strong text-on-strong text-xs hover:bg-strong-hover"><Check size={12} /> Run it</button>
-              <button onClick={() => answerPending(false)} className="px-2.5 py-1 rounded border border-gray-300 text-xs hover:bg-white">Decline</button>
+              <button onClick={() => answerPending(false)} className="px-2.5 py-1 rounded border border-gray-300 text-xs hover:bg-surface">Decline</button>
             </div>
           </div>
         )}

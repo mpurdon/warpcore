@@ -115,10 +115,10 @@ export default function ScanProgressView({ regions, elapsed, parallelism }: Prop
                         title={`${phaseLabel(phase)}: ${state}${count != null ? ` (${count})` : ''}`}
                         className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
                           state === 'running'
-                            ? 'border-blue-300 bg-white text-blue-700'
+                            ? 'border-blue-300 bg-surface text-blue-700'
                             : state === 'pending'
                               ? 'border-gray-200 text-gray-400'
-                              : 'border-gray-200 bg-white text-gray-600'
+                              : 'border-gray-200 bg-surface text-gray-600'
                         }`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full ${PHASE_STYLE[state]}`} />

@@ -13,7 +13,7 @@ function Card({ icon: Icon, title, hint, onClick, shortcut }: { icon: typeof Fol
   return (
     <button
       onClick={onClick}
-      className="group text-left bg-white border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-xl p-4 transition-all flex items-start gap-3"
+      className="group text-left bg-surface border border-gray-200 hover:border-blue-400 hover:shadow-md rounded-xl p-4 transition-all flex items-start gap-3"
     >
       <span className="p-2 rounded-lg bg-gray-100 text-gray-600 group-hover:bg-blue-50 group-hover:text-blue-700"><Icon size={18} /></span>
       <span className="flex-1 min-w-0">
@@ -54,7 +54,7 @@ export default function WelcomeScreen() {
         {recent.length > 0 && (
           <div className="mt-5">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5 flex items-center gap-1"><Clock size={11} /> Recent</div>
-            <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
+            <div className="bg-surface border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
               {recent.map((p) => (
                 <button key={p.path} onClick={() => { void openProjectFile(p.path); }} className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center justify-between gap-3">
                   <span className="text-sm text-gray-900 truncate">{p.name}</span>

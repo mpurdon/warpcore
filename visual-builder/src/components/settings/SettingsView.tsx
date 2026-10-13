@@ -52,7 +52,7 @@ export default function SettingsView() {
   }
 
   return (
-    <div className="flex-1 flex min-h-0 bg-white text-gray-900">
+    <div className="flex-1 flex min-h-0 bg-surface text-gray-900">
       {/* Section list */}
       <nav className="w-56 border-r border-gray-200 bg-gray-50 flex flex-col">
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
@@ -74,7 +74,7 @@ export default function SettingsView() {
                     onClick={() => openSettings(s)}
                     className={`w-full flex items-center gap-2 px-4 py-1.5 text-sm text-left transition-colors ${
                       active
-                        ? 'bg-white text-blue-700 font-medium border-l-2 border-blue-600'
+                        ? 'bg-surface text-blue-700 font-medium border-l-2 border-blue-600'
                         : 'text-gray-700 hover:bg-gray-100 border-l-2 border-transparent'
                     }`}
                   >

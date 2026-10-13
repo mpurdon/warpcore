@@ -2,7 +2,6 @@
 // beside it. Enough to tell "idle" from "busy" from "spiked at 03:00"
 // without leaving the card.
 
-import { rc } from '../../utils/theme';
 
 interface Props {
   points: { t: string; v: number }[];
@@ -27,10 +26,10 @@ export default function Sparkline({ points, width = 120, height = 28, color = 'v
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="shrink-0" aria-hidden>
       {area && (
-        <polygon points={`${x(0).toFixed(1)},${height - pad} ${line} ${x(points.length - 1).toFixed(1)},${height - pad}`} fill={rc(color)} fillOpacity={0.12} />
+        <polygon points={`${x(0).toFixed(1)},${height - pad} ${line} ${x(points.length - 1).toFixed(1)},${height - pad}`} style={{ fill: color }} fillOpacity={0.12} />
       )}
-      <polyline points={line} fill="none" stroke={rc(color)} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={x(points.length - 1)} cy={y(last.v)} r={2} fill={rc(color)} />
+      <polyline points={line} fill="none" style={{ stroke: color }} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={x(points.length - 1)} cy={y(last.v)} r={2} style={{ fill: color }} />
     </svg>
   );
 }

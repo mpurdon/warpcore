@@ -20,14 +20,23 @@ import { cssColorHex, useThemeVersion } from '../utils/theme';
 // Colours come from the theme tokens at build time, so the terraces follow
 // the appearance; a theme change rebuilds the scene (see themeVersion).
 const LINK_TOKEN: Record<LinkKind, string> = { flow: 'violet-500', access: 'blue-500', logs: 'amber-500', structure: 'gray-400', drawn: 'gray-500' };
-const linkColor = (kind: LinkKind) => cssColorHex(LINK_TOKEN[kind]);
+/** The view's colours, read once per pass (cssColorHex caches per theme). */
+function palette() {
+  return {
+    surface: cssColorHex('surface'), edge: cssColorHex('gray-300'), ground: cssColorHex('gray-100'),
+    blue: cssColorHex('blue-600'), amber: cssColorHex('amber-500'), red: cssColorHex('red-600'), ink: cssColorHex('gray-800'),
+    link: Object.fromEntries(Object.entries(LINK_TOKEN).map(([k, t]) => [k, cssColorHex(t)])) as Record<LinkKind, number>,
+  };
+}
+type Palette = ReturnType<typeof palette>;
+
+function paintGround(scene: THREE.Scene, pal: Palette = palette()): void {
+  scene.background = new THREE.Color(pal.ground);
+  scene.fog = new THREE.Fog(pal.ground, 18, 40);
+}
 const LINK_OPACITY: Record<LinkKind, number> = { flow: 0.9, access: 0.85, logs: 0.6, structure: 0.3, drawn: 0.7 };
 /** How far a link fades for each emphasis, as a factor of its own opacity. */
 const EMPHASIS_FACTOR = { normal: 1, dimmed: 0.35, background: 0.15 } as const;
-const BLUE = () => cssColorHex('blue-600');
-const AMBER = () => cssColorHex('amber-500');
-const RED = () => cssColorHex('red-600');
-const INK = () => cssColorHex('gray-800');
 const EMPTY: ReadonlySet<string> = new Set();
 
 interface CardObject {
@@ -95,7 +104,7 @@ function makeCurve(from: Card, to: Card): THREE.QuadraticBezierCurve3 {
   return new THREE.QuadraticBezierCurve3(a, mid, b);
 }
 
-function buildScene(layout: SystemLayout): Built {
+function buildScene(layout: SystemLayout, pal: Palette = palette()): Built {
   const root = new THREE.Group();
   const cards = new Map<string, CardObject>();
   const links = new Map<string, LinkObject>();
@@ -130,12 +139,12 @@ function buildScene(layout: SystemLayout): Built {
 
   for (const c of layout.cards) {
     const geo = new THREE.BoxGeometry(c.w, CARD_H, c.d);
-    const mat = new THREE.MeshStandardMaterial({ color: cssColorHex('white'), roughness: 0.6, metalness: 0, transparent: true, opacity: 1 });
+    const mat = new THREE.MeshStandardMaterial({ color: pal.surface, roughness: 0.6, metalness: 0, transparent: true, opacity: 1 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(c.x, c.y + CARD_H / 2, c.z);
     mesh.castShadow = true;
     mesh.userData = { cardId: c.id };
-    const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: cssColorHex('gray-300'), transparent: true, opacity: 1 }));
+    const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: pal.edge, transparent: true, opacity: 1 }));
     outline.position.copy(mesh.position);
     const el = document.createElement('div');
     el.className = `sv-card-label${c.compact ? ' sv-compact' : ''}`;
@@ -165,7 +174,7 @@ function buildScene(layout: SystemLayout): Built {
     if (!from || !to) continue;
     const curve = makeCurve(from, to);
     const geo = new THREE.TubeGeometry(curve, 24, l.kind === 'structure' ? 0.01 : 0.016, 6, false);
-    const mat = new THREE.MeshBasicMaterial({ color: linkColor(l.kind), transparent: true, opacity: LINK_OPACITY[l.kind] });
+    const mat = new THREE.MeshBasicMaterial({ color: pal.link[l.kind], transparent: true, opacity: LINK_OPACITY[l.kind] });
     const mesh = new THREE.Mesh(geo, mat);
     root.add(mesh);
     links.set(l.id, { link: l, curve, mesh });
@@ -200,13 +209,6 @@ function layoutKey(layout: SystemLayout): string {
 export default function SystemView({ reflow }: { reflow: Reflow | null }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const themeVersion = useThemeVersion();
-  useEffect(() => {
-    const st = sceneRef.current;
-    if (!st) return;
-    const ground = cssColorHex('gray-100');
-    st.scene.background = new THREE.Color(ground);
-    st.scene.fog = new THREE.Fog(ground, 18, 40);
-  }, [themeVersion]);
   const nodes = useStore((s) => s.nodes);
   const edges = useStore((s) => s.edges);
   const layers = useStore((s) => s.layers);
@@ -236,8 +238,7 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     host.appendChild(labels.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(cssColorHex('gray-100'));
-    scene.fog = new THREE.Fog(cssColorHex('gray-100'), 18, 40);
+    paintGround(scene);
     const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -246,8 +247,8 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     controls.minDistance = 1.5;
     controls.maxDistance = 40;
 
-    scene.add(new THREE.HemisphereLight(cssColorHex('white'), cssColorHex('gray-300'), 0.9));
-    const sun = new THREE.DirectionalLight(cssColorHex('white'), 1.1);
+    scene.add(new THREE.HemisphereLight(0xffffff, cssColorHex('gray-300'), 0.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.1);
     sun.position.set(6, 12, 8);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -255,9 +256,9 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     sun.shadow.bias = -0.0005;
     scene.add(sun);
 
-    const pulseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshStandardMaterial({ color: BLUE(), emissive: BLUE(), emissiveIntensity: 0.8 }));
+    const pulseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshStandardMaterial({ color: palette().blue, emissive: palette().blue, emissiveIntensity: 0.8 }));
     pulseMesh.visible = false;
-    pulseMesh.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: BLUE(), transparent: true, opacity: 0.18 })));
+    pulseMesh.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: palette().blue, transparent: true, opacity: 0.18 })));
     scene.add(pulseMesh);
 
     const state: SceneState = {
@@ -391,13 +392,15 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     // framed too.
     if (!st.fitted) { st.fit(); st.fitted = true; }
     st.dirty = true;
-  }, [key, themeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Decorate: edge layers, selection, and the scenario at the playhead.
   useEffect(() => {
     const st = sceneRef.current;
     const b = st?.built;
     if (!st || !b) return;
+    const pal = palette();
+    paintGround(st.scene, pal);
     const sv = scenarioView;
     const head = sv?.head ?? null;
     const playing = Boolean(head);
@@ -408,19 +411,19 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
       const involved = Boolean(numbers?.length) || logging;
       const selected = id === selectedNode;
       const mat = c.mesh.material;
-      mat.color.set(cssColorHex('white'));
+      mat.color.set(pal.surface);
       mat.emissive.set(0x000000);
       mat.emissiveIntensity = 0;
       mat.opacity = playing && !involved ? 0.25 : 1;
-      c.outline.material.color.set(selected ? BLUE() : state === 'failed' || state === 'failing' ? RED() : state === 'visited' || state === 'active' ? INK() : cssColorHex('gray-300'));
+      c.outline.material.color.set(selected ? pal.blue : state === 'failed' || state === 'failing' ? pal.red : state === 'visited' || state === 'active' ? pal.ink : pal.edge);
       c.outline.material.opacity = mat.opacity;
       c.label.element.classList.toggle('sv-dim', playing && !involved);
       c.label.element.classList.toggle('sv-selected', selected);
       let lift = 0;
-      if (state === 'active') { mat.emissive.set(BLUE()); mat.emissiveIntensity = 0.55; lift = 0.18; }
-      else if (state === 'failing') { mat.emissive.set(RED()); mat.emissiveIntensity = 0.6; lift = 0.18; }
-      else if (state === 'travelling') { mat.emissive.set(BLUE()); mat.emissiveIntensity = 0.2; }
-      if (logging) { mat.emissive.set(AMBER()); mat.emissiveIntensity = 0.5; }
+      if (state === 'active') { mat.emissive.set(pal.blue); mat.emissiveIntensity = 0.55; lift = 0.18; }
+      else if (state === 'failing') { mat.emissive.set(pal.red); mat.emissiveIntensity = 0.6; lift = 0.18; }
+      else if (state === 'travelling') { mat.emissive.set(pal.blue); mat.emissiveIntensity = 0.2; }
+      if (logging) { mat.emissive.set(pal.amber); mat.emissiveIntensity = 0.5; }
       const y = c.card.y + CARD_H / 2 + lift;
       c.mesh.position.y = y;
       c.outline.position.y = y;
@@ -439,7 +442,7 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
       const view = edge ? edgeView(edge, layers, selectedNode, sv) : null;
       l.mesh.visible = view?.visible ?? true;
       l.mesh.material.opacity = LINK_OPACITY[l.link.kind] * EMPHASIS_FACTOR[view?.emphasis ?? 'normal'] * (view?.ahead ? 0.5 : 1);
-      l.mesh.material.color.set(view?.logging ? AMBER() : linkColor(l.link.kind));
+      l.mesh.material.color.set(view?.logging ? pal.amber : pal.link[l.link.kind]);
       if (view?.pulse) pulseView = { edgeId: id, reverse: view.pulse.reverse, durationMs: view.pulse.durationMs, attempt: view.pulse.attempt };
     }
     // The pulse: start its clock when the hop changes, freeze it on pause.
@@ -479,12 +482,12 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
         <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 pointer-events-none">Nothing on the canvas to show.</div>
       )}
       <div className="absolute right-3 z-20 flex items-center gap-1 text-xs" style={{ top: 12 }}>
-        <span className="px-2 py-1 rounded-md bg-white/90 border border-gray-200 text-gray-600 shadow-sm" title="Drag to orbit, scroll to zoom, right-drag to pan. Click a card to inspect it.">
+        <span className="px-2 py-1 rounded-md bg-surface/90 border border-gray-200 text-gray-600 shadow-sm" title="Drag to orbit, scroll to zoom, right-drag to pan. Click a card to inspect it.">
           System view · read only
         </span>
         <button
           onClick={() => sceneRef.current?.fit()}
-          className="px-2 py-1 rounded-md bg-white/90 border border-gray-200 shadow-sm inline-flex items-center gap-1 text-gray-600"
+          className="px-2 py-1 rounded-md bg-surface/90 border border-gray-200 shadow-sm inline-flex items-center gap-1 text-gray-600"
           title="Reset the camera"
         >
           <RotateCcw size={12} /> Reset

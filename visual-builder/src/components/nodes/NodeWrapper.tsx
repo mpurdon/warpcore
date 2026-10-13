@@ -4,6 +4,7 @@
 // reads at a glance and survives the lens dimming.
 
 import { useMemo, useState } from 'react';
+import { STATUS_META } from '../../utils/nodeStatus';
 import { MessageSquareText, X } from 'lucide-react';
 import { Node } from 'reactflow';
 import { NodeStatus, useReadOnly, useStore } from '../../store/useStore';
@@ -25,16 +26,6 @@ interface Props {
   /** The AWS ARN, for a discovered resource: findings from the last review are keyed by it. */
   arn?: string;
 }
-
-export const STATUS_DOT: Record<NodeStatus, { color: string; label: string; pulse?: boolean }> = {
-  draft: { color: 'var(--c-gray-400)', label: 'Not configured yet' },
-  warning: { color: 'var(--c-amber-500)', label: 'Needs attention' },
-  configured: { color: 'var(--c-blue-500)', label: 'Ready to deploy' },
-  deploying: { color: 'var(--c-blue-500)', label: 'Deploying', pulse: true },
-  deployed: { color: 'var(--c-emerald-500)', label: 'Deployed' },
-  failed: { color: 'var(--c-red-500)', label: 'Deployment failed' },
-  present: { color: 'var(--c-gray-300)', label: 'Exists in the account; health unknown' },
-};
 
 export default function NodeWrapper({ nodeId, selected, children, className = '', status, costNode, note, arn }: Props) {
   const [isHovered, setIsHovered] = useState(false);
@@ -67,7 +58,7 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
   }, [lens, costNode, nodeId, executionsPerMonth]);
 
   const showDelete = (isHovered || selected) && !readOnly;
-  const dot = status ? STATUS_DOT[status] : undefined;
+  const dot = status ? STATUS_META[status] : undefined;
 
   return (
     <div
@@ -110,14 +101,14 @@ export default function NodeWrapper({ nodeId, selected, children, className = ''
       {dot && (
         <span
           className={`node-status-dot ${dot.pulse ? 'animate-pulse' : ''}`}
-          style={{ backgroundColor: dot.color }}
+          style={{ backgroundColor: dot.dot }}
           title={dot.label}
         />
       )}
 
       {cost != null && (
         <span
-          className="absolute -bottom-2.5 right-2 text-[10px] font-semibold tabular-nums bg-white border border-gray-200 rounded-full px-1.5 py-px shadow-sm text-gray-700 z-10"
+          className="absolute -bottom-2.5 right-2 text-[10px] font-semibold tabular-nums bg-surface border border-gray-200 rounded-full px-1.5 py-px shadow-sm text-gray-700 z-10"
           title={`Estimated ${formatCost(cost)} per month at the project's executions-per-month setting`}
         >
           {cost === 0 ? 'free' : `${formatCost(cost)}/mo`}

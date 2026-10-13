@@ -105,7 +105,7 @@ export default function Toolbar() {
   const runTone = !run ? '' : running ? 'bg-blue-500 animate-pulse' : run.outcome === 'success' ? 'bg-emerald-500' : run.outcome === 'partial' ? 'bg-amber-500' : 'bg-red-500';
 
   return (
-    <div className="h-12 bg-white text-gray-900 flex items-center px-3 border-b border-gray-200 gap-2">
+    <div className="h-12 bg-surface text-gray-900 flex items-center px-3 border-b border-gray-200 gap-2">
       {/* Scope */}
       <div className="flex items-center gap-2 shrink-0">
         <span className="text-[15px] font-semibold tracking-tight pl-1">Warpcore</span>
@@ -133,12 +133,12 @@ export default function Toolbar() {
       {/* Search / command box */}
       <button
         onClick={() => setPaletteOpen(true)}
-        className="hidden lg:flex items-center gap-2 flex-1 min-w-[140px] max-w-[320px] mx-2 px-3 py-1.5 rounded-md border border-gray-200 bg-gray-50 hover:bg-white hover:border-gray-300 text-sm text-gray-500 text-left"
+        className="hidden lg:flex items-center gap-2 flex-1 min-w-[140px] max-w-[320px] mx-2 px-3 py-1.5 rounded-md border border-gray-200 bg-gray-50 hover:bg-surface hover:border-gray-300 text-sm text-gray-500 text-left"
         title="Find a resource or run a command (⌘K)"
       >
         <Search size={14} className="shrink-0" />
         <span className="flex-1 truncate">Search resources and commands</span>
-        <kbd className="text-[10px] font-mono text-gray-400 border border-gray-200 rounded px-1 bg-white">⌘K</kbd>
+        <kbd className="text-[10px] font-mono text-gray-400 border border-gray-200 rounded px-1 bg-surface">⌘K</kbd>
       </button>
 
       <div className="flex items-center gap-1 shrink-0 ml-auto">

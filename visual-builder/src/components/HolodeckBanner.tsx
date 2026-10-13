@@ -27,9 +27,9 @@ export default function HolodeckBanner() {
         <span className="hidden lg:inline"> Play its scenarios, switch lenses, open the system view.</span>
       </span>
       <span className="ml-auto shrink-0 flex items-center gap-1.5">
-        <button onClick={() => openDialog('holodeck')} className="text-xs px-2.5 py-1 rounded border border-indigo-200 text-indigo-800 hover:bg-white">Library</button>
+        <button onClick={() => openDialog('holodeck')} className="text-xs px-2.5 py-1 rounded border border-indigo-200 text-indigo-800 hover:bg-surface">Library</button>
         {entry && <SaveCopyButton entry={entry} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700" />}
-        <button onClick={closePreview} className="p-1 rounded text-indigo-700 hover:bg-white" title="Close the preview and go back to what was open">
+        <button onClick={closePreview} className="p-1 rounded text-indigo-700 hover:bg-surface" title="Close the preview and go back to what was open">
           <X size={14} />
         </button>
       </span>

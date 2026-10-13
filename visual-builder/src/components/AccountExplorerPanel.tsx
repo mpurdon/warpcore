@@ -191,11 +191,11 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
   });
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       {/* text-gray-900: this modal is a DOM child of the dark Toolbar and would
           otherwise inherit its text-white, turning the title and the profile
           <select> invisible on the white panel. */}
-      <div className="bg-white text-gray-900 rounded-lg shadow-xl w-[95vw] h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-surface text-gray-900 rounded-lg shadow-xl w-[95vw] h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -228,7 +228,7 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
           <select
             value={profile}
             onChange={(e) => setProfile(e.target.value)}
-            className="text-sm border border-gray-300 rounded px-2 py-1 bg-white min-w-[200px]"
+            className="text-sm border border-gray-300 rounded px-2 py-1 bg-surface min-w-[200px]"
             disabled={isScanning}
           >
             {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
@@ -244,7 +244,7 @@ export default function AccountExplorerPanel({ isOpen, onClose }: Props) {
               else if (v === '__configured__') { setAllRegions(false); setScanRegions([]); }
               else { setAllRegions(false); setScanRegions([v]); }
             }}
-            className="text-sm border border-gray-300 rounded px-2 py-1 bg-white min-w-[240px]"
+            className="text-sm border border-gray-300 rounded px-2 py-1 bg-surface min-w-[240px]"
             disabled={isScanning}
             title="Regions of interest are chosen in Settings › Regions"
           >

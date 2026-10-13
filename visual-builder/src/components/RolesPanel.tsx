@@ -115,7 +115,7 @@ function RoleDetailDrawer({
       />
 
       {/* Drawer */}
-      <div className="relative w-96 max-w-full bg-white shadow-2xl flex flex-col h-full animate-slide-in-right">
+      <div className="relative w-96 max-w-full bg-surface shadow-2xl flex flex-col h-full animate-slide-in-right">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0 flex-1">

@@ -26,7 +26,7 @@ export default function CostEstimatePanel() {
   }
 
   return (
-    <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg border border-gray-200 w-72">
+    <div className="absolute top-4 right-4 bg-surface rounded-lg shadow-lg border border-gray-200 w-72">
       {/* Accordion Header - Always Visible */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}

@@ -58,7 +58,7 @@ export default function FileMenu({ onOpenFile, onOpenRecent }: FileMenuProps) {
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-56 bg-white text-gray-900 border border-gray-200 rounded-lg shadow-xl z-50">
+        <div className="absolute top-full left-0 mt-1 w-56 bg-surface text-gray-900 border border-gray-200 rounded-lg shadow-xl z-50">
           <div className="py-1">
             <button
               onClick={() => {
@@ -87,7 +87,7 @@ export default function FileMenu({ onOpenFile, onOpenRecent }: FileMenuProps) {
               </button>
 
               {showRecent && recentProjects.length > 0 && (
-                <div className="absolute left-full top-0 ml-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl">
+                <div className="absolute left-full top-0 ml-1 w-64 bg-surface border border-gray-200 rounded-lg shadow-xl">
                   <div className="py-1 max-h-80 overflow-y-auto">
                     {recentProjects.map((project) => (
                       <div

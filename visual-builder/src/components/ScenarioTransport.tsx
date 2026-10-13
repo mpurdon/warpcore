@@ -51,23 +51,23 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
 
   return (
     <div
-      className="theme-light absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-gray-900 text-white rounded-xl shadow-xl px-2 text-xs select-none"
+      className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-chrome text-chrome-fg rounded-xl shadow-xl px-2 text-xs select-none"
       style={{ bottom: bottomOffset + 14, height: TRANSPORT_HEIGHT, maxWidth: 'calc(100% - 48px)' }}
       role="toolbar"
       aria-label="Scenario playback"
     >
       <button
         onClick={() => inspectScenario(scenario.id)}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-md max-w-[200px] hover:bg-white/10 ${inspectedScenario === scenario.id ? 'text-white' : 'text-gray-300'}`}
+        className={`flex items-center gap-1.5 px-2 py-1 rounded-md max-w-[200px] hover:bg-surface/10 ${inspectedScenario === scenario.id ? 'text-white' : 'text-chrome-fg/80'}`}
         title="Open in the inspector"
       >
-        <Route size={13} className="shrink-0 text-blue-300" />
+        <Route size={13} className="shrink-0 text-blue-400" />
         <span className="truncate font-medium">{scenario.name}</span>
       </button>
 
-      <span className="w-px h-5 bg-white/15" />
+      <span className="w-px h-5 bg-surface/15" />
 
-      <button onClick={stepBack} className="p-1.5 rounded-md hover:bg-white/10" title="Previous step ([)"><ChevronsLeft size={15} /></button>
+      <button onClick={stepBack} className="p-1.5 rounded-md hover:bg-surface/10" title="Previous step ([)"><ChevronsLeft size={15} /></button>
       <button
         onClick={() => setPlaying(!head.playing)}
         className="p-1.5 rounded-md bg-blue-600 hover:bg-blue-500"
@@ -75,7 +75,7 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
       >
         {head.playing ? <Pause size={15} /> : <Play size={15} />}
       </button>
-      <button onClick={stepForward} disabled={atEnd} className="p-1.5 rounded-md hover:bg-white/10 disabled:opacity-30" title="Next step (])"><ChevronsRight size={15} /></button>
+      <button onClick={stepForward} disabled={atEnd} className="p-1.5 rounded-md hover:bg-surface/10 disabled:opacity-30" title="Next step (])"><ChevronsRight size={15} /></button>
 
       {/* One segment per step; click to jump. The current segment fills over the phase. */}
       <div className="flex items-center gap-0.5 mx-1" style={{ width: Math.min(360, Math.max(120, n * 36)) }}>
@@ -88,7 +88,7 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
             <button
               key={i}
               onClick={() => seekPlayback(i)}
-              className="relative flex-1 h-2.5 rounded-sm overflow-hidden bg-white/15 hover:bg-white/25"
+              className="relative flex-1 h-2.5 rounded-sm overflow-hidden bg-surface/15 hover:bg-surface/25"
               title={`${i + 1}. ${label(step.at)}${step.note ? ` · ${step.note}` : ''}${step.retry ? ` · ${step.retry} retries` : ''}${stepFails(step) ? ` · ${outcomeLabel(step)}` : ''}${flagged ? ' · flagged' : ''}`}
             >
               <span className={`absolute inset-y-0 left-0 ${fill}`} style={{ width: done ? '100%' : 0 }} />
@@ -105,29 +105,29 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
       </div>
 
       <div className="flex flex-col leading-tight min-w-[150px]">
-        <span className="tabular-nums text-gray-100 truncate">
-          {atEnd ? `${n} of ${n}` : current < 0 ? 'trigger' : `step ${current + 1} of ${n}`} <span className="text-gray-400">· {where}</span>
+        <span className="tabular-nums text-chrome-fg truncate">
+          {atEnd ? `${n} of ${n}` : current < 0 ? 'trigger' : `step ${current + 1} of ${n}`} <span className="text-chrome-muted">· {where}</span>
         </span>
-        <span className="text-[10px] text-gray-400 tabular-nums truncate">
-          t = {formatTakes(modelled)}{problems.length ? <span className="text-amber-300"> · {problems[0]}</span> : null}
+        <span className="text-[10px] text-chrome-muted tabular-nums truncate">
+          t = {formatTakes(modelled)}{problems.length ? <span className="text-amber-400"> · {problems[0]}</span> : null}
         </span>
       </div>
 
       <button
         onClick={() => setPlaybackSpeed(SPEEDS[(SPEEDS.indexOf(head.speed) + 1) % SPEEDS.length])}
-        className="px-2 py-1 rounded-md hover:bg-white/10 tabular-nums text-gray-200 w-11 text-center"
+        className="px-2 py-1 rounded-md hover:bg-surface/10 tabular-nums text-chrome-fg w-11 text-center"
         title="Playback speed"
       >
         {head.speed}×
       </button>
       <button
         onClick={() => setFollow(!follow)}
-        className={`p-1.5 rounded-md hover:bg-white/10 ${follow ? 'text-blue-300' : 'text-gray-400'}`}
+        className={`p-1.5 rounded-md hover:bg-surface/10 ${follow ? 'text-blue-400' : 'text-chrome-muted'}`}
         title={follow ? 'Following the request' : 'Follow the request: keep each hop in view'}
       >
         <Crosshair size={14} />
       </button>
-      <button onClick={stopPlayback} className="p-1.5 rounded-md hover:bg-white/10 text-gray-400" title="Stop and close (Esc)"><X size={14} /></button>
+      <button onClick={stopPlayback} className="p-1.5 rounded-md hover:bg-surface/10 text-chrome-muted" title="Stop and close (Esc)"><X size={14} /></button>
     </div>
   );
 }

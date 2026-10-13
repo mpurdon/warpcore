@@ -9,7 +9,7 @@ import { LENSES, type Lens } from '../utils/lenses';
 import { displayNameFor } from '../utils/nodeName';
 import { DISCOVERED_TYPES, discoveredTypeLabel } from '../utils/discoveredTypes';
 import { SECTION_LABEL } from '../utils/settingsSections';
-import type { Appearance } from '../utils/preferences';
+import { APPEARANCES, type Appearance } from '../utils/preferences';
 import { STATUS_META } from '../utils/nodeStatus';
 import { define } from './registry';
 
@@ -133,10 +133,10 @@ define({
 
 define({
   id: 'view.appearance', title: 'Appearance', description: 'Switch the theme: light, dark, or follow the system.', group: 'Settings', kind: 'view',
-  params: { appearance: { type: 'string', description: 'light, dark or system', required: true, enum: ['system', 'light', 'dark'] } },
+  params: { appearance: { type: 'string', description: 'light, dark or system', required: true, enum: APPEARANCES.map((a) => a.value) } },
   keywords: ['theme', 'dark', 'light', 'mode'],
-  instances: (s) => (['system', 'light', 'dark'] as const).map((a) => ({
-    key: a, args: { appearance: a }, title: `Appearance: ${a === 'system' ? 'follow the system' : a}`, tone: s.prefs.appearance === a ? 'info' : undefined,
+  instances: (s) => APPEARANCES.map((a) => ({
+    key: a.value, args: { appearance: a.value }, title: `Appearance: ${a.label.toLowerCase()}`, tone: s.prefs.appearance === a.value ? 'info' : undefined,
   })),
   describe: (a) => `Appearance: ${a.appearance}`,
   run: (a, { state }) => state.setPref('appearance', a.appearance as Appearance),

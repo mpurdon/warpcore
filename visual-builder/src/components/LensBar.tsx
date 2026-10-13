@@ -54,7 +54,7 @@ export default function LensBar() {
 
   return (
     <div className="absolute left-3 z-20 flex items-center gap-2 text-xs" style={{ top: 12 + (readOnly ? LOCK_BANNER_HEIGHT : 0) }}>
-      <div className="flex items-center bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow-sm p-0.5" role="tablist" aria-label="Lens">
+      <div className="flex items-center bg-surface/95 backdrop-blur border border-gray-200 rounded-lg shadow-sm p-0.5" role="tablist" aria-label="Lens">
         {LENSES.map((l) => {
           const on = lens === l.id;
           const count = focusCounts[l.id];
@@ -77,7 +77,7 @@ export default function LensBar() {
       </div>
 
       {lens === 'live' && (
-        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow-sm text-gray-700" data-testid="live-status">
+        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-surface/95 backdrop-blur border border-gray-200 rounded-lg shadow-sm text-gray-700" data-testid="live-status">
           {liveHealth && !liveError && (
             <span className="flex items-center gap-1.5 tabular-nums">
               {liveCounts.bad > 0 && <span className="text-red-700">{liveCounts.bad} bad</span>}
@@ -105,7 +105,7 @@ export default function LensBar() {
       <div className="relative" ref={popRef}>
         <button
           onClick={() => setLayersOpen((o) => !o)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow-sm text-gray-700 hover:bg-gray-50"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-surface/95 backdrop-blur border border-gray-200 rounded-lg shadow-sm text-gray-700 hover:bg-gray-50"
           title="Which kinds of edges are drawn"
         >
           <LayersIcon size={13} className="text-gray-500" />
@@ -114,7 +114,7 @@ export default function LensBar() {
           <ChevronDown size={12} className={`text-gray-400 transition-transform ${layersOpen ? 'rotate-180' : ''}`} />
         </button>
         {layersOpen && (
-          <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-2">
+          <div className="absolute top-full left-0 mt-1 w-72 bg-surface border border-gray-200 rounded-lg shadow-lg p-2">
             {LAYERS.map((l) => (
               <label key={l.id} className="flex items-start gap-2 px-1 py-1.5 cursor-pointer hover:bg-gray-50 rounded" title={l.description}>
                 <input type="checkbox" checked={layers[l.id]} onChange={(e) => setLayer(l.id, e.target.checked)} className="mt-0.5" />

@@ -87,7 +87,7 @@ function Trail({ label, root, configPath }: { label: string; root: string; confi
           {entries && entries.length > 0 && (
             <div className="max-h-96 overflow-auto">
               <table className="w-full text-xs">
-                <thead className="bg-white sticky top-0">
+                <thead className="bg-surface sticky top-0">
                   <tr className="text-left text-gray-500 border-b border-gray-200">
                     <th className="px-3 py-1.5 font-medium">When</th>
                     <th className="px-3 py-1.5 font-medium">Operation</th>

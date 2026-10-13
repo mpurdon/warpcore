@@ -72,7 +72,7 @@ export default function CommandPalette() {
   let index = -1;
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-[1px] flex items-start justify-center pt-[12vh]" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className="w-[640px] max-w-[92vw] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden palette-enter" role="dialog" aria-label="Command palette">
+      <div className="w-[640px] max-w-[92vw] bg-surface rounded-xl shadow-2xl border border-gray-200 overflow-hidden palette-enter" role="dialog" aria-label="Command palette">
         <div className="flex items-center gap-2 px-3 border-b border-gray-200">
           <Search size={16} className="text-gray-400 shrink-0" />
           <input

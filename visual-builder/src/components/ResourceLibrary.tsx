@@ -139,7 +139,7 @@ export default function ResourceLibrary() {
             const ChevronIcon = isExpanded ? ChevronDown : ChevronRight;
 
             return (
-              <div key={category.name} className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+              <div key={category.name} className="border border-gray-200 rounded-lg bg-surface overflow-hidden">
                 {/* Accordion Header */}
                 <button
                   onClick={() => toggleCategory(category.name)}

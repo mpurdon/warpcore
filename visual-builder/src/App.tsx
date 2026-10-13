@@ -46,6 +46,7 @@ import { runFromUi } from './commands';
 import AssistantPanel from './components/AssistantPanel';
 import { startBridge } from './assistant/bridge';
 import { applyAppearance, rc, useThemeVersion } from './utils/theme';
+import { minimapColor } from './utils/nodeStatus';
 import { isDlqEdge } from './utils/scenarios';
 import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
@@ -64,15 +65,6 @@ const EDGE_Z = 1;
 const RESOURCE_Z = 2;
 
 // Minimap colours follow node status, the same semantics as the node tints.
-const MINIMAP_COLOR: Record<NodeStatus, string> = {
-  draft: 'var(--c-gray-200)',
-  warning: 'var(--c-amber-200)',
-  configured: 'var(--c-blue-200)',
-  deploying: 'var(--c-blue-300)',
-  deployed: 'var(--c-green-300)',
-  failed: 'var(--c-red-300)',
-  present: 'var(--c-gray-100)',
-};
 
 function Flow() {
   const {
@@ -336,7 +328,7 @@ function Flow() {
     const className = classes.join(' ') || undefined;
     if (out === n) return className === n.className ? n : { ...n, className };
     return { ...out, className };
-  }), [baseNodes, errorsByNode, emphasis, reflow, scenarioView, liveClasses, themeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [baseNodes, errorsByNode, emphasis, reflow, scenarioView, liveClasses]);
 
   // Handle mouse-based drag from palette
   useEffect(() => {
@@ -914,12 +906,13 @@ function Flow() {
             edgesUpdatable={!readOnly}
             className="h-full w-full"
           >
-            <Background variant={BackgroundVariant.Dots} gap={15} size={1} color="rgb(var(--c-gray-300))" />
+            <Background key={`bg-${themeVersion}`} variant={BackgroundVariant.Dots} gap={15} size={1} color={rc('var(--c-gray-300)')} />
             <Controls />
             <MiniMap
+              key={`map-${themeVersion}`}
               pannable
               zoomable
-              nodeColor={(n) => rc(MINIMAP_COLOR[(n.data?.status as NodeStatus | undefined) ?? 'draft'] ?? 'var(--c-gray-200)')}
+              nodeColor={(n) => rc(minimapColor((n.data?.status as NodeStatus | undefined) ?? 'draft'))}
               nodeStrokeColor={(n) => (n.selected ? rc('var(--c-blue-600)') : 'transparent')}
               nodeStrokeWidth={4}
               maskColor={rc("rgb(var(--c-gray-100) / 0.7)")}
@@ -999,7 +992,7 @@ function Flow() {
       {/* Floating drag preview - only show after mouse has moved */}
       {draggedItem && mousePos.x > 0 && mousePos.y > 0 && (
         <div
-          className="fixed z-50 pointer-events-none bg-white border-2 border-blue-500 rounded-lg px-3 py-2 shadow-lg"
+          className="fixed z-50 pointer-events-none bg-surface border-2 border-blue-500 rounded-lg px-3 py-2 shadow-lg"
           style={{
             left: mousePos.x + 10,
             top: mousePos.y + 10,

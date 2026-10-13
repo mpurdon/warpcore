@@ -34,7 +34,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="fixed inset-0 bg-white text-gray-900 overflow-auto p-6">
+      <div className="fixed inset-0 bg-surface text-gray-900 overflow-auto p-6">
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle size={20} className="text-red-600" />
           <h1 className="text-lg font-semibold">Something broke while rendering</h1>

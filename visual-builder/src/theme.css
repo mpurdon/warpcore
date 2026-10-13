@@ -3,6 +3,14 @@
 :root {
   color-scheme: light;
   --c-white: 255 255 255;
+  --c-surface: 255 255 255;
+  --c-strong: 17 24 39;
+  --c-strong-hover: 31 41 55;
+  --c-on-strong: 255 255 255;
+  --c-chrome: 17 24 39;
+  --c-chrome-hover: 31 41 55;
+  --c-chrome-fg: 243 244 246;
+  --c-chrome-muted: 156 163 175;
   --c-gray-50: 249 250 251;
   --c-gray-100: 243 244 246;
   --c-gray-200: 229 231 235;
@@ -179,20 +187,19 @@
   --c-cyan-800: 21 94 117;
   --c-cyan-900: 22 78 99;
   --c-cyan-950: 8 51 68;
-  /* The inverse surface: a black button on light, a white one on dark. */
-  --c-strong: 17 24 39;
-  --c-strong-hover: 31 41 55;
-  --c-on-strong: 255 255 255;
-  /* Chrome that is dark in both themes: code, logs, the transport bar. */
-  --c-chrome: 17 24 39;
-  --c-chrome-hover: 31 41 55;
-  --c-chrome-fg: 243 244 246;
-  --c-chrome-muted: 156 163 175;
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --c-white: 32 36 44;
+  --c-white: 255 255 255;
+  --c-surface: 32 36 44;
+  --c-strong: 241 244 248;
+  --c-strong-hover: 255 255 255;
+  --c-on-strong: 17 24 39;
+  --c-chrome: 15 18 24;
+  --c-chrome-hover: 27 31 40;
+  --c-chrome-fg: 229 233 240;
+  --c-chrome-muted: 138 147 163;
   --c-gray-50: 28 32 39;
   --c-gray-100: 36 41 51;
   --c-gray-200: 48 54 66;
@@ -369,28 +376,4 @@
   --c-cyan-800: 103 232 249;
   --c-cyan-900: 165 243 252;
   --c-cyan-950: 207 250 254;
-  --c-strong: 241 244 248;
-  --c-strong-hover: 255 255 255;
-  --c-on-strong: 17 24 39;
-  --c-chrome: 15 18 24;
-  --c-chrome-hover: 27 31 40;
-  --c-chrome-fg: 229 233 240;
-  --c-chrome-muted: 138 147 163;
-}
-
-/* A region that keeps the light palette whatever the theme: nothing uses it yet; here for a surface designed light. */
-.theme-light {
-  color-scheme: light;
-  --c-white: 255 255 255;
-  --c-gray-50: 249 250 251;
-  --c-gray-100: 243 244 246;
-  --c-gray-200: 229 231 235;
-  --c-gray-300: 209 213 219;
-  --c-gray-400: 156 163 175;
-  --c-gray-500: 107 114 128;
-  --c-gray-600: 75 85 99;
-  --c-gray-700: 55 65 81;
-  --c-gray-800: 31 41 55;
-  --c-gray-900: 17 24 39;
-  --c-gray-950: 3 7 18;
 }

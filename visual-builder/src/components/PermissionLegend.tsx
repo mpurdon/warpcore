@@ -1,9 +1,10 @@
 import { Asterisk, Eye, Pencil, Zap } from 'lucide-react';
 import { PERMISSION_COLORS } from './edges/PermissionEdge';
+import { withAlpha } from '../utils/theme';
 
 function Swatch({ color, children, title }: { color: string; children: React.ReactNode; title?: string }) {
   return (
-    <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ backgroundColor: `${color}20` }} title={title}>
+    <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ backgroundColor: withAlpha(color, 0.13) }} title={title}>
       {children}
     </div>
   );
@@ -14,7 +15,7 @@ function Swatch({ color, children, title }: { color: string; children: React.Rea
 // and dashed so it never reads as a permission.
 export default function PermissionLegend({ bottomOffset = 0 }: { bottomOffset?: number }) {
   return (
-    <div className="absolute left-72 bg-white/90 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 px-3 py-2" style={{ bottom: bottomOffset + 16 }}>
+    <div className="absolute left-72 bg-surface/90 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 px-3 py-2" style={{ bottom: bottomOffset + 16 }}>
       <div className="flex items-center gap-4 text-xs">
         <div className="flex items-center gap-1.5">
           <Swatch color={PERMISSION_COLORS.read}><Eye size={10} style={{ color: PERMISSION_COLORS.read }} /></Swatch>

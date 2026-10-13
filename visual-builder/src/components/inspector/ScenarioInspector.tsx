@@ -145,7 +145,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
               <select
                 value={check.triggerExists ? scenario.trigger.at : ''}
                 onChange={(e) => updateScenario(scenario.id, (s) => ({ ...s, trigger: { ...s.trigger, at: e.target.value } }))}
-                className="flex-1 min-w-0 text-xs border border-gray-200 rounded px-1.5 py-1 bg-white"
+                className="flex-1 min-w-0 text-xs border border-gray-200 rounded px-1.5 py-1 bg-surface"
                 title="The resource the event arrives at"
               >
                 {!check.triggerExists && <option value="">{scenario.trigger.at} (missing)</option>}
@@ -232,7 +232,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
                       <select
                         value={step.outcome ?? 'ok'}
                         onChange={(e) => patchStep(i, { outcome: e.target.value === 'ok' ? undefined : (e.target.value as StepOutcome) })}
-                        className={`text-[10px] border rounded px-1 py-0.5 bg-white shrink-0 ${stepFails(step) ? 'border-red-300 text-red-700' : 'border-gray-200 text-gray-600'}`}
+                        className={`text-[10px] border rounded px-1 py-0.5 bg-surface shrink-0 ${stepFails(step) ? 'border-red-300 text-red-700' : 'border-gray-200 text-gray-600'}`}
                         title="How the last attempt ends"
                       >
                         <option value="ok">ok</option>
@@ -321,7 +321,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
             <select
               value={whatIfId}
               onChange={(e) => setWhatIfId(e.target.value)}
-              className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-white"
+              className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-surface"
               data-testid="what-if-pick"
             >
               <option value="">Pick a resource on the path…</option>

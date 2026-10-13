@@ -96,7 +96,7 @@ export function HeadlineMetrics({ detail, compact = false }: { detail: ResourceD
         const headline = s.statistic === 'Sum' ? s.total : s.statistic === 'Maximum' ? s.maximum : s.statistic === 'Minimum' ? s.latest : s.average;
         const bad = (s.name === 'StatusCheckFailed' || s.name === 'Errors' || s.name.includes('5XX') || s.name === 'Throttles' || s.name === 'ThrottledRequests') && (headline ?? 0) > 0;
         return (
-          <div key={`${s.name}-${s.statistic}`} className={`rounded-md border px-2 py-1.5 ${bad ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`} title={`${s.name} (${s.statistic}) over ${detail.metrics?.window_hours}h`}>
+          <div key={`${s.name}-${s.statistic}`} className={`rounded-md border px-2 py-1.5 ${bad ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-surface'}`} title={`${s.name} (${s.statistic}) over ${detail.metrics?.window_hours}h`}>
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[10px] uppercase tracking-wide text-gray-500 truncate">{SERIES_LABEL[s.name] ?? s.name}</span>
               <span className={`text-xs font-semibold font-mono whitespace-nowrap ${bad ? 'text-red-700' : 'text-gray-900'}`}>{formatMetric(headline, s.unit)}</span>

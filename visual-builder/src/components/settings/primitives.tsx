@@ -215,7 +215,7 @@ export function Select<T extends string | number>({
       value={String(value)}
       disabled={disabled}
       onChange={(e) => onChange((numeric ? Number(e.target.value) : e.target.value) as T)}
-      className="text-sm border border-gray-300 rounded px-2 py-1.5 bg-white min-w-[160px] disabled:opacity-50"
+      className="text-sm border border-gray-300 rounded px-2 py-1.5 bg-surface min-w-[160px] disabled:opacity-50"
     >
       {options.map((o) => (
         <option key={String(o.value)} value={String(o.value)}>{o.label}</option>

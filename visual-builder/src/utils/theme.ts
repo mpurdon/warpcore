@@ -1,12 +1,14 @@
 // The theme: one attribute on <html>, read by every token in theme.css.
 // "system" follows the OS and changes with it; light and dark are fixed.
-// Components that paint outside CSS (the minimap, the 3D view) read the
-// resolved tokens with cssColor() and re-read when the theme changes.
+// Colours reach the DOM as CSS (`var(--c-…)` in classes and style props);
+// the few places CSS cannot reach (SVG presentation attributes behind a
+// library callback, three.js) read the resolved value with rc() or
+// cssColorHex(), which re-read when the theme changes.
 
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { Appearance } from './preferences';
 
-export type Theme = 'light' | 'dark';
+type Theme = 'light' | 'dark';
 
 const media = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null);
 
@@ -16,17 +18,16 @@ export function resolveTheme(appearance: Appearance, systemDark = Boolean(media(
   return appearance;
 }
 
-export function currentTheme(): Theme {
-  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-}
-
 let stop: (() => void) | null = null;
 
 /** Apply the preference to the document and keep following the system while it says so. */
 export function applyAppearance(appearance: Appearance): void {
   stop?.();
   stop = null;
-  const set = () => { document.documentElement.dataset.theme = resolveTheme(appearance); };
+  const set = () => {
+    const next = resolveTheme(appearance);
+    if (document.documentElement.dataset.theme !== next) document.documentElement.dataset.theme = next;
+  };
   set();
   if (appearance === 'system') {
     const m = media();
@@ -37,57 +38,68 @@ export function applyAppearance(appearance: Appearance): void {
   }
 }
 
+// ------------------------------------------------- following the attribute
+//
+// One observer on <html>; the resolved-colour cache and every subscriber
+// hear about a change from it, in that order, so no render can read a
+// stale colour with a fresh version.
+
+const listeners = new Set<() => void>();
 const resolved = new Map<string, string>();
-let watching = false;
-function watchTheme(): void {
-  if (watching || typeof document === 'undefined') return;
-  watching = true;
-  new MutationObserver(() => resolved.clear()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+let version = 0;
+let observing = false;
+
+function observe(): void {
+  if (observing || typeof document === 'undefined') return;
+  observing = true;
+  new MutationObserver(() => {
+    resolved.clear();
+    version += 1;
+    for (const fn of listeners) fn();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+}
+
+function subscribe(fn: () => void): () => void {
+  observe();
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
+/** Bumps when the theme attribute changes, so a canvas or a library callback can repaint. */
+export function useThemeVersion(): number {
+  return useSyncExternalStore(subscribe, () => version, () => 0);
+}
+
+function raw(token: string): string {
+  observe();
+  let hit = resolved.get(token);
+  if (hit === undefined) {
+    hit = getComputedStyle(document.documentElement).getPropertyValue(`--c-${token}`).trim();
+    resolved.set(token, hit);
+  }
+  return hit;
+}
+
+/** `var(--c-x)` as `rgb(var(--c-x) / a)`, for a tint of a token in a style prop. */
+export function withAlpha(value: string, alpha: number): string {
+  return value.replace(/^var\((--c-[a-z0-9-]+)\)$/, `rgb(var($1) / ${alpha})`);
 }
 
 /**
- * A colour for an SVG presentation attribute or an icon prop, where `var()`
- * does not resolve: "var(--c-blue-500)" and "rgb(var(--c-gray-100) / 0.7)"
- * come back as plain rgb(); anything else passes through. Cached per theme.
+ * A colour for an SVG presentation attribute behind a library callback,
+ * where `var()` does not resolve: "var(--c-blue-500)" and
+ * "rgb(var(--c-gray-100) / 0.7)" come back as plain rgb(); anything else
+ * passes through. Cached per theme.
  */
 export function rc(value: string): string {
-  if (!value.includes('var(--c-')) return value;
-  if (typeof document === 'undefined') return value;
-  watchTheme();
-  const hit = resolved.get(value);
-  if (hit) return hit;
-  const out = value.replace(/rgb\(var\(--c-([a-z0-9-]+)\)\s*\/\s*([0-9.]+)\)/g, (_m, t, a) => cssColor(t, Number(a)))
-    .replace(/var\(--c-([a-z0-9-]+)\)/g, (_m, t) => cssColor(t));
-  resolved.set(value, out);
-  return out;
+  if (!value.includes('var(--c-') || typeof document === 'undefined') return value;
+  return value
+    .replace(/rgb\(var\(--c-([a-z0-9-]+)\)\s*\/\s*([0-9.]+)\)/g, (_m, t, a) => `rgb(${raw(t)} / ${a})`)
+    .replace(/var\(--c-([a-z0-9-]+)\)/g, (_m, t) => `rgb(${raw(t)})`);
 }
 
-/** A token's resolved colour, e.g. cssColor('blue-600') → "rgb(37 99 235)". For canvases and WebGL. */
-export function cssColor(token: string, alpha?: number): string {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue(`--c-${token}`).trim();
-  return alpha === undefined ? `rgb(${raw})` : `rgb(${raw} / ${alpha})`;
-}
-
-/** The same colour as a number, for three.js. */
+/** A token as a number, for three.js. Cached per theme. */
 export function cssColorHex(token: string): number {
-  const [r, g, b] = getComputedStyle(document.documentElement).getPropertyValue(`--c-${token}`).trim().split(/\s+/).map(Number);
+  const [r, g, b] = raw(token).split(/\s+/).map(Number);
   return (r << 16) | (g << 8) | b;
-}
-
-/** Bumps when the theme attribute changes, so a canvas can repaint. */
-export function useThemeVersion(): number {
-  const [version, setVersion] = useState(0);
-  useEffect(() => {
-    const observer = new MutationObserver(() => setVersion((v) => v + 1));
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => observer.disconnect();
-  }, []);
-  return version;
-}
-
-/** The theme in effect, for components that branch on it. */
-export function useTheme(): Theme {
-  const version = useThemeVersion();
-  void version;
-  return typeof document === 'undefined' ? 'light' : currentTheme();
 }

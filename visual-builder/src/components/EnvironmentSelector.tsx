@@ -87,7 +87,7 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
       {/* Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-2.5 py-1.5 bg-white hover:bg-gray-50 border border-gray-300 rounded-md text-sm text-gray-800 min-w-[140px]"
+        className="flex items-center gap-2 px-2.5 py-1.5 bg-surface hover:bg-gray-50 border border-gray-300 rounded-md text-sm text-gray-800 min-w-[140px]"
       >
         <span className="flex-1 text-left truncate">{currentConfig?.name || currentEnvironment}</span>
         <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -95,7 +95,7 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-72 bg-white rounded-lg shadow-xl border border-gray-200 z-50 overflow-hidden">
+        <div className="absolute top-full left-0 mt-1 w-72 bg-surface rounded-lg shadow-xl border border-gray-200 z-50 overflow-hidden">
           {/* Search */}
           <div className="p-2 border-b border-gray-200">
             <div className="relative">
@@ -139,7 +139,7 @@ export default function EnvironmentSelector({ onOpenEnvironment }: Props) {
               <select
                 value={newEnvBase}
                 onChange={(e) => setNewEnvBase(e.target.value)}
-                className="w-full mt-2 px-2 py-1 text-xs border border-blue-300 rounded bg-white text-gray-900"
+                className="w-full mt-2 px-2 py-1 text-xs border border-blue-300 rounded bg-surface text-gray-900"
                 title="Settings to start from"
               >
                 {Object.entries(ENVIRONMENT_TEMPLATES).map(([key, cfg]) => (
