@@ -734,3 +734,27 @@ library callback and three.js, and re-read on a theme change through
 which the generator and the Tailwind config share. A surface that must
 stay dark uses `chrome`; one that must invert uses `strong`; a panel
 paints `surface`, never `white`.
+
+
+## 18. Placement is the canvas's job
+
+[2026-10-13. `visual-builder/src/utils/autoLayout.ts`, `src/commands/canvas.ts`.]
+
+Nothing that adds a resource says where it goes. A canvas that has been
+laid out, imported, or opened from the Holodeck is *arranged*: it has
+application tiles, and every later edit is drawn into them. Adding a
+resource, wiring one, or removing one redraws the canvas; the resource
+lands in its application's tile, in a band chosen by what it is, with the
+other tiles moving aside. `canvas.addNode` takes `app` (which application
+it belongs to) and `canvas.setApplication` moves one between them; both
+are names, never coordinates. A canvas with no tiles is a freehand
+sketch and is left exactly where its author put things, until
+`canvas.layout` arranges it.
+
+Coordinates survive for one case only: a drop or a drag at the pointer,
+where the operator is placing something themselves. `canvas.move` is not
+offered to a model at all, and `canvas.addNode`'s x and y say in their
+own description that an arranged canvas does not need them.
+
+Rule: a command that changes what is on the canvas calls `redraw()`. A
+new command must never ask its caller for a position.

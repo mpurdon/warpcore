@@ -18,6 +18,24 @@ import { orderParentsFirst } from './nodeTree';
 /** Containers the layout owns: it removes them and makes them again. */
 export const LAYOUT_CONTAINERS: ReadonlySet<string> = new Set(['application', 'band']);
 
+/**
+ * Whether the canvas is one the layout arranges. A canvas that has been
+ * laid out (or imported, or opened from the Holodeck) keeps its tiles, so
+ * every later edit is placed for the operator; a freehand sketch with no
+ * tiles is left exactly where its author put things.
+ */
+export function isArranged(nodes: { type?: string }[]): boolean {
+  return nodes.some((n) => n.type === 'application');
+}
+
+/** The application a node belongs to, as the tag the clusterer reads. */
+export function appTagOf(node: { data?: { config?: Record<string, unknown> } }): string | undefined {
+  const tags = (node.data?.config as { tags?: Record<string, string> } | undefined)?.tags;
+  if (!tags) return undefined;
+  const hit = Object.entries(tags).find(([k]) => k.toLowerCase() === 'application');
+  return hit?.[1];
+}
+
 const NETWORK_PLUMBING: ReadonlySet<string> = new Set(['vpc', 'subnet', 'security-group', 'internet-gateway', 'nat-gateway', 'route-table', 'vpc-endpoint', 'elastic-ip']);
 
 function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {

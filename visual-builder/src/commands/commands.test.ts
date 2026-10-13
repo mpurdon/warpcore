@@ -102,6 +102,31 @@ describe('dispatch', () => {
 
 describe('canvas commands', () => {
   beforeEach(fresh);
+
+  it('places what it adds, and keeps the canvas arranged as it is wired', async () => {
+    for (const [type, label, app] of [['cloudfront', 'admin-site', 'admin'], ['s3', 'admin-ui', 'admin'], ['api-gateway', 'admin-api', 'admin'], ['lambda', 'admin-fn', 'admin'], ['dynamodb', 'flags', 'feed'], ['lambda', 'feed-fn', 'feed']]) {
+      expect((await run('canvas.addNode', { type, label, app }, dev)).ok, label).toBe(true);
+    }
+    // Nothing was given coordinates, and nothing is left on top of anything else.
+    expect((await run('canvas.layout', {}, dev)).ok).toBe(true);
+    const tiles = useStore.getState().nodes.filter((n) => n.type === 'application');
+    expect(tiles.map((t) => t.data.label).sort()).toEqual(['admin', 'feed']);
+    const site = useStore.getState().nodes.find((n) => n.data.label === 'admin-site')!;
+    expect(site.parentNode).toBeTruthy();
+    // A resource added to an arranged canvas lands in its application without being placed.
+    expect((await run('canvas.addNode', { type: 'sqs', label: 'retries', app: 'feed' }, dev)).ok).toBe(true);
+    const q = useStore.getState().nodes.find((n) => n.data.label === 'retries')!;
+    const parent = useStore.getState().nodes.find((n) => n.id === q.parentNode)!;
+    const tile = useStore.getState().nodes.find((n) => n.id === parent.parentNode) ?? parent;
+    expect(tile.data.label).toBe('feed');
+    expect(q.position.x === 0 && q.position.y === 0).toBe(false);
+    // And it can be moved between applications by name, not by coordinates.
+    expect((await run('canvas.setApplication', { id: 'retries', app: 'admin' }, dev)).ok).toBe(true);
+    const moved = useStore.getState().nodes.find((n) => n.data.label === 'retries')!;
+    const movedParent = useStore.getState().nodes.find((n) => n.id === moved.parentNode)!;
+    const movedTile = useStore.getState().nodes.find((n) => n.id === movedParent.parentNode) ?? movedParent;
+    expect(movedTile.data.label).toBe('admin');
+  });
   it('adds, configures, connects, and removes, through the undo history', async () => {
     const a = await run('canvas.addNode', { type: 'lambda', label: 'orders' }, dev);
     const b = await run('canvas.addNode', { type: 'log-group', label: 'logs' }, dev);

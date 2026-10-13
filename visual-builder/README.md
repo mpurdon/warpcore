@@ -366,6 +366,15 @@ is built and the rules for adding a colour. After changing
 `scripts/build-theme.mjs`, run `node scripts/build-theme.mjs` and restart
 `tauri dev` (Tailwind keeps its config in memory).
 
+### Placement is automatic
+
+Resources are never placed by hand or by an agent. A canvas that has been
+laid out, imported or opened from the Holodeck arranges itself: say which
+application a resource belongs to and it is drawn in that tile, in a band
+by what it is, with everything else moving aside. `canvas.layout` in the
+palette (or from the assistant) arranges a canvas that was drawn
+freehand. See `DESIGN_GUIDANCE.md` §18.
+
 ### The command layer
 
 Everything the app can do is a command (`src/commands/`), declared once:
