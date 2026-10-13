@@ -319,6 +319,9 @@ export interface StoreState {
   // UI state
   selectedNode: string | null;
   setSelectedNode: (nodeId: string | null) => void;
+  /** The edge the operator clicked, so the Delete command can take it. */
+  selectedEdge: string | null;
+  setSelectedEdge: (edgeId: string | null) => void;
   /**
    * Select a node from outside the canvas (a relationship in the inspector).
    * Updates React Flow's selected flags without marking the project dirty:
@@ -656,6 +659,8 @@ export const useStore = create<StoreState>((set, get) => ({
 
   // UI state
   selectedNode: null,
+  selectedEdge: null,
+  setSelectedEdge: (selectedEdge) => set({ selectedEdge }),
   setSelectedNode: (nodeId) => set((state) => ({
     selectedNode: nodeId,
     inspectedEnvironment: nodeId ? null : state.inspectedEnvironment,

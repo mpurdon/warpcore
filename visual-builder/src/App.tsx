@@ -133,7 +133,7 @@ function Flow() {
   }, [fitView, zoomIn, zoomOut, getNodes, getZoom, setCenter]);
 
   // UI state
-  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const setSelectedEdge = useStore((s) => s.setSelectedEdge);
   const [editingEdge, setEditingEdge] = useState<string | null>(null); // For edge modal (double-click)
   const [isDragging, setIsDragging] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -841,14 +841,13 @@ function Flow() {
     setEditingEdge(null);
   }, [setSelectedNode, setEditingNode]);
 
-  // Delete selected nodes or edges (supports multi-select)
-  const deleteSelected = useCallback(() => {
-    void runFromUi('canvas.removeSelected', selectedEdge ? { edgeId: selectedEdge } : {}, 'shortcut').then((r) => {
-      if (r.ok && selectedEdge) { setSelectedEdge(null); setEditingEdge(null); }
-    });
-  }, [selectedEdge]);
+  // The Delete key runs canvas.removeSelected from the registry; an edge
+  // form open on an edge that has gone closes with it.
+  useEffect(() => {
+    if (editingEdge && !edges.some((e) => e.id === editingEdge)) setEditingEdge(null);
+  }, [edges, editingEdge]);
 
-  useShortcuts({ deleteSelected });
+  useShortcuts();
 
   const showWelcome = !configPath && nodes.length === 0 && !settingsOpen;
 

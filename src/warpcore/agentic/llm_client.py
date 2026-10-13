@@ -27,6 +27,22 @@ class LLMProvider(Enum):
     LOCAL = "local"
 
 
+class OllamaClient:
+    """A local model over Ollama's chat API: the one transport every local path shares."""
+
+    def __init__(self, endpoint: str):
+        self.endpoint = endpoint.rstrip("/")
+
+    def chat(self, model: str, messages: List[dict], tools: Optional[List[dict]] = None, timeout: int = 300) -> dict:
+        import urllib.request
+        body: dict = {"model": model, "stream": False, "messages": messages}
+        if tools:
+            body["tools"] = tools
+        req = urllib.request.Request(f"{self.endpoint}/api/chat", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - a local endpoint the operator configured
+            return json.loads(r.read())
+
+
 class LLMClient:
     """Client for interacting with LLM for infrastructure analysis."""
     
@@ -94,8 +110,7 @@ class LLMClient:
                 import boto3
                 return boto3.client('bedrock-runtime')
             elif self.provider == LLMProvider.LOCAL:
-                # For local models, could use ollama or similar
-                return None
+                return OllamaClient(self.endpoint or os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
         except ImportError as e:
             self.logger.warning(f"Failed to import LLM client library: {e}")
             return None
@@ -262,7 +277,14 @@ class LLMClient:
             )
             response_body = json.loads(response['body'].read())
             return response_body['content'][0]['text']
-        
+
+        elif self.provider == LLMProvider.LOCAL:
+            data = self.client.chat(self.model, [
+                {"role": "system", "content": "You are an AWS infrastructure expert helping an operator understand and fix their account."},
+                {"role": "user", "content": prompt},
+            ])
+            return (data.get("message") or {}).get("content", "")
+
         return ""
     
     def _build_drift_analysis_prompt(self, drift_items: List[DriftItem]) -> str:

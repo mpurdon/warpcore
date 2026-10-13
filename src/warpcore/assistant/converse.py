@@ -13,8 +13,6 @@ Blocks (Anthropic's shape, the one the others are mapped to):
 from __future__ import annotations
 
 import json
-import os
-import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -89,7 +87,7 @@ def converse(provider: str, model: Optional[str], system: str, messages: List[Di
         return _openai(client, model_name, system, messages, tools, max_tokens)
     if prov == LLMProvider.BEDROCK:
         return _bedrock(client, model_name, system, messages, tools, max_tokens)
-    return _local(endpoint or os.environ.get("OLLAMA_HOST", "http://localhost:11434"), model_name, system, messages, tools)
+    return _local(client, model_name, system, messages, tools)
 
 
 # ------------------------------------------------------------ anthropic
@@ -204,15 +202,10 @@ def _bedrock(client, model, system, messages, tools, max_tokens) -> Turn:
 
 # ------------------------------------------------------------ local (ollama)
 
-def _local(endpoint, model, system, messages, tools) -> Turn:
-    body = {
-        "model": model, "stream": False,
-        "messages": [{"role": "system", "content": system}] + _to_ollama_messages(messages),
-        "tools": _function_tools(tools),
-    }
-    req = urllib.request.Request(f"{endpoint.rstrip('/')}/api/chat", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=300) as r:  # noqa: S310 - a local endpoint the operator configured
-        data = json.loads(r.read())
+def _local(client, model, system, messages, tools) -> Turn:
+    if client is None:
+        raise RuntimeError("the local model client is not initialised")
+    data = client.chat(model, [{"role": "system", "content": system}] + _to_ollama_messages(messages), _function_tools(tools))
     msg = data.get("message") or {}
     content: List[Dict[str, Any]] = []
     if msg.get("content"):

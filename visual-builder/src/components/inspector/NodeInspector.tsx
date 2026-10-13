@@ -19,19 +19,12 @@ import ConnectSection from './ConnectSection';
 import FindingsSection from './FindingsSection';
 import ManagedBySection from './ManagedBySection';
 import { runFromUi } from '../../commands';
-import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot, Tone } from './InspectorHeader';
+import { STATUS_META } from '../../utils/nodeStatus';
+import InspectorHeader, { Fact, InspectorTabs, Section, StatusDot } from './InspectorHeader';
 
 type Tab = 'overview' | 'live' | 'execution' | 'raw';
 
-const STATUS: Record<NodeStatus, { tone: Tone; label: string; pulse?: boolean }> = {
-  draft: { tone: 'muted', label: 'not configured' },
-  warning: { tone: 'warn', label: 'needs attention' },
-  configured: { tone: 'info', label: 'ready to deploy' },
-  deploying: { tone: 'info', label: 'deploying', pulse: true },
-  deployed: { tone: 'ok', label: 'deployed' },
-  failed: { tone: 'bad', label: 'deployment failed' },
-  present: { tone: 'muted', label: 'exists in the account · health unknown' },
-};
+const STATUS = STATUS_META;
 
 export default function NodeInspector({ node }: { node: Node }) {
   const { nodes, edges, executionsPerMonth, setEditingNode, selectNode, executionLogs, scenarios, setNodes } = useStore();

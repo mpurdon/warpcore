@@ -9,6 +9,7 @@ import { LENSES, type Lens } from '../utils/lenses';
 import { displayNameFor } from '../utils/nodeName';
 import { DISCOVERED_TYPES, discoveredTypeLabel } from '../utils/discoveredTypes';
 import { SECTION_LABEL } from '../utils/settingsSections';
+import { STATUS_META } from '../utils/nodeStatus';
 import { define } from './registry';
 
 const DIALOGS: readonly Dialog[] = ['holodeck', 'explorer', 'discovery', 'shortcuts', 'findings'];
@@ -22,25 +23,22 @@ const DIALOG_DESCRIPTION: Record<Dialog, string> = {
   shortcuts: 'Every keyboard shortcut in the app',
   findings: 'What the resources are doing, and what is wrong, wasteful or fragile',
 };
-const TONE = {
-  draft: 'muted', warning: 'warn', configured: 'info', deploying: 'info', deployed: 'ok', failed: 'bad', present: 'muted',
-} as const;
 
 define({
   id: 'view.fit', title: 'Fit view', description: 'Show the whole canvas.', group: 'View', kind: 'view',
-  shortcut: { key: '0', mod: true, label: '⌘0' },
+  shortcut: { keys: ['0'], mod: true, label: '⌘0', overDialogs: true },
   run: () => canvas.fitView(),
 });
 
 define({
   id: 'view.zoomIn', title: 'Zoom in', description: 'Zoom the canvas in one step.', group: 'View', kind: 'view', hidden: true,
-  shortcut: { key: '=', mod: true, label: '⌘=' },
+  shortcut: { keys: ['=', '+'], mod: true, label: '⌘=', overDialogs: true },
   run: () => canvas.zoomIn(),
 });
 
 define({
   id: 'view.zoomOut', title: 'Zoom out', description: 'Zoom the canvas out one step.', group: 'View', kind: 'view', hidden: true,
-  shortcut: { key: '-', mod: true, label: '⌘-' },
+  shortcut: { keys: ['-'], mod: true, label: '⌘-', overDialogs: true },
   run: () => canvas.zoomOut(),
 });
 
@@ -48,6 +46,7 @@ define({
   id: 'view.lens', title: 'Lens', description: 'View the canvas through a lens: all, security, network, dataflow, cost or live.', group: 'View', kind: 'view',
   params: { lens: { type: 'string', description: 'The lens', required: true, enum: LENSES.map((l) => l.id) } },
   keywords: ['view', 'filter', 'layer'],
+  shortcut: LENSES.map((l) => ({ keys: [l.key], label: l.key, args: { lens: l.id } })),
   instances: (s) => LENSES.map((l) => ({
     key: l.id, args: { lens: l.id }, title: `Lens: ${l.label}`, subtitle: l.description, tone: s.lens === l.id ? 'info' : undefined,
   })),
@@ -96,14 +95,14 @@ define({
 
 define({
   id: 'view.palette', title: 'Command palette', description: 'Open the command palette.', group: 'View', kind: 'view', hidden: true, notForModel: true,
-  shortcut: { key: 'k', mod: true, label: '⌘K' },
+  shortcut: { keys: ['k', 'p'], mod: true, label: '⌘K', overDialogs: true },
   run: (_a, { state }) => state.setPaletteOpen(!state.paletteOpen),
 });
 
 define({
   id: 'view.settings', title: 'Settings', description: 'Open application settings at a section.', group: 'Settings', kind: 'view',
   params: { section: { type: 'string', description: 'The settings section', enum: SETTINGS_SECTIONS } },
-  shortcut: { key: ',', mod: true, label: '⌘,' },
+  shortcut: { keys: [','], mod: true, label: '⌘,', overDialogs: true },
   keywords: ['preferences', 'settings'],
   instances: () => SETTINGS_SECTIONS.map((section) => ({ key: section, args: { section }, title: `Settings: ${SECTION_LABEL[section]}` })),
   describe: (a) => `Settings: ${SECTION_LABEL[(a.section as SettingsSection) ?? 'general']}`,
@@ -125,7 +124,7 @@ define({
   id: 'view.assistant', title: (s) => `${s.assistantOpen ? 'Hide' : 'Show'} assistant`,
   description: 'Show or hide the assistant panel. Omit `open` to toggle.', group: 'View', kind: 'view',
   params: { open: { type: 'boolean', description: 'Open (true) or close (false)' } },
-  shortcut: { key: 'j', mod: true, label: '⌘J' },
+  shortcut: { keys: ['j'], mod: true, label: '⌘J', overDialogs: true },
   keywords: ['chat', 'ai', 'model', 'help'],
   describe: (a, s) => `${((a.open as boolean | undefined) ?? !s.assistantOpen) ? 'Show' : 'Hide'} assistant`,
   run: (a, { state }) => state.setAssistantOpen((a.open as boolean | undefined) ?? !state.assistantOpen),
@@ -138,7 +137,7 @@ define({
 
 define({
   id: 'view.shortcuts', title: 'Keyboard shortcuts', description: 'The shortcuts sheet.', group: 'View', kind: 'view', notForModel: true,
-  shortcut: { key: '?', label: '?' },
+  shortcut: { keys: ['?'], label: '?' },
   run: (_a, { state }) => state.openDialog('shortcuts'),
 });
 
@@ -149,7 +148,7 @@ define({
     key: n.id, args: { id: n.id }, title: displayNameFor(n),
     subtitle: `${discoveredTypeLabel(n.type || '', n.data?.config) || DISCOVERED_TYPES[n.type || '']?.label || n.type || 'resource'} · ${n.id}`,
     keywords: [n.type || '', String(n.data?.arn || ''), String(n.data?.region || '')].filter(Boolean),
-    tone: TONE[(n.data?.status as keyof typeof TONE | undefined) ?? 'draft'],
+    tone: STATUS_META[(n.data?.status as keyof typeof STATUS_META | undefined) ?? 'draft'].tone,
   })),
   describe: (a, s) => `Select ${nameOf(s, a.id as string)}`,
   run: (a, { state }) => {

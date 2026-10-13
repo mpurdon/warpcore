@@ -169,25 +169,48 @@ export function paletteRows(state: StoreState): PaletteRow[] {
         rows.push({
           id: `${spec.id}:${inst.key}`, command: spec.id, args: inst.args, group: spec.group, title: inst.title,
           subtitle: reason ?? inst.subtitle, keywords: [...(spec.keywords ?? []), ...(inst.keywords ?? [])],
-          shortcut: spec.shortcut?.label, tone: inst.tone, blockedReason: reason,
+          shortcut: shortcutLabel(spec), tone: inst.tone, blockedReason: reason,
         });
       }
       continue;
     }
     rows.push({
       id: spec.id, command: spec.id, args: {}, group: spec.group, title: titleOf(spec, state),
-      subtitle: reason ?? spec.description, keywords: spec.keywords, shortcut: spec.shortcut?.label, blockedReason: reason,
+      subtitle: reason ?? spec.description, keywords: spec.keywords, shortcut: shortcutLabel(spec), blockedReason: reason,
     });
   }
   return rows.sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group));
 }
 
-export interface ShortcutRow { command: string; key: string; mod: boolean; shift: boolean; label: string }
+export interface ShortcutRow {
+  command: string;
+  keys: string[];
+  mod: boolean;
+  shift: boolean;
+  label: string;
+  inEditable: boolean;
+  overDialogs: boolean;
+  args: Args;
+  /** The command's description, for the help sheet. */
+  what: string;
+  group: CommandSpec['group'];
+}
 
-/** Every shortcut, for the key handler and the help sheet. Built once. */
+/** The binding a command shows: the first of its shortcuts. */
+export function shortcutLabel(spec: CommandSpec): string | undefined {
+  const first = Array.isArray(spec.shortcut) ? spec.shortcut[0] : spec.shortcut;
+  return first?.label;
+}
+
+/** Every key binding, for the key handler and the help sheet. Built once. */
 export function shortcuts(): ShortcutRow[] {
-  shortcutCache ??= all().filter((s) => s.shortcut).map((s) => ({
-    command: s.id, key: s.shortcut!.key, mod: Boolean(s.shortcut!.mod), shift: Boolean(s.shortcut!.shift), label: s.shortcut!.label,
-  }));
+  shortcutCache ??= all().flatMap((s) => {
+    const list = Array.isArray(s.shortcut) ? s.shortcut : s.shortcut ? [s.shortcut] : [];
+    return list.map((sc) => ({
+      command: s.id, keys: sc.keys, mod: Boolean(sc.mod), shift: Boolean(sc.shift), label: sc.label,
+      inEditable: sc.inEditable ?? Boolean(sc.mod), overDialogs: Boolean(sc.overDialogs), args: sc.args ?? {},
+      what: s.description, group: s.group,
+    }));
+  });
   return shortcutCache;
 }

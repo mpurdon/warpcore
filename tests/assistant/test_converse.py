@@ -58,3 +58,20 @@ def test_missing_client_is_a_clear_error():
     from warpcore.assistant.converse import _anthropic
     with pytest.raises(RuntimeError, match="anthropic client"):
         _anthropic(None, "m", "sys", [], [], 10)
+
+
+def test_local_goes_through_the_shared_ollama_client():
+    client = Mock()
+    client.chat.return_value = {"message": {"content": "", "tool_calls": [{"function": {"name": "query_project", "arguments": {}}}]}, "prompt_eval_count": 3, "eval_count": 1}
+    turn = converse("local", "llama3", "sys", MESSAGES, TOOLS, client=client)
+    assert turn.content == [{"type": "tool_use", "id": "call_0", "name": "query_project", "input": {}}] and turn.stop_reason == "tool_use"
+    model, messages, tools = client.chat.call_args.args
+    assert model == "llama3" and messages[0] == {"role": "system", "content": "sys"} and tools[0]["function"]["name"] == "canvas_addNode"
+
+
+def test_llm_client_local_provider_has_a_transport():
+    from warpcore.agentic.llm_client import LLMClient, LLMProvider, OllamaClient
+    llm = LLMClient(provider=LLMProvider.LOCAL, model="llama3", endpoint="http://127.0.0.1:9/")
+    assert isinstance(llm.client, OllamaClient) and llm.client.endpoint == "http://127.0.0.1:9"
+    llm.client = Mock(chat=Mock(return_value={"message": {"content": "ok"}}))
+    assert llm._call_llm("hi") == "ok"

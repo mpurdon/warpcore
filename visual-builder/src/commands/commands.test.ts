@@ -38,8 +38,10 @@ describe('registry', () => {
     expect((lens.input_schema.properties.lens as { enum: string[] }).enum).toContain('live');
   });
   it('gives every shortcut to one command', () => {
-    const keys = shortcuts().map((s) => `${s.mod ? 'mod+' : ''}${s.shift ? 'shift+' : ''}${s.key}`);
+    const keys = shortcuts().flatMap((s) => s.keys.map((k) => `${s.mod ? 'mod+' : ''}${s.shift ? 'shift+' : ''}${k}`));
     expect(new Set(keys).size).toBe(keys.length);
+    expect(shortcuts().find((s) => s.command === 'project.undo')?.inEditable).toBe(false);
+    expect(shortcuts().filter((s) => s.command === 'view.lens').map((s) => s.args.lens)).toContain('live');
     expect(shortcuts().find((s) => s.command === 'account.deploy')?.label).toBe('⌘D');
   });
   it('lists palette rows from the registry, one per instance, with the block reason as the subtitle', () => {

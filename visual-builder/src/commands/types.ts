@@ -51,12 +51,20 @@ export interface Param {
 export type Args = Record<string, unknown>;
 
 export interface Shortcut {
-  /** KeyboardEvent.key, lower-cased for letters. */
-  key: string;
+  /** KeyboardEvent.key values, lower-cased for letters; the first is the one shown. */
+  keys: string[];
   mod?: boolean;
   shift?: boolean;
   /** Shown in the palette and the help sheet, e.g. "⌘D". */
   label: string;
+  /**
+   * Fires with the caret in a text field. Modifier shortcuts do by default,
+   * the way desktop apps behave; bare keys never do; undo and redo opt out.
+   */
+  inEditable?: boolean;
+  /** Fires with a dialog, the palette or settings on top. Default false. */
+  overDialogs?: boolean;
+  args?: Args;
 }
 
 /** One palette row for a command that lists several (a lens, a scenario, a node). */
@@ -85,7 +93,8 @@ export interface CommandSpec {
   group: Group;
   kind: CommandKind;
   params?: Record<string, Param>;
-  shortcut?: Shortcut;
+  /** One or several key bindings; the first is the one the palette shows. */
+  shortcut?: Shortcut | Shortcut[];
   keywords?: string[];
   /** Why it cannot run right now, or null. Project commands are also blocked by the lock. */
   available?: (state: StoreState) => string | null;

@@ -160,6 +160,7 @@ define({
   id: 'scenario.setPlaying', title: (s) => (s.playhead?.playing ? 'Pause playback' : 'Resume playback'),
   description: 'Pause or resume the scenario on the transport bar. Omit `playing` to toggle.', group: 'Scenarios', kind: 'view',
   params: { playing: { type: 'boolean', description: 'true to play, false to pause' } },
+  shortcut: { keys: [' '], label: 'Space' },
   available: (s) => (s.playhead ? null : 'No scenario is playing'),
   run: (a, { state }) => state.setPlaying((a.playing as boolean | undefined) ?? !state.playhead!.playing),
 });
@@ -171,15 +172,24 @@ define({
 });
 
 define({
-  id: 'scenario.seek', title: 'Seek', description: 'Jump the playhead to a step (0-based; -1 is the trigger), or one step back or forward.', group: 'Scenarios', kind: 'view', hidden: true,
-  params: { index: { type: 'number', description: 'The step to jump to' }, by: { type: 'number', description: '-1 for the previous step, 1 for the next' } },
+  id: 'scenario.seek', title: 'Seek', description: 'Jump the playhead to a step (0-based; -1 is the trigger).', group: 'Scenarios', kind: 'view', hidden: true,
+  params: { index: { type: 'number', description: 'The step to jump to', required: true } },
   available: (s) => (s.playhead ? null : 'No scenario is playing'),
-  run: (a, { state }) => {
-    if (typeof a.index === 'number') state.seekPlayback(a.index);
-    else if (a.by === -1) state.stepBack();
-    else if (a.by === 1) state.stepForward();
-    else throw new Error('give index or by');
-  },
+  run: (a, { state }) => state.seekPlayback(a.index as number),
+});
+
+define({
+  id: 'scenario.stepBack', title: 'Previous step', description: 'Move the playhead one step back.', group: 'Scenarios', kind: 'view', hidden: true,
+  shortcut: { keys: ['['], label: '[' },
+  available: (s) => (s.playhead ? null : 'No scenario is playing'),
+  run: (_a, { state }) => state.stepBack(),
+});
+
+define({
+  id: 'scenario.stepForward', title: 'Next step', description: 'Move the playhead one step forward.', group: 'Scenarios', kind: 'view', hidden: true,
+  shortcut: { keys: [']'], label: ']' },
+  available: (s) => (s.playhead ? null : 'No scenario is playing'),
+  run: (_a, { state }) => state.stepForward(),
 });
 
 define({

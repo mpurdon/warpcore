@@ -8,14 +8,14 @@ import { define } from './registry';
 define({
   id: 'project.open', title: 'Open project…', description: 'Open a warpcore.yaml. With `path`, open that file; without, show the file chooser.', group: 'Actions', kind: 'view', notForModel: true,
   params: { path: { type: 'string', description: 'Absolute path to a warpcore.yaml' } },
-  shortcut: { key: 'o', mod: true, label: '⌘O' },
+  shortcut: { keys: ['o'], mod: true, label: '⌘O', overDialogs: true },
   describe: (a) => (a.path ? `Open ${a.path}` : 'Open a project'),
   run: async (a) => { if (a.path) await openProjectFile(a.path as string); else await openProjectDialog(); },
 });
 
 define({
   id: 'project.save', title: 'Save project', description: 'Write the project to its warpcore.yaml now (changes also auto-save).', group: 'Actions', kind: 'file',
-  shortcut: { key: 's', mod: true, label: '⌘S' },
+  shortcut: { keys: ['s'], mod: true, label: '⌘S', overDialogs: true },
   available: (s) => (s.configPath ? null : 'No file yet: open or create a project first'),
   describe: (_a, s) => `Save ${s.configPath ?? 'the project'}`,
   run: async () => ({ saved: await saveProject() }),
@@ -35,7 +35,7 @@ define({
 
 define({
   id: 'project.undo', title: 'Undo', description: 'Undo the last canvas change.', group: 'Actions', kind: 'project',
-  shortcut: { key: 'z', mod: true, label: '⌘Z' },
+  shortcut: { keys: ['z'], mod: true, label: '⌘Z', inEditable: false },
   available: (s) => (s.past.length ? null : 'Nothing to undo'),
   describe: (_a, s) => `Undo (${s.past.length} step${s.past.length === 1 ? '' : 's'} back)`,
   run: (_a, { state }) => state.undo(),
@@ -43,7 +43,7 @@ define({
 
 define({
   id: 'project.redo', title: 'Redo', description: 'Redo the last undone canvas change.', group: 'Actions', kind: 'project',
-  shortcut: { key: 'z', mod: true, shift: true, label: '⇧⌘Z' },
+  shortcut: [{ keys: ['z'], mod: true, shift: true, label: '⇧⌘Z', inEditable: false }, { keys: ['y'], mod: true, label: '⌘Y', inEditable: false }],
   available: (s) => (s.future.length ? null : 'Nothing to redo'),
   run: (_a, { state }) => state.redo(),
 });

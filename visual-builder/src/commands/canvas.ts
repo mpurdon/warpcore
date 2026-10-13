@@ -97,23 +97,23 @@ define({
 
 define({
   id: 'canvas.removeSelected', title: 'Delete the selection', description: 'Remove the selected resources, or the selected connection.', group: 'Canvas', kind: 'project', hidden: true, notForModel: true,
-  params: { edgeId: { type: 'string', description: 'The selected edge, when no node is selected' } },
-  shortcut: { key: 'delete', label: '⌫' },
-  describe: (a, s) => {
+  shortcut: { keys: ['delete', 'backspace'], label: '⌫' },
+  available: (s) => (s.nodes.some((n) => n.selected) || s.selectedEdge ? null : 'Nothing selected'),
+  describe: (_a, s) => {
     const ids = s.nodes.filter((n) => n.selected).map((n) => n.id);
-    return ids.length ? `Remove ${ids.length === 1 ? nameOf(s, ids[0]) : `${ids.length} resources`}` : a.edgeId ? 'Remove a connection' : 'Nothing selected';
+    return ids.length ? `Remove ${ids.length === 1 ? nameOf(s, ids[0]) : `${ids.length} resources`}` : 'Remove a connection';
   },
-  run: (a, { state }) => {
+  run: (_a, { state }) => {
     const ids = state.nodes.filter((n) => n.selected).map((n) => n.id);
     if (ids.length) {
       removeNodeIds(ids);
       return { removed: ids };
     }
-    if (a.edgeId) {
-      useStore.getState().setEdges((edges) => edges.filter((e) => e.id !== a.edgeId));
-      return { removed: [a.edgeId] };
-    }
-    return { removed: [] };
+    const edgeId = state.selectedEdge!;
+    const s = useStore.getState();
+    s.setEdges((edges) => edges.filter((e) => e.id !== edgeId));
+    s.setSelectedEdge(null);
+    return { removed: [edgeId] };
   },
 });
 

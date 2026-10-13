@@ -23,7 +23,7 @@ const needProfile = () => {
 
 define({
   id: 'account.deploy', title: (s) => `Deploy to ${envName(s)}`, description: 'Run warpcore deploy for the current environment and show the run in Activity. The plan is applied as the CLI reports it.', group: 'Actions', kind: 'aws-change',
-  shortcut: { key: 'd', mod: true, label: '⌘D' },
+  shortcut: { keys: ['d'], mod: true, label: '⌘D', overDialogs: true },
   keywords: ['run', 'apply'],
   available: () => blockedReason('deploy'),
   confirm: (_a, s) => `Deploy the project to ${envName(s)}? This runs warpcore deploy against AWS.`,

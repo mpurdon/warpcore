@@ -1,57 +1,43 @@
-// The shortcut sheet. Everything listed here is implemented in
-// hooks/useShortcuts.ts; keep the two in step.
+// The shortcut sheet, read from the command registry: a command's own
+// shortcut declaration is the one place a key is written down.
 
 import { X } from 'lucide-react';
 import { useEffect } from 'react';
 import { LENSES } from '../utils/lenses';
+import { shortcuts } from '../commands';
+import { GROUPS } from '../commands/types';
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = IS_MAC ? '⌘' : 'Ctrl';
 
-export const SHORTCUT_GROUPS: { title: string; items: { keys: string[]; what: string }[] }[] = [
+/** Bindings in the registry read ⌘; the sheet says what this platform calls it. */
+const platform = (label: string) => label.replace('⌘', `${MOD} `).replace(/\s+/g, ' ').trim();
+
+/** The mouse and Escape, which the registry does not cover. */
+const MANUAL: { title: string; items: { keys: string[]; what: string }[] }[] = [
   {
-    title: 'Find and move',
+    title: 'Mouse and Esc',
     items: [
-      { keys: [`${MOD} K`], what: 'Command palette: find a resource or run anything' },
-      { keys: [`${MOD} J`], what: 'The assistant: ask about the canvas, or ask for a change' },
-      { keys: [`${MOD} 0`], what: 'Fit the whole canvas in view' },
-      { keys: [`${MOD} =`, `${MOD} -`], what: 'Zoom in and out' },
-      { keys: ['Esc'], what: 'Close what is open, else clear the selection' },
-      { keys: ['?'], what: 'This sheet' },
-    ],
-  },
-  {
-    title: 'Lenses',
-    items: LENSES.map((l) => ({ keys: [l.key], what: `${l.label}: ${l.description}` })),
-  },
-  {
-    title: 'Scenarios',
-    items: [
-      { keys: ['Space'], what: 'Play or pause the scenario on the transport bar' },
-      { keys: ['[', ']'], what: 'Previous and next step' },
-      { keys: ['Esc'], what: 'Stop recording, then stop playback' },
-    ],
-  },
-  {
-    title: 'Edit',
-    items: [
-      { keys: [`${MOD} Z`], what: 'Undo' },
-      { keys: [`⇧ ${MOD} Z`], what: 'Redo' },
-      { keys: ['⌫', 'Del'], what: 'Delete the selected resources or connection' },
+      { keys: ['Esc'], what: 'Close what is open, else clear the selection, else stop recording or playback' },
       { keys: ['⇧ drag'], what: 'Select several resources' },
       { keys: ['Double-click'], what: 'Configure a resource, or edit a connection\'s role' },
     ],
   },
-  {
-    title: 'Project',
-    items: [
-      { keys: [`${MOD} O`], what: 'Open a project' },
-      { keys: [`${MOD} S`], what: 'Save now (changes also auto-save)' },
-      { keys: [`${MOD} D`], what: 'Deploy the current environment (when unlocked)' },
-      { keys: [`${MOD} ,`], what: 'Application settings' },
-    ],
-  },
 ];
+
+/** Every binding, grouped the way the palette groups commands. Read from the registry, so nothing here goes stale. */
+export function shortcutGroups(): { title: string; items: { keys: string[]; what: string }[] }[] {
+  const byGroup = new Map<string, { keys: string[]; what: string }[]>();
+  for (const sc of shortcuts()) {
+    const what = sc.command === 'view.lens' ? `Lens: ${LENSES.find((l) => l.id === sc.args.lens)?.label ?? ''}` : sc.what.replace(/\s*Omit `\w+` to toggle\.$/, '');
+    const list = byGroup.get(sc.group) ?? [];
+    const existing = list.find((it) => it.what === what);
+    if (existing) existing.keys.push(platform(sc.label));
+    else list.push({ keys: [platform(sc.label)], what });
+    byGroup.set(sc.group, list);
+  }
+  return [...GROUPS.filter((g) => byGroup.has(g)).map((g) => ({ title: g, items: byGroup.get(g)! })), ...MANUAL];
+}
 
 export default function ShortcutsHelp({ onClose }: { onClose: () => void }) {
   useEffect(() => {
@@ -70,7 +56,7 @@ export default function ShortcutsHelp({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100" title="Close (Esc)"><X size={16} /></button>
         </div>
         <div className="grid grid-cols-2 gap-x-8 gap-y-5 p-5">
-          {SHORTCUT_GROUPS.map((g) => (
+          {shortcutGroups().map((g) => (
             <section key={g.title}>
               <h3 className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">{g.title}</h3>
               <ul className="space-y-1.5">
