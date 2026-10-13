@@ -8,6 +8,7 @@ import './scenario';
 import './account';
 import './query';
 import './holodeck';
+import './layout';
 
 export { run, runFromUi } from './dispatch';
 export { all, get, blocked, confirmQuestion, paletteRows, shortcuts, summaryOf, titleOf, toolSpecs, commandForTool } from './registry';
