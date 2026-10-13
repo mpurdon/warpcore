@@ -33,10 +33,10 @@ import { LockBanner } from './components/ProjectLock';
 import LensBar from './components/LensBar';
 import PermissionLegend from './components/PermissionLegend';
 import CommandPalette from './components/CommandPalette';
-import ActivityDrawer, { ACTIVITY_BAR_HEIGHT, ACTIVITY_BODY_HEIGHT } from './components/ActivityDrawer';
+import ActivityDrawer, { drawerHeightFor } from './components/ActivityDrawer';
 import WelcomeScreen from './components/WelcomeScreen';
 import HolodeckBanner from './components/HolodeckBanner';
-import ScenarioTransport from './components/ScenarioTransport';
+import ScenarioTransport, { TRANSPORT_HEIGHT } from './components/ScenarioTransport';
 import SystemView from './components/SystemView';
 import { edgeView, isPlainEdge, ScenarioMarksContext, useLensView, useScenarioView } from './hooks/useCanvasView';
 import { fusedLevel, isStale, loadImportHistory, refreshDrift, refreshLive } from './utils/live';
@@ -94,7 +94,10 @@ function Flow() {
   // How much of the bottom the activity drawer takes; React Flow's controls
   // and the legend move up out of its way, and "fit to node" centres in what
   // is left rather than under it.
-  const drawerHeight = run ? ACTIVITY_BAR_HEIGHT + (activityOpen ? ACTIVITY_BODY_HEIGHT : 0) : 0;
+  const receiptCount = useStore((s) => s.receipts.length);
+  const drawerHeight = drawerHeightFor(run, receiptCount, activityOpen);
+  // The transport bar takes the bottom centre while a scenario plays; the zoom controls and the minimap move up out of its way.
+  const transportHeight = useStore((s) => (s.playhead ? TRANSPORT_HEIGHT + 14 : 0));
   const drawerHeightRef = useRef(drawerHeight);
   drawerHeightRef.current = drawerHeight;
 
@@ -861,7 +864,7 @@ function Flow() {
         <div
           ref={canvasRef}
           className={settingsOpen ? 'hidden' : 'flex-1 relative min-h-0'}
-          style={{ '--drawer-h': `${drawerHeight}px`, '--edge-z': EDGE_Z } as React.CSSProperties}
+          style={{ '--drawer-h': `${drawerHeight}px`, '--transport-h': `${transportHeight}px`, '--edge-z': EDGE_Z } as React.CSSProperties}
         >
           <ScenarioMarksContext.Provider value={scenarioView?.marks ?? null}>
           <ReactFlow

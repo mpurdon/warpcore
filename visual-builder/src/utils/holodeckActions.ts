@@ -46,6 +46,8 @@ export function previewEntry(entry: HolodeckEntry): string | null {
   s.closeDialog();
   s.closeSettings();
   s.setRightPanelVisible(true);
+  // The entry is read through its scenarios, which need the whole picture; a lens left on from before would hide most of it.
+  s.setLens('all');
   return null;
 }
 

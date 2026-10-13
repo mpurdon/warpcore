@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, X, CheckCircle2, XCircle, Circle, Loader2, MinusCircle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { scenariosBrokenBy } from '../utils/whatIf';
+import type { RunState } from '../utils/deployEvents';
 import type { Receipt } from '../commands';
 import { isActive, matchNodeForResource, RunResource, runElapsedSeconds } from '../utils/deployEvents';
 import { canvas } from '../utils/canvasActions';
@@ -50,6 +51,12 @@ const BAR: Record<RunResource['status'], string> = {
   failed: 'bg-red-400',
   skipped: 'bg-gray-300',
 };
+
+/** How much of the canvas's bottom the drawer takes: its bar when it shows (a run, or receipts), its body when open. */
+export function drawerHeightFor(run: RunState | null, receipts: number, activityOpen: boolean): number {
+  if (!run && receipts === 0) return 0;
+  return ACTIVITY_BAR_HEIGHT + (activityOpen ? ACTIVITY_BODY_HEIGHT : 0);
+}
 
 export default function ActivityDrawer() {
   const { run, activityOpen, setActivityOpen, clearRun, nodes, selectNode, edges, scenarios, inspectScenario, receipts } = useStore();

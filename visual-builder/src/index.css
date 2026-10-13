@@ -400,13 +400,14 @@ code {
 
 /* ---------------------------------------------------- activity drawer offsets */
 
-/* The canvas sets --drawer-h to the drawer's height; React Flow's own
-   controls and the minimap move up out of its way. */
+/* The canvas sets --drawer-h to the drawer's height and --transport-h to
+   the scenario transport's while one plays; React Flow's own controls and
+   the minimap move up out of their way. */
 .react-flow__controls {
-  bottom: calc(var(--drawer-h, 0px) + 16px) !important;
+  bottom: calc(var(--drawer-h, 0px) + var(--transport-h, 0px) + 16px) !important;
 }
 .react-flow__minimap {
-  bottom: calc(var(--drawer-h, 0px) + 16px) !important;
+  bottom: calc(var(--drawer-h, 0px) + var(--transport-h, 0px) + 16px) !important;
 }
 
 /* ------------------------------------------------------------ sheets & palette */
