@@ -38,6 +38,13 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
   const candidates = useMemo(() => nodes.filter(canBeStep).sort((a, b) => displayNameFor(a).localeCompare(displayNameFor(b))), [nodes]);
   const logRef = useRef<HTMLPreElement>(null);
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [logs]);
+  // The step list follows the playhead the way the canvas does: the current step scrolls into view as the request moves.
+  const stepsRef = useRef<HTMLDivElement>(null);
+  const headIndex = head ? `${head.index}:${head.phase}` : null;
+  useEffect(() => {
+    if (!headIndex) return;
+    stepsRef.current?.querySelector('[data-step-active="true"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [headIndex]);
 
   // What if: the scenario checked against the canvas without one resource on its path.
   const [whatIfId, setWhatIfId] = useState('');
@@ -119,7 +126,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
         }
       />
 
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div ref={stepsRef} className="flex-1 overflow-y-auto min-h-0">
         {recording && (
           <div className="mx-4 mt-3 text-xs rounded border border-red-200 bg-red-50 text-red-900 px-3 py-2">
             Recording. Click a resource on the canvas to add it as the next step, or pick one of the hops below. Log groups are never steps: they tick on their own.
@@ -194,6 +201,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
               return (
                 <li
                   key={`${i}-${step.at}`}
+                  data-step-active={isActive ? 'true' : undefined}
                   className={`rounded border px-2 py-1.5 ${isActive ? 'border-blue-400 bg-blue-50' : done ? 'border-gray-200 bg-gray-50' : 'border-gray-100'}`}
                 >
                   <div className="flex items-center gap-2">
