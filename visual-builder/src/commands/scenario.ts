@@ -2,7 +2,7 @@
 
 import type { Node } from 'reactflow';
 import { useStore, type StoreState } from '../store/useStore';
-import { canBeStep, checkScenario, createScenario, hopIndex, stepFromRaw, suggestPath, type Scenario, type ScenarioStep } from '../utils/scenarios';
+import { canBeStep, checkScenario, createScenario, hopIndex, stepFromRaw, suggestPath, uniqueScenarioId, type Scenario, type ScenarioStep } from '../utils/scenarios';
 import { displayNameFor } from '../utils/nodeName';
 import { scenariosBrokenBy, whatIf } from '../utils/whatIf';
 import { define } from './registry';
@@ -45,7 +45,7 @@ define({
     const at = a.triggerAt ? needStepNode(state, a.triggerAt as string).id : undefined;
     const scenario = createScenario(state.nodes, state.scenarios, at);
     if (!scenario) throw new Error('no resource can start a scenario');
-    if (a.name) scenario.name = String(a.name);
+    if (a.name) { scenario.name = String(a.name); scenario.id = uniqueScenarioId(scenario.name, state.scenarios); }
     if (a.event) scenario.trigger.event = String(a.event);
     if (a.draft) scenario.steps = suggestPath(scenario.trigger.at, state.nodes, state.edges);
     const s = useStore.getState();

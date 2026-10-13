@@ -18,7 +18,7 @@ import { stackThumbnail, thumbnailDataUrl } from './thumbnail';
 
 // ------------------------------------------------------------------ model
 
-export type HolodeckFamily = 'reference' | 'inspired' | 'classic' | 'starter';
+export type HolodeckFamily = 'reference' | 'inspired' | 'classic' | 'starter' | 'designed';
 
 export interface FamilyInfo {
   id: HolodeckFamily;
@@ -33,6 +33,7 @@ export const FAMILIES: FamilyInfo[] = [
   { id: 'inspired', label: 'In the style of', tag: 'inspired by', description: 'Systems as described in a public talk or post, rendered on AWS. Never the real thing.' },
   { id: 'classic', label: 'System design classics', tag: 'textbook', description: 'The interview and textbook systems, with the unhappy paths a diagram leaves out' },
   { id: 'starter', label: 'Warpcore starters', tag: 'starter', description: 'Small agent systems to deploy with warpcore' },
+  { id: 'designed', label: 'Designed here', tag: 'designed', description: 'Systems designed in warpcore, kept beside the references with their scenarios' },
 ];
 
 export interface HolodeckSource {

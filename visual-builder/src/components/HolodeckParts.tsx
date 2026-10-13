@@ -13,6 +13,7 @@ const TAG_CLASS: Record<HolodeckFamily, string> = {
   inspired: 'bg-violet-50 text-violet-800 border-violet-200',
   classic: 'bg-sky-50 text-sky-800 border-sky-200',
   starter: 'bg-gray-100 text-gray-700 border-gray-200',
+  designed: 'bg-amber-50 text-amber-800 border-amber-200',
 };
 
 export function FamilyTag({ family }: { family: HolodeckFamily }) {

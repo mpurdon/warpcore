@@ -99,7 +99,7 @@ describe('parseHolodeckEntry', () => {
 describe('the bundled library', () => {
   it('has entries in every family', () => {
     const families = new Set(HOLODECK_ENTRIES.map((e) => e.meta.family));
-    for (const f of ['reference', 'inspired', 'classic', 'starter']) expect(families.has(f as never)).toBe(true);
+    for (const f of ['reference', 'inspired', 'classic', 'starter', 'designed']) expect(families.has(f as never)).toBe(true);
   });
 
   it('has unique ids, a summary, notes, and at least one scenario each', () => {

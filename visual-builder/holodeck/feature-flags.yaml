@@ -1,0 +1,122 @@
+holodeck:
+  id: feature-flags
+  name: Feature flags
+  family: designed
+  summary: An admin site behind Cognito writes flags to DynamoDB in one transaction; the table's stream fans every change out as a WebSocket push and a fresh snapshot behind CloudFront, which every consumer also starts from.
+  look_at:
+    - One TransactWriteItems writes the flag, its state and an audit event together, so the stream never sees a half-written toggle.
+    - The stream on flag-states is the whole change feed; one function fans it out two ways, a push for live sockets and a snapshot object for everyone else.
+    - The snapshot behind CloudFront is both the startup path and the fallback; a consumer that loses its socket is never more than a cache TTL behind.
+    - Phase 2 retires flags the nightly code-refs scan finds unused, through a queue, a dispatcher and a Claude Code job that rewrites the call sites.
+  difficulty: 2
+project: { name: feature-flags }
+resources:
+  - name: user-pool
+    type: cognito
+    app: admin
+    note: One pool for every stage; Entra ID is the IdP and its groups become Cognito groups, which the JWT authorizer reads as roles.
+  - name: admin-site
+    type: cloudfront
+    app: admin
+    note: One distribution with two origins - the bucket for / and the admin API for /api/*.
+  - { name: admin-ui, type: s3, app: admin, config: { note: React SPA } }
+  - { name: admin-api, type: api-gateway, app: admin, config: { protocolType: HTTP, authorizer: JWT (Cognito user pool) } }
+  - name: admin-api-fn
+    type: lambda
+    app: admin
+    config: { memory: 512, timeout: 10 }
+    note: Writes a flag, its state and an audit event in one TransactWriteItems, so a half-written toggle never reaches the stream.
+  - { name: flags, type: dynamodb, app: change-feed, config: { partitionKey: flag_id } }
+  - name: flag-states
+    type: dynamodb
+    app: change-feed
+    config: { partitionKey: flag_id, sortKey: environment, streamViewType: NEW_AND_OLD_IMAGES }
+    note: The stream on this table is the change feed - every state write becomes a push and a new snapshot.
+  - { name: audit-events, type: dynamodb, app: change-feed, config: { partitionKey: flag_id, sortKey: at } }
+  - { name: ws-connections, type: dynamodb, app: delivery, config: { partitionKey: connection_id, ttlAttribute: expires_at } }
+  - name: change-processor
+    type: lambda
+    app: change-feed
+    config: { memory: 256, timeout: 30 }
+    note: One function fans a stream record out two ways - a WebSocket push to every live connection, and a fresh snapshot object for everyone else.
+  - { name: realtime-ws, type: api-gateway, app: delivery, config: { protocolType: WEBSOCKET, routeSelection: $request.body.action } }
+  - { name: snapshots, type: s3, app: delivery, config: { note: one object per environment } }
+  - name: snapshot-cdn
+    type: cloudfront
+    app: delivery
+    config: { defaultTtl: 2 }
+    note: Every SDK starts here and falls back here; the PHP Lambda refreshes its APCu cache from it every few seconds.
+  - { name: retired-flags, type: sqs, app: cleanup, config: { visibilityTimeout: 300, note: "Phase 2: flags the nightly code-refs scan found unused" } }
+  - { name: dispatcher, type: lambda, app: cleanup, config: { memory: 256, timeout: 60, note: "Phase 2: workflow_dispatch over OIDC, one cleanup PR per repo through the GitHub App" } }
+  - { name: claude, type: bedrock, app: cleanup, config: { modelId: anthropic.claude-opus-5, note: "Phase 2: the Claude Code job rewrites the call sites" } }
+connections:
+  - { from: admin-site, to: admin-ui, kind: origin, detail: "origin /" }
+  - { from: admin-site, to: admin-api, kind: origin, detail: "origin /api/*" }
+  - { from: admin-api, to: user-pool, kind: invokes, detail: JWT authorizer }
+  - { from: admin-api, to: admin-api-fn, kind: invokes, detail: "ANY /api/{proxy+}" }
+  - { from: admin-api-fn, to: flags, kind: writes, actions: [dynamodb:TransactWriteItems, dynamodb:Query, dynamodb:GetItem] }
+  - { from: admin-api-fn, to: flag-states, kind: writes, actions: [dynamodb:TransactWriteItems, dynamodb:Query] }
+  - { from: admin-api-fn, to: audit-events, kind: writes, actions: [dynamodb:TransactWriteItems, dynamodb:Query] }
+  - { from: flag-states, to: change-processor, kind: event-source, detail: DynamoDB stream }
+  - { from: change-processor, to: ws-connections, kind: uses, actions: [dynamodb:Query, dynamodb:DeleteItem] }
+  - { from: change-processor, to: realtime-ws, kind: writes, actions: [execute-api:ManageConnections] }
+  - { from: change-processor, to: snapshots, kind: writes, actions: [s3:PutObject] }
+  - { from: snapshot-cdn, to: snapshots, kind: origin, detail: "origin /{env}.json" }
+  - { from: change-processor, to: retired-flags, kind: writes, actions: [sqs:SendMessage] }
+  - { from: retired-flags, to: dispatcher, kind: event-source }
+  - { from: dispatcher, to: claude, kind: access, detail: execute, actions: [bedrock:InvokeModel] }
+scenarios:
+  - name: Flag created
+    trigger: { at: admin-site, event: POST /api/flags }
+    steps:
+      - { at: admin-api, takes: 5ms, note: the JWT authorizer admits a product manager }
+      - { at: admin-api-fn, takes: 40ms, note: "one TransactWriteItems: the flag, a default state per environment, an audit event" }
+      - { at: flags, takes: 10ms, note: the new flag row lands }
+      - { at: flag-states, takes: 10ms, note: the default states land; the stream emits an INSERT per environment }
+      - { at: change-processor, takes: 60ms, note: reads the stream records and looks up the open connections }
+      - { at: realtime-ws, takes: 100ms, note: every connected SDK learns the flag exists, defaulting off }
+      - { at: snapshots, takes: 30ms, detached: true, note: write snapshot per environment, now with the new flag }
+  - name: Flag updated
+    trigger: { at: admin-site, event: PATCH /api/flags/checkout-v2 }
+    steps:
+      - { at: admin-api, takes: 5ms }
+      - { at: admin-api-fn, takes: 40ms, note: the rules change (rollout percentage, targeting); flag and state written in one transaction with an audit event }
+      - { at: flag-states, takes: 10ms, note: the state row changes; the stream emits a MODIFY with old and new images }
+      - { at: change-processor, takes: 60ms, note: diffs old against new and pushes only what changed }
+      - { at: realtime-ws, takes: 100ms, note: push change to every connected SDK }
+      - { at: snapshots, takes: 30ms, detached: true, note: write snapshot with the new rules }
+  - name: Flag removed
+    trigger: { at: admin-site, event: DELETE /api/flags/checkout-v2 }
+    steps:
+      - { at: admin-api, takes: 5ms }
+      - { at: admin-api-fn, takes: 40ms, note: deletes the flag and every environment's state in one transaction; the audit event keeps the last values }
+      - { at: flags, takes: 10ms, note: the flag row is gone }
+      - { at: flag-states, takes: 10ms, note: the state rows are gone; the stream emits a REMOVE per environment }
+      - { at: change-processor, takes: 60ms, note: "a REMOVE record: SDKs are told to drop the flag and fall back to their code default" }
+      - { at: realtime-ws, takes: 100ms, note: push the removal to every connected SDK }
+      - { at: snapshots, takes: 30ms, detached: true, note: write snapshot without the flag }
+  - name: Flag unchanged
+    trigger: { at: admin-site, event: PUT /api/flags/checkout-v2 (same values) }
+    steps:
+      - { at: admin-api, takes: 5ms }
+      - { at: admin-api-fn, takes: 20ms, note: "the conditional write finds nothing to change: no row touched, no audit event, 304 back to the admin UI" }
+      - { at: flags, takes: 5ms, note: ConditionExpression fails on purpose; nothing is written, so the stream stays quiet and no push or snapshot follows }
+  - name: Flag toggled, socket down
+    trigger: { at: admin-site, event: POST /api/flags/checkout-v2/toggle }
+    steps:
+      - { at: admin-api, takes: 5ms }
+      - { at: admin-api-fn, takes: 40ms }
+      - { at: flag-states, takes: 10ms }
+      - { at: change-processor, takes: 60ms }
+      - { at: realtime-ws, takes: 80ms, outcome: fail, retry: 1, note: "a stale connection id: the push fails, the processor deletes the connection" }
+      - { at: snapshots, takes: 30ms, note: the snapshot is still written; the consumer picks the change up on its next cache refresh }
+  - name: Consumer startup
+    trigger: { at: snapshot-cdn, event: GET /prod.json }
+    steps:
+      - { at: snapshots, takes: 20ms, note: cache miss on the 1-2 s TTL; the SDK, the React tab and the PHP Lambda all start from this object }
+  - name: Retire a stale flag (phase 2)
+    trigger: { at: change-processor, event: nightly code-refs scan marks a flag unused }
+    steps:
+      - { at: retired-flags, takes: 5ms, note: ReliableQueue entry per retired flag }
+      - { at: dispatcher, takes: 400ms, note: workflow_dispatch over OIDC; one cleanup workflow per repo }
+      - { at: claude, takes: 90s, note: the Claude Code job rewrites the call sites and opens the PR through the GitHub App }
