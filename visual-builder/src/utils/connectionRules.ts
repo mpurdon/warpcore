@@ -20,81 +20,81 @@ export const resourceCategories: CategoryInfo[] = [
   {
     name: 'Agents',
     icon: Bot,
-    color: '#3b82f6', // blue
+    color: 'var(--c-blue-500)', // blue
     resources: [
-      { type: 'agent', label: 'Lambda Agent', icon: Bot, color: '#3b82f6' },
+      { type: 'agent', label: 'Lambda Agent', icon: Bot, color: 'var(--c-blue-500)' },
     ],
   },
   {
     name: 'Storage',
     icon: Database,
-    color: '#f97316', // orange
+    color: 'var(--c-orange-500)', // orange
     resources: [
-      { type: 's3', label: 'S3 Bucket', icon: Database, color: '#f97316' },
-      { type: 'dynamodb', label: 'DynamoDB', icon: Database, color: '#3b82f6' },
+      { type: 's3', label: 'S3 Bucket', icon: Database, color: 'var(--c-orange-500)' },
+      { type: 'dynamodb', label: 'DynamoDB', icon: Database, color: 'var(--c-blue-500)' },
     ],
   },
   {
     name: 'Messaging',
     icon: Mail,
-    color: '#8b5cf6', // purple
+    color: 'var(--c-violet-500)', // purple
     resources: [
-      { type: 'sqs', label: 'SQS Queue', icon: Mail, color: '#8b5cf6' },
-      { type: 'sns', label: 'SNS Topic', icon: Mail, color: '#ec4899' },
-      { type: 'kinesis-stream', label: 'Kinesis Stream', icon: Radio, color: '#f97316' },
-      { type: 'kinesis-firehose', label: 'Firehose', icon: Flame, color: '#ef4444' },
-      { type: 'eventbridge', label: 'EventBridge', icon: Zap, color: '#f97316' },
-      { type: 'eventbridge-rule', label: 'EB Rule', icon: Filter, color: '#8b5cf6' },
-      { type: 'eventbridge-pipes', label: 'EB Pipes', icon: GitBranch, color: '#f97316' },
+      { type: 'sqs', label: 'SQS Queue', icon: Mail, color: 'var(--c-violet-500)' },
+      { type: 'sns', label: 'SNS Topic', icon: Mail, color: 'var(--c-pink-500)' },
+      { type: 'kinesis-stream', label: 'Kinesis Stream', icon: Radio, color: 'var(--c-orange-500)' },
+      { type: 'kinesis-firehose', label: 'Firehose', icon: Flame, color: 'var(--c-red-500)' },
+      { type: 'eventbridge', label: 'EventBridge', icon: Zap, color: 'var(--c-orange-500)' },
+      { type: 'eventbridge-rule', label: 'EB Rule', icon: Filter, color: 'var(--c-violet-500)' },
+      { type: 'eventbridge-pipes', label: 'EB Pipes', icon: GitBranch, color: 'var(--c-orange-500)' },
     ],
   },
   {
     name: 'API',
     icon: Globe,
-    color: '#22c55e', // green
+    color: 'var(--c-green-500)', // green
     resources: [
-      { type: 'api-gateway', label: 'API Gateway', icon: Globe, color: '#22c55e' },
-      { type: 'api-route', label: 'API Route', icon: Globe, color: '#22c55e' },
+      { type: 'api-gateway', label: 'API Gateway', icon: Globe, color: 'var(--c-green-500)' },
+      { type: 'api-route', label: 'API Route', icon: Globe, color: 'var(--c-green-500)' },
     ],
   },
   {
     name: 'Compute',
     icon: Workflow,
-    color: '#ec4899', // pink
+    color: 'var(--c-pink-500)', // pink
     resources: [
-      { type: 'lambda', label: 'Lambda', icon: Cpu, color: '#f97316' },
-      { type: 'step-functions', label: 'Step Functions', icon: Workflow, color: '#ec4899' },
-      { type: 'bedrock', label: 'Bedrock', icon: Brain, color: '#8b5cf6' },
-      { type: 'ecr', label: 'ECR', icon: Package, color: '#f97316' },
+      { type: 'lambda', label: 'Lambda', icon: Cpu, color: 'var(--c-orange-500)' },
+      { type: 'step-functions', label: 'Step Functions', icon: Workflow, color: 'var(--c-pink-500)' },
+      { type: 'bedrock', label: 'Bedrock', icon: Brain, color: 'var(--c-violet-500)' },
+      { type: 'ecr', label: 'ECR', icon: Package, color: 'var(--c-orange-500)' },
     ],
   },
   {
     name: 'Security',
     icon: Lock,
-    color: '#eab308', // yellow
+    color: 'var(--c-yellow-500)', // yellow
     resources: [
-      { type: 'iam-role', label: 'IAM Role', icon: Shield, color: '#eab308' },
-      { type: 'secrets-manager', label: 'Secrets', icon: Key, color: '#ef4444' },
-      { type: 'ssm-parameter', label: 'SSM Param', icon: Settings, color: '#6b7280' },
-      { type: 'security-group', label: 'Sec Group', icon: Lock, color: '#ef4444' },
+      { type: 'iam-role', label: 'IAM Role', icon: Shield, color: 'var(--c-yellow-500)' },
+      { type: 'secrets-manager', label: 'Secrets', icon: Key, color: 'var(--c-red-500)' },
+      { type: 'ssm-parameter', label: 'SSM Param', icon: Settings, color: 'var(--c-gray-500)' },
+      { type: 'security-group', label: 'Sec Group', icon: Lock, color: 'var(--c-red-500)' },
     ],
   },
   {
     name: 'Network',
     icon: Cloud,
-    color: '#6366f1', // indigo
+    color: 'var(--c-indigo-500)', // indigo
     resources: [
-      { type: 'vpc', label: 'VPC', icon: Cloud, color: '#6366f1' },
+      { type: 'vpc', label: 'VPC', icon: Cloud, color: 'var(--c-indigo-500)' },
     ],
   },
   {
     name: 'Monitoring',
     icon: Activity,
-    color: '#f59e0b', // amber
+    color: 'var(--c-amber-500)', // amber
     resources: [
-      { type: 'cloudwatch-alarm', label: 'CW Alarm', icon: Activity, color: '#f59e0b' },
-      { type: 'cloudwatch-dashboard', label: 'Dashboard', icon: LayoutDashboard, color: '#3b82f6' },
-      { type: 'log-group', label: 'Log Group', icon: FileText, color: '#10b981' },
+      { type: 'cloudwatch-alarm', label: 'CW Alarm', icon: Activity, color: 'var(--c-amber-500)' },
+      { type: 'cloudwatch-dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'var(--c-blue-500)' },
+      { type: 'log-group', label: 'Log Group', icon: FileText, color: 'var(--c-emerald-500)' },
     ],
   },
 ];

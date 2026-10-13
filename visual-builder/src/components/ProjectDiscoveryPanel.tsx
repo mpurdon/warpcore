@@ -146,7 +146,7 @@ export default function ProjectDiscoveryPanel({ isOpen, onClose, projectPath }: 
           <div key={filePath} className="border border-gray-700 rounded-lg overflow-hidden">
             <button
               onClick={() => toggleFile(filePath)}
-              className="w-full flex items-center gap-2 p-3 bg-gray-800 hover:bg-gray-750 text-left"
+              className="w-full flex items-center gap-2 p-3 bg-gray-800 hover:bg-gray-700 text-left"
             >
               {expandedFiles.has(filePath) ? (
                 <ChevronDown size={16} className="text-gray-400" />
@@ -165,7 +165,7 @@ export default function ProjectDiscoveryPanel({ isOpen, onClose, projectPath }: 
             {expandedFiles.has(filePath) && (
               <div className="divide-y divide-gray-700">
                 {tools.map((tool: DiscoveredTool, idx: number) => (
-                  <div key={idx} className="p-3 bg-gray-850">
+                  <div key={idx} className="p-3 bg-gray-800">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -237,7 +237,7 @@ export default function ProjectDiscoveryPanel({ isOpen, onClose, projectPath }: 
           <div key={filePath} className="border border-gray-700 rounded-lg overflow-hidden">
             <button
               onClick={() => toggleFile(filePath)}
-              className="w-full flex items-center gap-2 p-3 bg-gray-800 hover:bg-gray-750 text-left"
+              className="w-full flex items-center gap-2 p-3 bg-gray-800 hover:bg-gray-700 text-left"
             >
               {expandedFiles.has(filePath) ? (
                 <ChevronDown size={16} className="text-gray-400" />
@@ -256,7 +256,7 @@ export default function ProjectDiscoveryPanel({ isOpen, onClose, projectPath }: 
             {expandedFiles.has(filePath) && (
               <div className="divide-y divide-gray-700">
                 {agents.map((agent: DiscoveredAgent, idx: number) => (
-                  <div key={idx} className="p-3 bg-gray-850">
+                  <div key={idx} className="p-3 bg-gray-800">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -297,7 +297,7 @@ export default function ProjectDiscoveryPanel({ isOpen, onClose, projectPath }: 
           <div key={filePath} className="border border-gray-700 rounded-lg overflow-hidden">
             <button
               onClick={() => toggleFile(filePath)}
-              className="w-full flex items-center gap-2 p-3 bg-gray-800 hover:bg-gray-750 text-left"
+              className="w-full flex items-center gap-2 p-3 bg-gray-800 hover:bg-gray-700 text-left"
             >
               {expandedFiles.has(filePath) ? (
                 <ChevronDown size={16} className="text-gray-400" />
@@ -316,7 +316,7 @@ export default function ProjectDiscoveryPanel({ isOpen, onClose, projectPath }: 
             {expandedFiles.has(filePath) && (
               <div className="divide-y divide-gray-700">
                 {handlers.map((handler: DiscoveredHandler, idx: number) => (
-                  <div key={idx} className="p-3 bg-gray-850">
+                  <div key={idx} className="p-3 bg-gray-800">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Zap size={14} className="text-yellow-400" />
@@ -352,7 +352,7 @@ export default function ProjectDiscoveryPanel({ isOpen, onClose, projectPath }: 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="theme-light fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-gray-900 rounded-lg shadow-xl w-[700px] max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">

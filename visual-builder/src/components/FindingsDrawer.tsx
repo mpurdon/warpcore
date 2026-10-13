@@ -59,7 +59,7 @@ export default function FindingsDrawer({ onClose }: { onClose: () => void }) {
           <button
             onClick={() => { void runReview(hours); }}
             disabled={reviewBusy || !profile || !configPath}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-900 text-white text-xs hover:bg-gray-800 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-strong text-on-strong text-xs hover:bg-strong-hover disabled:opacity-40"
             title={!configPath ? 'Save the project first' : !profile ? 'No AWS profile is recorded for this environment' : 'Read the metrics again and re-run the rules'}
           >
             <RefreshCw size={12} className={reviewBusy ? 'animate-spin' : ''} /> {review ? 'Review again' : 'Review'}

@@ -238,7 +238,7 @@ export default function ActivityDrawer() {
 
           {tab === 'commands' && <Receipts receipts={receipts} />}
           {tab === 'output' && (
-            <pre className="flex-1 overflow-auto min-h-0 m-0 px-3 py-2 text-[11px] leading-relaxed font-mono bg-gray-950 text-gray-200">
+            <pre className="flex-1 overflow-auto min-h-0 m-0 px-3 py-2 text-[11px] leading-relaxed font-mono bg-chrome text-chrome-fg">
               {run.output.length === 0 ? <span className="text-gray-500">No output from the CLI yet.</span> : run.output.map((l, i) => (
                 <div key={i} className={l.stream === 'err' ? 'text-amber-300' : ''}>{l.text}</div>
               ))}

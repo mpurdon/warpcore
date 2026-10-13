@@ -1,4 +1,5 @@
 import { BaseEdge, EdgeLabelRenderer, EdgeProps, getBezierPath, useReactFlow } from 'reactflow';
+import { rc } from '../../utils/theme';
 import { Eye, Pencil, Zap, Route, AlertTriangle } from 'lucide-react';
 import { TRAFFIC_KINDS } from '../../utils/layers';
 import { isDlqEdge } from '../../utils/scenarios';
@@ -11,12 +12,12 @@ const EDGE_OPACITY: Record<EdgeView['emphasis'], number> = { normal: 1, dimmed: 
 const AHEAD_OPACITY = 0.5;
 
 export const PERMISSION_COLORS = {
-  read: '#3b82f6',    // Blue
-  write: '#f59e0b',   // Amber
-  execute: '#8b5cf6', // Purple
-  admin: '#dc2626',   // Red: service:* or *
-  none: '#d1d5db',    // Gray
-  relationship: '#9ca3af', // Gray dashed: structure, not permission
+  read: 'var(--c-blue-500)',    // Blue
+  write: 'var(--c-amber-500)',   // Amber
+  execute: 'var(--c-violet-500)', // Purple
+  admin: 'var(--c-red-600)',   // Red: service:* or *
+  none: 'var(--c-gray-300)',    // Gray
+  relationship: 'var(--c-gray-400)', // Gray dashed: structure, not permission
 };
 
 // Determine permission types based on target resource and config
@@ -228,13 +229,13 @@ export default function PermissionEdge({
     edgeStyle = { stroke: PERMISSION_COLORS.relationship, strokeWidth: 1.5, strokeDasharray: '4 4' };
   } else if (isDLQ) {
     // DLQ edge - amber dashed line
-    edgeStyle = { stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '5 5' };
+    edgeStyle = { stroke: 'var(--c-amber-500)', strokeWidth: 2, strokeDasharray: '5 5' };
   } else if (status === 'deployed') {
-    edgeStyle = { stroke: '#10b981', strokeWidth: 2 };
+    edgeStyle = { stroke: 'var(--c-emerald-500)', strokeWidth: 2 };
   } else if (status === 'failed') {
-    edgeStyle = { stroke: '#ef4444', strokeWidth: 2 };
+    edgeStyle = { stroke: 'var(--c-red-500)', strokeWidth: 2 };
   } else if (status === 'deploying') {
-    edgeStyle = { stroke: '#3b82f6', strokeWidth: 2 };
+    edgeStyle = { stroke: 'var(--c-blue-500)', strokeWidth: 2 };
   } else if (!hasRole && !isResourceBased) {
     // No role assigned - gray dashed line
     edgeStyle = { stroke: PERMISSION_COLORS.none, strokeWidth: 2, strokeDasharray: '5 5' };
@@ -245,7 +246,7 @@ export default function PermissionEdge({
   }
 
   if (view.logging) {
-    edgeStyle = { stroke: '#f59e0b', strokeWidth: 2.5, strokeDasharray: '4 6' };
+    edgeStyle = { stroke: 'var(--c-amber-500)', strokeWidth: 2.5, strokeDasharray: '4 6' };
   } else if (view.ahead) {
     edgeStyle = { ...edgeStyle, strokeWidth: Number(edgeStyle.strokeWidth ?? 2) + 0.5, strokeDasharray: '6 6' };
   } else if (view.onPath) {
@@ -292,7 +293,7 @@ export default function PermissionEdge({
               y2={targetY}
             >
               {gradientInfo.stops.map((stop, i) => (
-                <stop key={i} offset={stop.offset} stopColor={stop.color} />
+                <stop key={i} offset={stop.offset} stopColor={rc(stop.color)} />
               ))}
             </linearGradient>
           </defs>
@@ -341,7 +342,7 @@ export default function PermissionEdge({
                   {(access.level === 'write' || access.level === 'read/write') && <Pencil size={11} style={{ color: PERMISSION_COLORS.write }} />}
                 </>
               )}
-              <span className="text-[10px] font-medium" style={{ color: access.level === 'admin' ? PERMISSION_COLORS.admin : '#374151' }}>{access.level}</span>
+              <span className="text-[10px] font-medium" style={{ color: access.level === 'admin' ? PERMISSION_COLORS.admin : 'var(--c-gray-700)' }}>{access.level}</span>
               <span className="text-[10px] text-gray-400">via {access.via}</span>
             </div>
           ) : discovered ? (

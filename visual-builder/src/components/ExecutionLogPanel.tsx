@@ -178,7 +178,7 @@ export default function ExecutionLogPanel({ nodeId, inline = false }: Props) {
             ))}
           </select>
         </div>
-        <div className="bg-gray-900 text-gray-100 rounded p-3 font-mono text-xs max-h-64 overflow-y-auto">
+        <div className="bg-chrome text-chrome-fg rounded p-3 font-mono text-xs max-h-64 overflow-y-auto">
           {visibleLogs.length === 0 && (
             <div className="text-gray-500">
               {hiddenDebugCount > 0

@@ -44,7 +44,7 @@ export default function ExpertView({
         )}
       </div>
       {open && (
-        <pre className="mx-4 mb-3 text-[11px] font-mono leading-snug p-3 bg-gray-900 text-gray-100 rounded max-h-72 overflow-auto whitespace-pre">
+        <pre className="mx-4 mb-3 text-[11px] font-mono leading-snug p-3 bg-chrome text-chrome-fg rounded max-h-72 overflow-auto whitespace-pre">
           {text}
         </pre>
       )}

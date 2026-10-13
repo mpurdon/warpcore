@@ -154,12 +154,12 @@ export function getGroupTypeLabel(groupType: NodeGroup['groupType']): string {
 // Get color for group type
 export function getGroupTypeColor(groupType: NodeGroup['groupType']): string {
   switch (groupType) {
-    case 'dlq': return '#f59e0b'; // Amber
-    case 'replication': return '#3b82f6'; // Blue
-    case 'subnet': return '#8b5cf6'; // Purple
-    case 'route': return '#10b981'; // Green
-    case 'rule': return '#ec4899'; // Pink
-    default: return '#6b7280'; // Gray
+    case 'dlq': return 'var(--c-amber-500)'; // Amber
+    case 'replication': return 'var(--c-blue-500)'; // Blue
+    case 'subnet': return 'var(--c-violet-500)'; // Purple
+    case 'route': return 'var(--c-emerald-500)'; // Green
+    case 'rule': return 'var(--c-pink-500)'; // Pink
+    default: return 'var(--c-gray-500)'; // Gray
   }
 }
 

@@ -1,8 +1,14 @@
 import { Bug, RotateCcw } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { LogLevel, resetPreferences } from '../../utils/preferences';
+import { Appearance, LogLevel, resetPreferences } from '../../utils/preferences';
 import Toggle from '../ui/Toggle';
 import { Field, SectionHeader, Select, SmallButton, SubHeader } from './primitives';
+
+const APPEARANCES: { label: string; value: Appearance }[] = [
+  { label: 'Follow the system', value: 'system' },
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+];
 
 const LOG_LEVELS: { label: string; value: LogLevel }[] = [
   { label: 'Debug', value: 'debug' },
@@ -28,6 +34,13 @@ export default function GeneralSection() {
         title="General"
         description="How this copy of the app runs the CLI. Applies to every project and environment on this machine and is never written to warpcore.yaml."
       />
+
+      <Field
+        label="Appearance"
+        description="Light or dark, or whatever the system is set to. Both are designed on purpose: the canvas, the cards and the panels each have their own dark palette."
+      >
+        <Select value={prefs.appearance} onChange={(v) => setPref('appearance', v)} options={APPEARANCES} />
+      </Field>
 
       <Field
         label="Developer mode"

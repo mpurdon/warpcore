@@ -15,17 +15,19 @@ import { edgeView, useScenarioView } from '../hooks/useCanvasView';
 import { CARD_H, Card, layoutSystem, Link, LinkKind, SystemLayout } from '../utils/systemLayout';
 import { badgeLabel, badgeTone } from '../utils/scenarios';
 import type { Reflow } from '../utils/stackLayout';
+import { cssColorHex, useThemeVersion } from '../utils/theme';
 
-const LINK_COLOR: Record<LinkKind, number> = {
-  flow: 0x8b5cf6, access: 0x3b82f6, logs: 0xf59e0b, structure: 0x9ca3af, drawn: 0x6b7280,
-};
+// Colours come from the theme tokens at build time, so the terraces follow
+// the appearance; a theme change rebuilds the scene (see themeVersion).
+const LINK_TOKEN: Record<LinkKind, string> = { flow: 'violet-500', access: 'blue-500', logs: 'amber-500', structure: 'gray-400', drawn: 'gray-500' };
+const linkColor = (kind: LinkKind) => cssColorHex(LINK_TOKEN[kind]);
 const LINK_OPACITY: Record<LinkKind, number> = { flow: 0.9, access: 0.85, logs: 0.6, structure: 0.3, drawn: 0.7 };
 /** How far a link fades for each emphasis, as a factor of its own opacity. */
 const EMPHASIS_FACTOR = { normal: 1, dimmed: 0.35, background: 0.15 } as const;
-const BLUE = 0x2563eb;
-const AMBER = 0xf59e0b;
-const RED = 0xdc2626;
-const INK = 0x1f2937;
+const BLUE = () => cssColorHex('blue-600');
+const AMBER = () => cssColorHex('amber-500');
+const RED = () => cssColorHex('red-600');
+const INK = () => cssColorHex('gray-800');
 const EMPTY: ReadonlySet<string> = new Set();
 
 interface CardObject {
@@ -128,12 +130,12 @@ function buildScene(layout: SystemLayout): Built {
 
   for (const c of layout.cards) {
     const geo = new THREE.BoxGeometry(c.w, CARD_H, c.d);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0, transparent: true, opacity: 1 });
+    const mat = new THREE.MeshStandardMaterial({ color: cssColorHex('white'), roughness: 0.6, metalness: 0, transparent: true, opacity: 1 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(c.x, c.y + CARD_H / 2, c.z);
     mesh.castShadow = true;
     mesh.userData = { cardId: c.id };
-    const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0xd1d5db, transparent: true, opacity: 1 }));
+    const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: cssColorHex('gray-300'), transparent: true, opacity: 1 }));
     outline.position.copy(mesh.position);
     const el = document.createElement('div');
     el.className = `sv-card-label${c.compact ? ' sv-compact' : ''}`;
@@ -163,7 +165,7 @@ function buildScene(layout: SystemLayout): Built {
     if (!from || !to) continue;
     const curve = makeCurve(from, to);
     const geo = new THREE.TubeGeometry(curve, 24, l.kind === 'structure' ? 0.01 : 0.016, 6, false);
-    const mat = new THREE.MeshBasicMaterial({ color: LINK_COLOR[l.kind], transparent: true, opacity: LINK_OPACITY[l.kind] });
+    const mat = new THREE.MeshBasicMaterial({ color: linkColor(l.kind), transparent: true, opacity: LINK_OPACITY[l.kind] });
     const mesh = new THREE.Mesh(geo, mat);
     root.add(mesh);
     links.set(l.id, { link: l, curve, mesh });
@@ -197,6 +199,14 @@ function layoutKey(layout: SystemLayout): string {
 
 export default function SystemView({ reflow }: { reflow: Reflow | null }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const themeVersion = useThemeVersion();
+  useEffect(() => {
+    const st = sceneRef.current;
+    if (!st) return;
+    const ground = cssColorHex('gray-100');
+    st.scene.background = new THREE.Color(ground);
+    st.scene.fog = new THREE.Fog(ground, 18, 40);
+  }, [themeVersion]);
   const nodes = useStore((s) => s.nodes);
   const edges = useStore((s) => s.edges);
   const layers = useStore((s) => s.layers);
@@ -226,8 +236,8 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     host.appendChild(labels.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf3f4f6);
-    scene.fog = new THREE.Fog(0xf3f4f6, 18, 40);
+    scene.background = new THREE.Color(cssColorHex('gray-100'));
+    scene.fog = new THREE.Fog(cssColorHex('gray-100'), 18, 40);
     const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -236,8 +246,8 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     controls.minDistance = 1.5;
     controls.maxDistance = 40;
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xd1d5db, 0.9));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+    scene.add(new THREE.HemisphereLight(cssColorHex('white'), cssColorHex('gray-300'), 0.9));
+    const sun = new THREE.DirectionalLight(cssColorHex('white'), 1.1);
     sun.position.set(6, 12, 8);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -245,9 +255,9 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     sun.shadow.bias = -0.0005;
     scene.add(sun);
 
-    const pulseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshStandardMaterial({ color: BLUE, emissive: BLUE, emissiveIntensity: 0.8 }));
+    const pulseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshStandardMaterial({ color: BLUE(), emissive: BLUE(), emissiveIntensity: 0.8 }));
     pulseMesh.visible = false;
-    pulseMesh.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: BLUE, transparent: true, opacity: 0.18 })));
+    pulseMesh.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: BLUE(), transparent: true, opacity: 0.18 })));
     scene.add(pulseMesh);
 
     const state: SceneState = {
@@ -381,7 +391,7 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     // framed too.
     if (!st.fitted) { st.fit(); st.fitted = true; }
     st.dirty = true;
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, themeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Decorate: edge layers, selection, and the scenario at the playhead.
   useEffect(() => {
@@ -398,19 +408,19 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
       const involved = Boolean(numbers?.length) || logging;
       const selected = id === selectedNode;
       const mat = c.mesh.material;
-      mat.color.set(0xffffff);
+      mat.color.set(cssColorHex('white'));
       mat.emissive.set(0x000000);
       mat.emissiveIntensity = 0;
       mat.opacity = playing && !involved ? 0.25 : 1;
-      c.outline.material.color.set(selected ? BLUE : state === 'failed' || state === 'failing' ? RED : state === 'visited' || state === 'active' ? INK : 0xd1d5db);
+      c.outline.material.color.set(selected ? BLUE() : state === 'failed' || state === 'failing' ? RED() : state === 'visited' || state === 'active' ? INK() : cssColorHex('gray-300'));
       c.outline.material.opacity = mat.opacity;
       c.label.element.classList.toggle('sv-dim', playing && !involved);
       c.label.element.classList.toggle('sv-selected', selected);
       let lift = 0;
-      if (state === 'active') { mat.emissive.set(BLUE); mat.emissiveIntensity = 0.55; lift = 0.18; }
-      else if (state === 'failing') { mat.emissive.set(RED); mat.emissiveIntensity = 0.6; lift = 0.18; }
-      else if (state === 'travelling') { mat.emissive.set(BLUE); mat.emissiveIntensity = 0.2; }
-      if (logging) { mat.emissive.set(AMBER); mat.emissiveIntensity = 0.5; }
+      if (state === 'active') { mat.emissive.set(BLUE()); mat.emissiveIntensity = 0.55; lift = 0.18; }
+      else if (state === 'failing') { mat.emissive.set(RED()); mat.emissiveIntensity = 0.6; lift = 0.18; }
+      else if (state === 'travelling') { mat.emissive.set(BLUE()); mat.emissiveIntensity = 0.2; }
+      if (logging) { mat.emissive.set(AMBER()); mat.emissiveIntensity = 0.5; }
       const y = c.card.y + CARD_H / 2 + lift;
       c.mesh.position.y = y;
       c.outline.position.y = y;
@@ -429,7 +439,7 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
       const view = edge ? edgeView(edge, layers, selectedNode, sv) : null;
       l.mesh.visible = view?.visible ?? true;
       l.mesh.material.opacity = LINK_OPACITY[l.link.kind] * EMPHASIS_FACTOR[view?.emphasis ?? 'normal'] * (view?.ahead ? 0.5 : 1);
-      l.mesh.material.color.set(view?.logging ? AMBER : LINK_COLOR[l.link.kind]);
+      l.mesh.material.color.set(view?.logging ? AMBER() : linkColor(l.link.kind));
       if (view?.pulse) pulseView = { edgeId: id, reverse: view.pulse.reverse, durationMs: view.pulse.durationMs, attempt: view.pulse.attempt };
     }
     // The pulse: start its clock when the hop changes, freeze it on pause.
@@ -458,7 +468,7 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
       }
     }
     st.dirty = true;
-  }, [scenarioView, selectedNode, layers, edges, follow, key]);
+  }, [scenarioView, selectedNode, layers, edges, follow, key, themeVersion]);
 
   const empty = !nodes.some((n) => !n.hidden);
 

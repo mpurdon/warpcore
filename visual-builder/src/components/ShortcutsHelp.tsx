@@ -49,7 +49,7 @@ export default function ShortcutsHelp({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-[75] bg-gray-900/30 flex items-center justify-center p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-[75] bg-black/40 flex items-center justify-center p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-[720px] max-w-full max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-900">Keyboard shortcuts</h2>

@@ -64,7 +64,7 @@ export default function LensBar() {
               role="tab"
               aria-selected={on}
               onClick={() => setLens(l.id)}
-              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-colors ${on ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-colors ${on ? 'bg-strong text-on-strong' : 'text-gray-700 hover:bg-gray-100'}`}
               title={`${l.description} · press ${l.key}`}
             >
               <span className="font-medium">{l.label}</span>

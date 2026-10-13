@@ -13,7 +13,7 @@ import type { ChatItem } from '../assistant/types';
 export const ASSISTANT_WIDTH = 360;
 
 const LINE: Record<ChatItem['kind'], string> = {
-  user: 'bg-gray-900 text-white rounded-lg px-3 py-2 self-end max-w-[90%] whitespace-pre-wrap',
+  user: 'bg-strong text-on-strong rounded-lg px-3 py-2 self-end max-w-[90%] whitespace-pre-wrap',
   assistant: 'text-gray-800 whitespace-pre-wrap max-w-[95%]',
   tool: 'text-xs text-gray-500 font-mono',
   action: 'text-xs text-amber-800',
@@ -84,7 +84,7 @@ export default function AssistantPanel() {
               <pre className="text-[10px] bg-white/70 rounded p-1.5 mt-2 overflow-x-auto">{JSON.stringify(chat.pending.args, null, 1)}</pre>
             )}
             <div className="flex gap-2 mt-2">
-              <button onClick={() => answerPending(true)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-gray-900 text-white text-xs hover:bg-gray-800"><Check size={12} /> Run it</button>
+              <button onClick={() => answerPending(true)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-strong text-on-strong text-xs hover:bg-strong-hover"><Check size={12} /> Run it</button>
               <button onClick={() => answerPending(false)} className="px-2.5 py-1 rounded border border-gray-300 text-xs hover:bg-white">Decline</button>
             </div>
           </div>
@@ -103,7 +103,7 @@ export default function AssistantPanel() {
             placeholder={chat.pending ? 'Answer the card above first…' : chat.busy ? 'Working…' : 'Ask, or ask for a change…'}
             className="flex-1 text-sm border border-gray-200 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:border-blue-400 disabled:bg-gray-50"
           />
-          <button onClick={submit} disabled={!canSend} className="p-2 rounded-md bg-gray-900 text-white disabled:opacity-40" title="Send (Enter)"><Send size={14} /></button>
+          <button onClick={submit} disabled={!canSend} className="p-2 rounded-md bg-strong text-on-strong disabled:opacity-40" title="Send (Enter)"><Send size={14} /></button>
         </div>
       </div>
     </div>

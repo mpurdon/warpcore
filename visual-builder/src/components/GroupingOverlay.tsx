@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { rc } from '../utils/theme';
 import { Node, useViewport } from 'reactflow';
 import { X } from 'lucide-react';
 import { NodeGroup, computeGroupBounds } from '../utils/nodeGrouping';
@@ -79,7 +80,7 @@ export default function GroupingOverlay({ groups, nodes, onBreakGroup, onMoveGro
   if (groupBoundsData.length === 0) return null;
 
   // Use a consistent blue color
-  const groupColor = '#3b82f6';
+  const groupColor = 'var(--c-blue-500)';
 
   return (
     <>
@@ -101,7 +102,7 @@ export default function GroupingOverlay({ groups, nodes, onBreakGroup, onMoveGro
                 height={bounds.height}
                 rx={8}
                 ry={8}
-                fill={groupColor}
+                fill={rc(groupColor)}
                 fillOpacity={0.03}
               />
               {/* Dashed border */}
@@ -113,7 +114,7 @@ export default function GroupingOverlay({ groups, nodes, onBreakGroup, onMoveGro
                 rx={8}
                 ry={8}
                 fill="none"
-                stroke={groupColor}
+                stroke={rc(groupColor)}
                 strokeWidth={2 / viewport.zoom}
                 strokeDasharray={`${5 / viewport.zoom} ${5 / viewport.zoom}`}
                 strokeOpacity={0.5}

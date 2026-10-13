@@ -245,3 +245,9 @@ Shipped the same day: the assistant panel over the registry (any
 provider, one turn at a time, the card for anything that changes AWS) and
 the bridge that makes the running app's commands MCP tools. See
 DESIGN_GUIDANCE.md §16.
+
+## 8. Follow-up, 2026-10-12: themes
+
+Every colour through a token, a dark palette designed by role, an
+appearance preference and command, and a test that keeps new colours
+honest. DESIGN_GUIDANCE.md §17.

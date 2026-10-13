@@ -9,6 +9,7 @@ import { LENSES, type Lens } from '../utils/lenses';
 import { displayNameFor } from '../utils/nodeName';
 import { DISCOVERED_TYPES, discoveredTypeLabel } from '../utils/discoveredTypes';
 import { SECTION_LABEL } from '../utils/settingsSections';
+import type { Appearance } from '../utils/preferences';
 import { STATUS_META } from '../utils/nodeStatus';
 import { define } from './registry';
 
@@ -128,6 +129,17 @@ define({
   keywords: ['chat', 'ai', 'model', 'help'],
   describe: (a, s) => `${((a.open as boolean | undefined) ?? !s.assistantOpen) ? 'Show' : 'Hide'} assistant`,
   run: (a, { state }) => state.setAssistantOpen((a.open as boolean | undefined) ?? !state.assistantOpen),
+});
+
+define({
+  id: 'view.appearance', title: 'Appearance', description: 'Switch the theme: light, dark, or follow the system.', group: 'Settings', kind: 'view',
+  params: { appearance: { type: 'string', description: 'light, dark or system', required: true, enum: ['system', 'light', 'dark'] } },
+  keywords: ['theme', 'dark', 'light', 'mode'],
+  instances: (s) => (['system', 'light', 'dark'] as const).map((a) => ({
+    key: a, args: { appearance: a }, title: `Appearance: ${a === 'system' ? 'follow the system' : a}`, tone: s.prefs.appearance === a ? 'info' : undefined,
+  })),
+  describe: (a) => `Appearance: ${a.appearance}`,
+  run: (a, { state }) => state.setPref('appearance', a.appearance as Appearance),
 });
 
 define({

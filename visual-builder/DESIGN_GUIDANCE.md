@@ -301,7 +301,7 @@ in brackets say where it landed.
 - Put anything per-project or per-environment in application settings, even temporarily.
 - Turn the left rail into a menu of features. It is a palette and a footer.
 - Show a setting the app cannot yet honour. The scan cache lifetime waits for the scan cache.
-- Invert the theme mechanically. Design dark and light on purpose.
+- Invert the theme mechanically. Design dark and light on purpose (§17: the dark palette is chosen by role; grey and the two special surfaces by hand).
 - Let the simplified view be a dead end. Every object needs its Raw level, even if it is just JSON.
 
 ---
@@ -693,3 +693,37 @@ the app, the file tools are what there is.
 Rules: the model never gets a tool that is not a command; nothing other
 than the operator answers a card; a new command is automatically a tool
 for both.
+
+
+## 17. Themes
+
+[2026-10-12. `visual-builder/scripts/build-theme.mjs` → `src/theme.css`, `src/utils/theme.ts`.]
+
+Every colour in the app resolves through a token. Tailwind's palette is
+rebound so `bg-gray-50`, `text-red-700` and the rest read CSS variables,
+and one attribute on `<html>` (`data-theme`) switches the whole app; the
+canvas stylesheet, the SVG edges and pulses, the minimap and the 3D view
+read the same variables. The class names were kept because the app uses
+them by role: 50 is a soft background, 200 a border, 500 and 600 a solid,
+700 to 900 text on a tint.
+
+The dark palette is designed by role, not inverted. Grey is hand-picked
+(it is the chrome). For a hue, the tint steps become dark tints mixed
+towards the canvas, the solids stay as bright as the light 500 so icons
+and buttons keep their weight, and the text steps become the hue's light
+steps so words on a tint stay readable. Two surfaces are themed on
+purpose rather than by scale: `strong` is the inverse surface (a black
+button on light, a white one on dark) and `chrome` is dark in both (code,
+logs, the transport bar). A region that must keep the light palette
+whatever the theme wears `.theme-light`.
+
+The preference (`appearance`: system, light, dark) lives in application
+settings, follows the OS when asked, and is a command (`view.appearance`)
+so the palette and an assistant can switch it. `theme.test.ts` fails the
+build when a colour class has no token or a component paints a literal
+colour the theme cannot reach.
+
+Rules: never write a hex colour in a component; use a scale class or
+`cssColor()` for a canvas. A new hue goes into the generator, not into
+one file. A surface that must stay dark uses `chrome`; one that must
+invert uses `strong`.

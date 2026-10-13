@@ -226,12 +226,12 @@ function RoleDetailDrawer({
                     <div className="relative">
                       <button
                         onClick={handleCopyPolicy}
-                        className="absolute top-2 right-2 p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 z-10"
+                        className="absolute top-2 right-2 p-1.5 bg-chrome-hover hover:bg-chrome-muted/40 rounded text-chrome-fg z-10"
                         title="Copy policy JSON"
                       >
                         {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
                       </button>
-                      <pre className="p-3 bg-gray-800 text-gray-100 rounded-lg text-[10px] overflow-x-auto max-h-48">
+                      <pre className="p-3 bg-chrome text-chrome-fg rounded-lg text-[10px] overflow-x-auto max-h-48">
                         {JSON.stringify(policyJSON, null, 2)}
                       </pre>
                     </div>

@@ -59,7 +59,7 @@ export default function ManagedBySection({ node }: { node: Node }) {
           <button
             onClick={run}
             disabled={readOnly || busy}
-            className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-900 text-white text-xs hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-strong text-on-strong text-xs hover:bg-strong-hover disabled:opacity-40 disabled:cursor-not-allowed"
             title={readOnly ? 'Unlock the project to take resources over' : 'Make this resource warpcore\'s'}
           >
             {busy ? <RefreshCw size={12} className="animate-spin" /> : <HandMetal size={12} />} Take over

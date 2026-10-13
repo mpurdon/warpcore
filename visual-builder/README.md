@@ -357,6 +357,15 @@ that lose their evidence. The Activity drawer does the same for a deploy
 plan: when the plan deletes something a scenario passes through, the drawer
 says which scenarios break before anything is applied.
 
+### Light and dark
+
+Settings › General › Appearance chooses light, dark, or whatever the
+system is set to; `⌘K` → "Appearance" switches it too. Both themes are
+designed on purpose: see `DESIGN_GUIDANCE.md` §17 for how the dark palette
+is built and the rules for adding a colour. After changing
+`scripts/build-theme.mjs`, run `node scripts/build-theme.mjs` and restart
+`tauri dev` (Tailwind keeps its config in memory).
+
 ### The command layer
 
 Everything the app can do is a command (`src/commands/`), declared once:
@@ -529,7 +538,7 @@ never written to `warpcore.yaml`:
 
 | Section | What it holds |
 |---|---|
-| General | Developer mode (`--dev`), CLI log level, reset |
+| General | Appearance (light, dark, follow the system), developer mode (`--dev`), CLI log level, reset |
 | Regions | Regions of interest, offered everywhere else in the app |
 | Exploration | Default AWS profile, the assistant model, the drift check schedule, how long a scan is reused, scan parallelism, scan cache |
 | Logs | The CLI's daily JSONL logs, per project and home, with a viewer |

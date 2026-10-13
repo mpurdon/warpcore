@@ -702,7 +702,7 @@ function PolicyViewer({ roleId }: { roleId: string }) {
             >
               {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
             </button>
-            <pre className="p-3 bg-gray-800 text-gray-100 rounded text-xs overflow-x-auto max-h-48">
+            <pre className="p-3 bg-chrome text-chrome-fg rounded text-xs overflow-x-auto max-h-48">
               {JSON.stringify(policyJSON, null, 2)}
             </pre>
           </div>
@@ -1525,7 +1525,7 @@ export default function ConfigurationPanel({ node, onClose }: ConfigurationPanel
       className="fixed left-0 right-0 top-12 bottom-0 z-50 flex justify-end"
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-gray-900/10" />
+      <div className="absolute inset-0 bg-black/10" />
 
       <div
         className="config-sheet relative bg-white border-l border-gray-200 shadow-2xl flex flex-col w-[480px] max-w-[92vw] h-full"

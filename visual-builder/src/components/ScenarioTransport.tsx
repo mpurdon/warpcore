@@ -51,7 +51,7 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
 
   return (
     <div
-      className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-gray-900 text-white rounded-xl shadow-xl px-2 text-xs select-none"
+      className="theme-light absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-gray-900 text-white rounded-xl shadow-xl px-2 text-xs select-none"
       style={{ bottom: bottomOffset + 14, height: TRANSPORT_HEIGHT, maxWidth: 'calc(100% - 48px)' }}
       role="toolbar"
       aria-label="Scenario playback"

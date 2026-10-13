@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { rc } from '../utils/theme';
 import { X } from 'lucide-react';
 import {
   getValidCategories,
@@ -190,10 +191,10 @@ export default function RadialMenu({
           {/* Semi-transparent background circle */}
           <circle cx={cx} cy={cy} r={ringOuter + 5} fill="white" fillOpacity={0.7} />
           {/* Center circle with source icon */}
-          <circle cx={cx} cy={cy} r={centerRadius} fill="#f3f4f6" stroke="#e5e7eb" strokeWidth={2} />
+          <circle cx={cx} cy={cy} r={centerRadius} fill={rc('var(--c-gray-100)')} stroke={rc('var(--c-gray-200)')} strokeWidth={2} />
           {sourceInfo && (
             <foreignObject x={cx - 12} y={cy - 12} width={24} height={24}>
-              <sourceInfo.icon size={24} color={sourceInfo.color} />
+              <sourceInfo.icon size={24} color={rc(sourceInfo.color)} />
             </foreignObject>
           )}
 
@@ -203,9 +204,9 @@ export default function RadialMenu({
             style={{ cursor: 'pointer' }}
             className="radial-slice"
           >
-            <circle cx={cx} cy={cy - centerRadius - 20} r={14} fill="#fee2e2" stroke="#fecaca" strokeWidth={1} />
+            <circle cx={cx} cy={cy - centerRadius - 20} r={14} fill={rc('var(--c-red-100)')} stroke={rc('var(--c-red-200)')} strokeWidth={1} />
             <foreignObject x={cx - 8} y={cy - centerRadius - 28} width={16} height={16}>
-              <X size={16} color="#dc2626" />
+              <X size={16} color={rc('var(--c-red-600)')} />
             </foreignObject>
           </g>
 
@@ -224,8 +225,8 @@ export default function RadialMenu({
               >
                 <path
                   d={describeArc(cx, cy, ringInner, ringOuter, startAngle, endAngle)}
-                  fill="#ffffff"
-                  stroke={resource.color}
+                  fill={rc('var(--c-white)')}
+                  stroke={rc(resource.color)}
                   strokeWidth={2}
                 />
                 <foreignObject
@@ -235,14 +236,14 @@ export default function RadialMenu({
                   height={24}
                   style={{ pointerEvents: 'none' }}
                 >
-                  <resource.icon size={24} color={resource.color} />
+                  <resource.icon size={24} color={rc(resource.color)} />
                 </foreignObject>
                 <text
                   x={center.x}
                   y={center.y + 18}
                   textAnchor="middle"
                   fontSize="10"
-                  fill="#374151"
+                  fill={rc('var(--c-gray-700)')}
                   fontWeight="500"
                   style={{ pointerEvents: 'none' }}
                 >
@@ -325,10 +326,10 @@ export default function RadialMenu({
           {/* Semi-transparent background circle */}
           <circle cx={cx} cy={cy} r={outerRingOuter + 5} fill="white" fillOpacity={0.7} />
         {/* Center circle with source icon */}
-        <circle cx={cx} cy={cy} r={centerRadius} fill="#f3f4f6" stroke="#e5e7eb" strokeWidth={2} />
+        <circle cx={cx} cy={cy} r={centerRadius} fill={rc('var(--c-gray-100)')} stroke={rc('var(--c-gray-200)')} strokeWidth={2} />
         {sourceInfo && (
           <foreignObject x={cx - 12} y={cy - 12} width={24} height={24}>
-            <sourceInfo.icon size={24} color={sourceInfo.color} />
+            <sourceInfo.icon size={24} color={rc(sourceInfo.color)} />
           </foreignObject>
         )}
 
@@ -338,9 +339,9 @@ export default function RadialMenu({
           style={{ cursor: 'pointer' }}
           className="radial-slice"
         >
-          <circle cx={cx} cy={cy - centerRadius - 12} r={12} fill="#fee2e2" stroke="#fecaca" strokeWidth={1} />
+          <circle cx={cx} cy={cy - centerRadius - 12} r={12} fill={rc('var(--c-red-100)')} stroke={rc('var(--c-red-200)')} strokeWidth={1} />
           <foreignObject x={cx - 6} y={cy - centerRadius - 18} width={12} height={12}>
-            <X size={12} color="#dc2626" />
+            <X size={12} color={rc('var(--c-red-600)')} />
           </foreignObject>
         </g>
 
@@ -367,8 +368,8 @@ export default function RadialMenu({
             >
               <path
                 d={describeArc(cx, cy, innerRingInner, innerRingOuter, startAngle, endAngle)}
-                fill={isHovered ? category.color : '#f9fafb'}
-                stroke={category.color}
+                fill={rc(isHovered ? category.color : 'var(--c-gray-50)')}
+                stroke={rc(category.color)}
                 strokeWidth={2}
               />
               <foreignObject
@@ -378,7 +379,7 @@ export default function RadialMenu({
                 height={20}
                 style={{ pointerEvents: 'none' }}
               >
-                <category.icon size={20} color={isHovered ? '#ffffff' : category.color} />
+                <category.icon size={20} color={rc(isHovered ? 'var(--c-white)' : category.color)} />
               </foreignObject>
             </g>
           );
@@ -404,8 +405,8 @@ export default function RadialMenu({
                 >
                   <path
                     d={describeArc(cx, cy, outerRingInner, outerRingOuter, startAngle, endAngle)}
-                    fill="#ffffff"
-                    stroke={resource.color}
+                    fill={rc('var(--c-white)')}
+                    stroke={rc(resource.color)}
                     strokeWidth={2}
                   />
                   <foreignObject
@@ -415,14 +416,14 @@ export default function RadialMenu({
                     height={16}
                     style={{ pointerEvents: 'none' }}
                   >
-                    <resource.icon size={16} color={resource.color} />
+                    <resource.icon size={16} color={rc(resource.color)} />
                   </foreignObject>
                   <text
                     x={center.x}
                     y={center.y + 12}
                     textAnchor="middle"
                     fontSize="9"
-                    fill="#374151"
+                    fill={rc('var(--c-gray-700)')}
                     fontWeight="500"
                     style={{ pointerEvents: 'none' }}
                   >

@@ -63,7 +63,11 @@ export interface Preferences {
    * account while the app is open, in minutes. 0 means only when asked.
    */
   driftCheckMinutes: number;
+  /** Light, dark, or whatever the system says. Applied to <html data-theme>; see utils/theme.ts. */
+  appearance: Appearance;
 }
+
+export type Appearance = 'system' | 'light' | 'dark';
 
 export const DEFAULT_PREFERENCES: Preferences = {
   debugMode: false,
@@ -79,6 +83,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   assistantProvider: '',
   assistantModel: '',
   driftCheckMinutes: 0,
+  appearance: 'system',
 };
 
 export function getPreferences(): Preferences {

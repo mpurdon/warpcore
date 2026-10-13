@@ -63,7 +63,7 @@ export default function ConnectSection({ node }: { node: Node }) {
         <p className="text-xs text-gray-500">No AWS profile is recorded for this environment.</p>
       ) : !plan && !loading ? (
         <div className="flex items-center gap-2">
-          <button onClick={read} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-900 text-white text-xs hover:bg-gray-800">
+          <button onClick={read} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-strong text-on-strong text-xs hover:bg-strong-hover">
             <Terminal size={12} /> How do I reach this?
           </button>
           <span className="text-[11px] text-gray-500">checks the port, the key, Session Manager and a jump host</span>
@@ -87,12 +87,12 @@ export default function ConnectSection({ node }: { node: Node }) {
           </ul>
           {plan.command ? (
             <>
-              <pre className="text-[11px] font-mono bg-gray-900 text-gray-100 rounded p-2 whitespace-pre-wrap break-all">{plan.command}</pre>
+              <pre className="text-[11px] font-mono bg-chrome text-chrome-fg rounded p-2 whitespace-pre-wrap break-all">{plan.command}</pre>
               <div className="flex items-center gap-2 mt-2">
                 <button onClick={copy} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 text-xs hover:bg-gray-50">
                   <Copy size={11} /> {copied ? 'Copied' : 'Copy'}
                 </button>
-                <button onClick={open} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-900 text-white text-xs hover:bg-gray-800">
+                <button onClick={open} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-strong text-on-strong text-xs hover:bg-strong-hover">
                   <Terminal size={11} /> Open in Terminal
                 </button>
                 <button onClick={read} className="text-[11px] text-gray-500 hover:text-gray-800 ml-auto">Check again</button>

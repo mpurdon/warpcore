@@ -199,7 +199,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => jump(i)}
-                      className={`w-5 h-5 rounded-full text-[10px] font-semibold flex items-center justify-center shrink-0 ${isActive ? 'bg-blue-600 text-white' : done ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-700'}`}
+                      className={`w-5 h-5 rounded-full text-[10px] font-semibold flex items-center justify-center shrink-0 ${isActive ? 'bg-blue-600 text-white' : done ? 'bg-strong/70 text-on-strong' : 'bg-gray-200 text-gray-700'}`}
                       title={head ? 'Jump the playhead here' : 'Show on the canvas'}
                     >
                       {i + 1}
@@ -302,7 +302,7 @@ export default function ScenarioInspector({ scenario }: { scenario: Scenario }) 
             {logs.length === 0 ? (
               <p className="text-xs text-gray-500">Lines appear when a function or agent runs. They show data moving and are not what the code logs.</p>
             ) : (
-              <pre ref={logRef} className="m-0 max-h-56 overflow-auto rounded bg-gray-950 text-gray-200 px-2 py-1.5 text-[10px] leading-relaxed font-mono">
+              <pre ref={logRef} className="m-0 max-h-56 overflow-auto rounded bg-chrome text-chrome-fg px-2 py-1.5 text-[10px] leading-relaxed font-mono">
                 {logs.map((block) => (
                   <div key={block.at} className="mb-1.5">
                     <div className="text-gray-500">— {name(block.at)}</div>

@@ -27,13 +27,13 @@ interface Props {
 }
 
 export const STATUS_DOT: Record<NodeStatus, { color: string; label: string; pulse?: boolean }> = {
-  draft: { color: '#9ca3af', label: 'Not configured yet' },
-  warning: { color: '#f59e0b', label: 'Needs attention' },
-  configured: { color: '#3b82f6', label: 'Ready to deploy' },
-  deploying: { color: '#3b82f6', label: 'Deploying', pulse: true },
-  deployed: { color: '#10b981', label: 'Deployed' },
-  failed: { color: '#ef4444', label: 'Deployment failed' },
-  present: { color: '#d1d5db', label: 'Exists in the account; health unknown' },
+  draft: { color: 'var(--c-gray-400)', label: 'Not configured yet' },
+  warning: { color: 'var(--c-amber-500)', label: 'Needs attention' },
+  configured: { color: 'var(--c-blue-500)', label: 'Ready to deploy' },
+  deploying: { color: 'var(--c-blue-500)', label: 'Deploying', pulse: true },
+  deployed: { color: 'var(--c-emerald-500)', label: 'Deployed' },
+  failed: { color: 'var(--c-red-500)', label: 'Deployment failed' },
+  present: { color: 'var(--c-gray-300)', label: 'Exists in the account; health unknown' },
 };
 
 export default function NodeWrapper({ nodeId, selected, children, className = '', status, costNode, note, arn }: Props) {

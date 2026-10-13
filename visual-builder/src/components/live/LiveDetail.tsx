@@ -101,7 +101,7 @@ export function HeadlineMetrics({ detail, compact = false }: { detail: ResourceD
               <span className="text-[10px] uppercase tracking-wide text-gray-500 truncate">{SERIES_LABEL[s.name] ?? s.name}</span>
               <span className={`text-xs font-semibold font-mono whitespace-nowrap ${bad ? 'text-red-700' : 'text-gray-900'}`}>{formatMetric(headline, s.unit)}</span>
             </div>
-            {s.points && s.points.length > 1 && <Sparkline points={s.points} width={compact ? 108 : 140} height={24} color={bad ? '#dc2626' : '#2563eb'} />}
+            {s.points && s.points.length > 1 && <Sparkline points={s.points} width={compact ? 108 : 140} height={24} color={bad ? 'var(--c-red-600)' : 'var(--c-blue-600)'} />}
             <div className="text-[10px] text-gray-400 whitespace-nowrap truncate">{s.statistic === 'Sum' ? 'total' : s.statistic === 'Maximum' ? 'peak' : s.statistic === 'Minimum' ? 'latest' : 'average'} · peak {formatMetric(s.maximum, s.unit)}</div>
           </div>
         );
@@ -374,7 +374,7 @@ function LogsTab({ detail }: { detail: ResourceDetail }) {
             {formatBytes(g.stored_bytes)} stored · retention {g.retention_days ? `${g.retention_days}d` : 'never expires'}
           </p>
           {g.recent_events.length ? (
-            <div className="bg-gray-900 text-gray-100 rounded p-2 font-mono text-[11px] max-h-80 overflow-y-auto">
+            <div className="bg-chrome text-chrome-fg rounded p-2 font-mono text-[11px] max-h-80 overflow-y-auto">
               {g.recent_events.map((e, i) => (
                 <div key={i} className="mb-0.5"><span className="text-gray-500">{e.timestamp.slice(11, 19)}</span> {e.message}</div>
               ))}

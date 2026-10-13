@@ -108,5 +108,5 @@ export function worst(findings: Finding[] | undefined): Severity | null {
   return findings.reduce<Severity>((acc, f) => (SEVERITY_RANK[f.severity] < SEVERITY_RANK[acc] ? f.severity : acc), 'low');
 }
 
-export const SEVERITY_COLOR: Record<Severity, string> = { high: '#dc2626', medium: '#d97706', low: '#6b7280' };
+export const SEVERITY_COLOR: Record<Severity, string> = { high: 'var(--c-red-600)', medium: 'var(--c-amber-600)', low: 'var(--c-gray-500)' };
 export const KIND_LABEL: Record<FindingKind, string> = { cost: 'Cost', security: 'Security', reliability: 'Reliability', operability: 'Operability' };

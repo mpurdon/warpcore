@@ -45,6 +45,7 @@ import { registerCanvas } from './utils/canvasActions';
 import { runFromUi } from './commands';
 import AssistantPanel from './components/AssistantPanel';
 import { startBridge } from './assistant/bridge';
+import { applyAppearance, rc, useThemeVersion } from './utils/theme';
 import { isDlqEdge } from './utils/scenarios';
 import { useShortcuts } from './hooks/useShortcuts';
 import { nodeTypes } from './components/nodes';
@@ -64,13 +65,13 @@ const RESOURCE_Z = 2;
 
 // Minimap colours follow node status, the same semantics as the node tints.
 const MINIMAP_COLOR: Record<NodeStatus, string> = {
-  draft: '#e5e7eb',
-  warning: '#fde68a',
-  configured: '#bfdbfe',
-  deploying: '#93c5fd',
-  deployed: '#86efac',
-  failed: '#fca5a5',
-  present: '#f3f4f6',
+  draft: 'var(--c-gray-200)',
+  warning: 'var(--c-amber-200)',
+  configured: 'var(--c-blue-200)',
+  deploying: 'var(--c-blue-300)',
+  deployed: 'var(--c-green-300)',
+  failed: 'var(--c-red-300)',
+  present: 'var(--c-gray-100)',
 };
 
 function Flow() {
@@ -185,7 +186,7 @@ function Flow() {
               isComputed: true,
             },
             style: {
-              stroke: '#f59e0b',
+              stroke: 'var(--c-amber-500)',
               strokeWidth: 2,
               strokeDasharray: '5 5',
             },
@@ -209,6 +210,9 @@ function Flow() {
   const drift = useStore((s) => s.drift);
   const holodeckPreview = useStore((s) => s.holodeckPreview);
   const assistantOpen = useStore((s) => s.assistantOpen);
+  const appearance = useStore((s) => s.prefs.appearance);
+  const themeVersion = useThemeVersion();
+  useEffect(() => { applyAppearance(appearance); }, [appearance]);
   // The bridge: `warpcore mcp` and outside agents run commands through here.
   useEffect(() => {
     const started = startBridge();
@@ -332,7 +336,7 @@ function Flow() {
     const className = classes.join(' ') || undefined;
     if (out === n) return className === n.className ? n : { ...n, className };
     return { ...out, className };
-  }), [baseNodes, errorsByNode, emphasis, reflow, scenarioView, liveClasses]);
+  }), [baseNodes, errorsByNode, emphasis, reflow, scenarioView, liveClasses, themeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle mouse-based drag from palette
   useEffect(() => {
@@ -910,15 +914,15 @@ function Flow() {
             edgesUpdatable={!readOnly}
             className="h-full w-full"
           >
-            <Background variant={BackgroundVariant.Dots} gap={15} size={1} />
+            <Background variant={BackgroundVariant.Dots} gap={15} size={1} color="rgb(var(--c-gray-300))" />
             <Controls />
             <MiniMap
               pannable
               zoomable
-              nodeColor={(n) => MINIMAP_COLOR[(n.data?.status as NodeStatus | undefined) ?? 'draft'] ?? '#e5e7eb'}
-              nodeStrokeColor={(n) => (n.selected ? '#2563eb' : 'transparent')}
+              nodeColor={(n) => rc(MINIMAP_COLOR[(n.data?.status as NodeStatus | undefined) ?? 'draft'] ?? 'var(--c-gray-200)')}
+              nodeStrokeColor={(n) => (n.selected ? rc('var(--c-blue-600)') : 'transparent')}
               nodeStrokeWidth={4}
-              maskColor="rgba(243, 244, 246, 0.7)"
+              maskColor={rc("rgb(var(--c-gray-100) / 0.7)")}
             />
             {/* Visual grouping overlay for related nodes (DLQ, etc.) */}
             <GroupingOverlay groups={nodeGroups} nodes={nodes} onBreakGroup={handleBreakGroup} onMoveGroup={handleMoveGroup} />
@@ -952,7 +956,7 @@ function Flow() {
           {/* Selection info bar */}
           {selectedNodes.length > 1 && (
             <div
-              className="absolute left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm shadow-lg z-20"
+              className="absolute left-1/2 -translate-x-1/2 bg-strong text-on-strong px-4 py-2 rounded-lg text-sm shadow-lg z-20"
               style={{ bottom: drawerHeight + 16 }}
             >
               {selectedNodes.length} nodes selected
