@@ -110,6 +110,12 @@ export interface CommandSpec {
   hidden?: boolean;
   /** Not offered to a model: the operator's own chrome (the palette, file pickers, the selection). */
   notForModel?: boolean;
+  /**
+   * The canvas is not re-arranged after this one. For a drag, where the
+   * operator is placing something themselves, and for the layout command,
+   * which has just done it.
+   */
+  keepsPlacement?: boolean;
   /** Palette rows, one per instance, when the command is about a particular thing. */
   instances?: (state: StoreState) => Instance[];
   run: (args: Args, ctx: RunContext) => unknown | Promise<unknown>;

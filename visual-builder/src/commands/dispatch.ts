@@ -6,7 +6,10 @@
 // written by the command.
 
 import { useStore } from '../store/useStore';
+import { isArranged, layoutCanvas } from '../utils/autoLayout';
 import { ArgError, blocked, confirmQuestion, get, summaryOf, validate } from './registry';
+import type { StoreState } from '../store/useStore';
+import type { CommandSpec } from './types';
 import type { Args, CommandResult, Receipt, Source } from './types';
 
 /** What a confirmation callback is told, so it can draw the card without re-deriving anything. */
@@ -74,8 +77,10 @@ export async function run(id: string, rawArgs: Args = {}, opts: RunOptions = { s
     }
   }
 
+  const before = useStore.getState();
   try {
-    const result = await spec.run(args, { state: useStore.getState(), source: opts.source });
+    const result = await spec.run(args, { state: before, source: opts.source });
+    redrawIfMoved(spec, before);
     record({ id, args, source: opts.source, at, ok: true, summary });
     return { ok: true, summary, result };
   } catch (e) {
@@ -83,6 +88,23 @@ export async function run(id: string, rawArgs: Args = {}, opts: RunOptions = { s
     record({ id, args, source: opts.source, at, ok: false, summary, error });
     return { ok: false, summary, error };
   }
+}
+
+/**
+ * An arranged canvas places what it is given: after any command that
+ * changed the nodes or the wiring, the tiles and bands are drawn again, so
+ * no command has to remember to do it and none can forget. A canvas with
+ * no tiles is a freehand sketch and is left where its author put things.
+ */
+function redrawIfMoved(spec: CommandSpec, before: StoreState): void {
+  if (spec.keepsPlacement) return;
+  const s = useStore.getState();
+  if (s.nodes === before.nodes && s.edges === before.edges) return;
+  if (!isArranged(s.nodes)) return;
+  s.setNodes(layoutCanvas(s.nodes, s.edges, { projectName: s.projectName ?? undefined }));
+  // assignHandles writes the handles in place; React Flow redraws an edge
+  // only when the array it was handed changes.
+  useStore.getState().setEdges((edges) => [...edges]);
 }
 
 /**

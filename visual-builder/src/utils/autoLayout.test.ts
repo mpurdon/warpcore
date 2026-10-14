@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Edge, Node } from 'reactflow';
-import { layoutCanvas } from './autoLayout';
+import { CHOSEN, layoutCanvas } from './autoLayout';
 
 const node = (id: string, type: string, extra: Partial<Node> = {}): Node => ({
   id, type, position: { x: 0, y: 0 }, data: { label: id, config: {} }, ...extra,
@@ -57,5 +57,44 @@ describe('layoutCanvas', () => {
     expect(byId.get('host')!.parentNode).toBe('vpc');
     const index = new Map(out.map((n, i) => [n.id, i]));
     for (const n of out) if (n.parentNode) expect(index.get(n.parentNode)!, n.id).toBeLessThan(index.get(n.id)!);
+  });
+});
+
+describe('layoutCanvas and the canvases it redraws', () => {
+  const imported = (): Node[] => [
+    node('cdn', 'cloudfront', { data: { label: 'admin-site', config: {}, meta: { application: { id: 'admin', name: 'admin', reason: 'tag Application=admin' } } } }),
+    node('api', 'api-gateway', { data: { label: 'admin-api', config: {}, meta: { application: { id: 'admin', name: 'admin', reason: 'tag Application=admin' } } } }),
+    node('fn', 'lambda', { data: { label: 'feed-fn', config: {}, meta: { application: { id: 'feed', name: 'feed', reason: 'tag Application=feed' } } } }),
+    node('tbl', 'dynamodb', { data: { label: 'flags', config: {}, meta: { application: { id: 'feed', name: 'feed', reason: 'tag Application=feed' } } } }),
+  ];
+
+  it('keeps the grouping an import worked out, instead of re-deciding it', () => {
+    const edges = [edge('cdn', 'api'), edge('api', 'fn'), edge('fn', 'tbl')];
+    const out = layoutCanvas(imported(), edges, { projectName: 'shop' });
+    expect(out.filter((n) => n.type === 'application').map((n) => n.data.label).sort()).toEqual(['admin', 'feed']);
+  });
+
+  it('never moves the nodes it was given', () => {
+    const before = imported();
+    const snapshot = before.map((n) => JSON.stringify({ p: n.position, parent: n.parentNode, meta: n.data.meta }));
+    layoutCanvas(before, [edge('cdn', 'api')], { projectName: 'shop' });
+    expect(before.map((n) => JSON.stringify({ p: n.position, parent: n.parentNode, meta: n.data.meta }))).toEqual(snapshot);
+  });
+
+  it('hands back the same node object when nothing moved', () => {
+    const edges = [edge('cdn', 'api'), edge('api', 'fn'), edge('fn', 'tbl')];
+    const once = layoutCanvas(imported(), edges, { projectName: 'shop' });
+    const twice = layoutCanvas(once, edges, { projectName: 'shop' });
+    const byId = new Map(once.map((n) => [n.id, n]));
+    const resources = twice.filter((n) => !['application', 'band'].includes(n.type || ''));
+    expect(resources.every((n) => byId.get(n.id) === n)).toBe(true);
+  });
+
+  it("keeps what the operator chose, whatever the wiring says", () => {
+    const nodes = imported();
+    nodes[3].data.meta = { application: { id: 'admin', name: 'admin', reason: CHOSEN } };
+    const out = layoutCanvas(nodes, [edge('fn', 'tbl')], { projectName: 'shop' });
+    const tbl = out.find((n) => n.id === 'tbl')!;
+    expect(tbl.data.meta.application).toEqual({ id: 'admin', name: 'admin', reason: CHOSEN });
   });
 });

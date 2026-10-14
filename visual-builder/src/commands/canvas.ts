@@ -12,7 +12,7 @@ import { displayNameFor } from '../utils/nodeName';
 import { isResourceBasedConnection } from '../utils/rolePolicy';
 import { define } from './registry';
 import { findNode, nameOf } from './view';
-import { isArranged, layoutCanvas } from '../utils/autoLayout';
+import { CHOSEN } from '../utils/autoLayout';
 
 /** Every type a node can be: the palette's resources and the discovered types. */
 export const NODE_TYPES: Record<string, string> = {
@@ -33,17 +33,6 @@ const need = (state: StoreState, ref: string): Node => {
   if (!node) throw new Error(`no resource ${ref} on the canvas`);
   return node;
 };
-
-/**
- * Draw the canvas again after a change, when it is one the layout
- * arranges: a resource added, wired or removed finds its own place, so no
- * caller has to know where anything goes. A freehand canvas is left alone.
- */
-function redraw(): void {
-  const s = useStore.getState();
-  if (!isArranged(s.nodes)) return;
-  s.setNodes(layoutCanvas(s.nodes, s.edges, { projectName: s.projectName ?? undefined }));
-}
 
 /** Remove nodes and every edge that touched them; the selection and the open form follow. */
 function removeNodeIds(ids: string[]): void {
@@ -88,15 +77,15 @@ define({
     if (taken.has(id)) throw new Error(`a resource with id ${id} already exists`);
     const x = (a.x as number | undefined) ?? 80 + (state.nodes.length % 6) * 220;
     const y = (a.y as number | undefined) ?? 80 + Math.floor(state.nodes.length / 6) * 140;
-    const config = { ...((a.config as Record<string, unknown>) ?? {}) };
-    if (a.app) config.tags = { ...((config.tags as Record<string, string>) ?? {}), Application: String(a.app) };
     const node: Node = {
       id, type, position: { x, y },
-      data: { label: (a.label as string | undefined) ?? NODE_TYPES[type], status: 'draft', ...(Object.keys(config).length ? { config } : {}) },
+      data: {
+        label: (a.label as string | undefined) ?? NODE_TYPES[type], status: 'draft',
+        ...(a.config ? { config: a.config } : {}),
+        ...(a.app ? { meta: { application: { id: String(a.app), name: String(a.app), reason: CHOSEN } } } : {}),
+      },
     };
     useStore.getState().setNodes((nodes) => [...nodes, node]);
-    // An arranged canvas places it; coordinates given by a drop are kept.
-    if (a.x === undefined && a.y === undefined) redraw();
     return { id };
   },
 });
@@ -108,7 +97,6 @@ define({
   run: (a, { state }) => {
     const ids = (a.ids as string[]).map((r) => need(state, r).id);
     removeNodeIds(ids);
-    redraw();
     return { removed: ids };
   },
 });
@@ -157,8 +145,6 @@ define({
       if (path) s.setNodes((nodes) => nodes.map((n) => (n.id === target.id ? { ...n, data: { ...n.data, config: { ...(n.data?.config ?? {}), logGroupPath: path } } } : n)));
     }
     useStore.getState().setEdges((edges) => [...edges, edge]);
-    // A new connection can change which application a resource belongs to.
-    redraw();
     return { id: edge.id };
   },
 });
@@ -187,7 +173,7 @@ define({
 });
 
 define({
-  id: 'canvas.setApplication', title: 'Move a resource to an application', description: 'Put a resource in an application tile, e.g. "admin" or "delivery". The canvas redraws with it in that group.', group: 'Canvas', kind: 'project', hidden: true,
+  id: 'canvas.setApplication', title: 'Move a resource to an application', description: 'Put a resource in an application tile, e.g. "admin" or "delivery". The canvas redraws with it in that group. This is how the canvas is grouped, not an AWS tag: it never reaches a deploy plan.', group: 'Canvas', kind: 'project', hidden: true,
   params: { id: { type: 'string', description: 'Node id or unique label', required: true }, app: { type: 'string', description: 'The application name; empty lets the wiring decide again', required: true } },
   describe: (a, s) => `Move ${nameOf(s, a.id as string)} to ${a.app || 'no application'}`,
   run: (a, { state }) => {
@@ -195,11 +181,13 @@ define({
     const app = String(a.app).trim();
     useStore.getState().setNodes((nodes) => nodes.map((n) => {
       if (n.id !== node.id) return n;
-      const tags = { ...((n.data?.config?.tags as Record<string, string>) ?? {}) };
-      if (app) tags.Application = app; else delete tags.Application;
-      return { ...n, data: { ...n.data, config: { ...(n.data?.config ?? {}), tags } } };
+      const meta = { ...(n.data?.meta ?? {}) };
+      // A view choice, not an AWS tag: the compiler reads config.tags, and
+      // moving a card between tiles must never reach a deploy plan.
+      if (app) meta.application = { id: app, name: app, reason: CHOSEN };
+      else delete meta.application;
+      return { ...n, data: { ...n.data, meta } };
     }));
-    redraw();
     return { id: node.id, app: app || null };
   },
 });
@@ -230,7 +218,7 @@ define({
 });
 
 define({
-  id: 'canvas.move', title: 'Move a resource', description: 'Place a resource at canvas coordinates. Only for a drag: on an arranged canvas the layout decides where things go, and the next edit puts this one back.', group: 'Canvas', kind: 'project', hidden: true, notForModel: true,
+  id: 'canvas.move', title: 'Move a resource', description: 'Place a resource at canvas coordinates. Only for a drag: on an arranged canvas the layout decides where things go, and the next edit puts this one back.', group: 'Canvas', kind: 'project', hidden: true, notForModel: true, keepsPlacement: true,
   params: { id: { type: 'string', description: 'Node id or unique label', required: true }, x: { type: 'number', description: 'x', required: true }, y: { type: 'number', description: 'y', required: true } },
   describe: (a) => `Move ${a.id} to ${a.x},${a.y}`,
   run: (a, { state }) => {

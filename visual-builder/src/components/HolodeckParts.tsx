@@ -4,21 +4,21 @@
 
 import { useState } from 'react';
 import { Copy, Flame, Route } from 'lucide-react';
-import { difficultyLabel, familyInfo, HolodeckEntry, HolodeckFamily, HolodeckMeta } from '../utils/holodeck';
+import { difficultyLabel, familyInfo, FamilyInfo, HolodeckEntry, HolodeckFamily, HolodeckMeta } from '../utils/holodeck';
 import { isUnhappy } from '../utils/scenarios';
 import SaveCopyDialog from './SaveCopyDialog';
 
-const TAG_CLASS: Record<HolodeckFamily, string> = {
-  reference: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  inspired: 'bg-violet-50 text-violet-800 border-violet-200',
-  classic: 'bg-sky-50 text-sky-800 border-sky-200',
-  starter: 'bg-gray-100 text-gray-700 border-gray-200',
-  designed: 'bg-amber-50 text-amber-800 border-amber-200',
+const TAG_CLASS: Record<FamilyInfo['tone'], string> = {
+  emerald: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  violet: 'bg-violet-50 text-violet-800 border-violet-200',
+  sky: 'bg-sky-50 text-sky-800 border-sky-200',
+  gray: 'bg-gray-100 text-gray-700 border-gray-200',
+  amber: 'bg-amber-50 text-amber-800 border-amber-200',
 };
 
 export function FamilyTag({ family }: { family: HolodeckFamily }) {
   const f = familyInfo(family);
-  return <span className={`text-[10px] font-medium border rounded-full px-1.5 py-px whitespace-nowrap ${TAG_CLASS[family]}`} title={f.description}>{f.tag}</span>;
+  return <span className={`text-[10px] font-medium border rounded-full px-1.5 py-px whitespace-nowrap ${TAG_CLASS[f.tone]}`} title={f.description}>{f.tag}</span>;
 }
 
 export function Difficulty({ d }: { d: 1 | 2 | 3 }) {

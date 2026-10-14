@@ -1,22 +1,37 @@
 // Laying a canvas out: resources clustered into application tiles, each
 // tile's members in bands in request order, the whole thing stacked.
 //
-// This is what an imported account gets (projectFromAccount.ts calls it at
-// the end of buildCanvas) and what a Holodeck entry gets. A canvas built by
-// hand or by commands gets it on demand, from `canvas.layout`, so nothing
-// has to place a node by eye.
+// One arrangement, two callers: an imported account (buildCanvas ends
+// here) and a canvas built by hand or by commands (`canvas.layout`, and
+// the dispatcher after any edit). So nothing has to place a node by eye,
+// and an import and an edit arrange the same canvas the same way.
+//
+// Grouping has one home: `meta.application` on the node. The import works
+// it out from tags, names and wiring; the operator overrides it by name
+// (canvas.setApplication); a later layout keeps what is already decided
+// and clusters only what has no home yet. It is canvas state, never an
+// AWS tag: the compiler reads `config.tags`, and a view choice must not
+// show up in a deploy plan.
 //
 // Containment that already means something, a VPC's subnets and what sits
 // in them, is kept; only the tiles and bands are rebuilt.
 
 import type { Edge, Node } from 'reactflow';
-import { clusterApplications, ClusterItem, SHARED_ID } from './applications';
-import { assignHandles, bandFor, BandKind, BAND_ORDER, layoutStackCanvas } from './stackLayout';
+import { clusterApplications, ClusterItem, ClusterLink, SHARED_ID } from './applications';
+import { assignHandles, bandFor, BandKind, BAND_ORDER, isStackCanvas, layoutStackCanvas, pushTo } from './stackLayout';
 import type { NodeMeta } from './projectFromAccount';
 import { orderParentsFirst } from './nodeTree';
 
 /** Containers the layout owns: it removes them and makes them again. */
 export const LAYOUT_CONTAINERS: ReadonlySet<string> = new Set(['application', 'band']);
+
+/** The VPC and its plumbing travel together whatever they are wired to. */
+export const NETWORK_PLUMBING: ReadonlySet<string> = new Set(['vpc', 'subnet', 'security-group', 'internet-gateway', 'nat-gateway', 'route-table', 'vpc-endpoint', 'elastic-ip']);
+
+/** Why a node is in the application it is in, when the operator said so. Outlives a re-layout. */
+export const CHOSEN = 'chosen by you';
+
+export const metaOf = (node: Node): NodeMeta => ((node.data.meta ||= {} as NodeMeta) as NodeMeta);
 
 /**
  * Whether the canvas is one the layout arranges. A canvas that has been
@@ -24,57 +39,53 @@ export const LAYOUT_CONTAINERS: ReadonlySet<string> = new Set(['application', 'b
  * every later edit is placed for the operator; a freehand sketch with no
  * tiles is left exactly where its author put things.
  */
-export function isArranged(nodes: { type?: string }[]): boolean {
-  return nodes.some((n) => n.type === 'application');
-}
-
-/** The application a node belongs to, as the tag the clusterer reads. */
-export function appTagOf(node: { data?: { config?: Record<string, unknown> } }): string | undefined {
-  const tags = (node.data?.config as { tags?: Record<string, string> } | undefined)?.tags;
-  if (!tags) return undefined;
-  const hit = Object.entries(tags).find(([k]) => k.toLowerCase() === 'application');
-  return hit?.[1];
-}
-
-const NETWORK_PLUMBING: ReadonlySet<string> = new Set(['vpc', 'subnet', 'security-group', 'internet-gateway', 'nat-gateway', 'route-table', 'vpc-endpoint', 'elastic-ip']);
-
-function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
-  const list = map.get(key);
-  if (list) list.push(value);
-  else map.set(key, [value]);
-}
-
-const metaOf = (node: Node): NodeMeta => ((node.data.meta ||= {} as NodeMeta) as NodeMeta);
+export const isArranged = isStackCanvas;
 
 export interface LayoutOptions {
   /** Names the tile that holds whatever belongs to no application of its own. */
   projectName?: string;
   /** The region each node shows, for a tile's subtitle. */
   regionOf?: (node: Node) => string;
+  /** The tags a node carries, when the caller knows them better than the canvas does. */
+  tagsOf?: (node: Node) => Record<string, string> | undefined;
+  /** What the clusterer votes on, when the drawn edges are not the whole story (an import keeps its hidden ones). */
+  links?: ClusterLink[];
+}
+
+/** The layout's own fields on a node's meta, compared for "did anything move". */
+function sameMeta(a: NodeMeta | undefined, b: NodeMeta | undefined): boolean {
+  const x = (a ?? {}) as NodeMeta;
+  const y = (b ?? {}) as NodeMeta;
+  return Boolean(x.isGroup) === Boolean(y.isGroup)
+    && Boolean(x.compact) === Boolean(y.compact)
+    && x.band === y.band
+    && x.application?.id === y.application?.id
+    && x.application?.name === y.application?.name
+    && x.application?.reason === y.application?.reason;
 }
 
 /**
  * The canvas, laid out: tiles, bands, positions and edge handles. Returns
- * new nodes (parents first, as React Flow wants); the edges are given
- * handles in place.
+ * the nodes parents-first, as React Flow wants. Edge handles are written
+ * in place, so hand React Flow a fresh edges array afterwards.
  */
 export function layoutCanvas(nodes: Node[], edges: Edge[], opts: LayoutOptions = {}): Node[] {
   const projectName = opts.projectName || 'project';
-  const regionOf = opts.regionOf ?? ((n: Node) => String(n.data?.region ?? ''));
+  const regionOf = opts.regionOf ?? (() => '');
+  const tagsOf = opts.tagsOf ?? ((n: Node) => (n.data?.config as { tags?: Record<string, string> } | undefined)?.tags);
 
   // Start from the resources: the layout's own containers go, and with them
   // any parent link into one. Containment that means something stays.
-  const kept = nodes.filter((n) => !LAYOUT_CONTAINERS.has(n.type || ''));
+  // Everything below works on copies, so a caller's nodes are never moved
+  // under it; what did not move is handed back as the original object at
+  // the end, so React Flow re-renders only what changed.
   const goneIds = new Set(nodes.filter((n) => LAYOUT_CONTAINERS.has(n.type || '')).map((n) => n.id));
-  const working = kept.map((n) => {
-    const copy: Node = { ...n, data: { ...n.data, meta: { ...(n.data?.meta ?? {}) } } };
-    if (copy.parentNode && goneIds.has(copy.parentNode)) { delete copy.parentNode; delete copy.extent; }
-    delete (copy.data.meta as NodeMeta).application;
-    return copy;
-  });
-
+  const original = new Map(nodes.map((n) => [n.id, n]));
+  const working = nodes
+    .filter((n) => !LAYOUT_CONTAINERS.has(n.type || ''))
+    .map((n) => ({ ...n, position: { ...n.position }, data: { ...n.data, meta: { ...(n.data?.meta ?? {}) } } }));
   const parentOf = new Map<string, string>();
-  for (const n of working) if (n.parentNode) parentOf.set(n.id, n.parentNode);
+  for (const n of working) if (n.parentNode && !goneIds.has(n.parentNode)) parentOf.set(n.id, n.parentNode);
   const byId = new Map(working.map((n) => [n.id, n]));
   const topLevelOf = (n: Node): Node => {
     let cur = n;
@@ -82,22 +93,34 @@ export function layoutCanvas(nodes: Node[], edges: Edge[], opts: LayoutOptions =
     return cur;
   };
 
-  // ---- applications: every resource gets a home and a reason.
-  const clusterItems: ClusterItem[] = working.map((n) => ({
-    id: n.id,
-    name: String(n.data?.label ?? n.id),
-    type: n.type || '',
-    tags: (n.data?.config as { tags?: Record<string, string> } | undefined)?.tags,
-    platform: bandFor(n) === 'platform' || NETWORK_PLUMBING.has(n.type || ''),
-    parent: parentOf.get(n.id),
-  }));
-  const clusterLinks = edges
-    .filter((e) => byId.has(e.source) && byId.has(e.target))
-    .map((e) => ({ source: e.source, target: e.target }));
-  const clustering = clusterApplications(clusterItems, clusterLinks, projectName);
+  // ---- applications: every resource keeps the home it has, and whatever
+  // has none is clustered by its tags, its name and its wiring. A home
+  // already decided is handed to the clusterer as a tag, the evidence it
+  // trusts most, so neighbours can still be drawn in.
+  const clusterItems: ClusterItem[] = working.map((n) => {
+    const decided = metaOf(n).application?.name;
+    return {
+      id: n.id,
+      name: String(n.data?.label ?? n.id),
+      type: n.type || '',
+      tags: decided ? { Application: decided } : tagsOf(n),
+      platform: bandFor(n) === 'platform' || NETWORK_PLUMBING.has(n.type || ''),
+      parent: parentOf.get(n.id),
+    };
+  });
+  const links = opts.links ?? edges.filter((e) => byId.has(e.source) && byId.has(e.target)).map((e) => ({ source: e.source, target: e.target }));
+  const clustering = clusterApplications(clusterItems, links, projectName);
+
+  // Who belongs where, in one pass: the top-level members a tile holds, and
+  // everything counted against it, including what sits inside a VPC.
+  const appOf = (n: Node): string => clustering.assignments.get(topLevelOf(n).id)?.id ?? SHARED_ID;
+  const membersByApp = new Map<string, Node[]>();
+  const countByApp = new Map<string, number>();
   for (const n of working) {
-    const a = clustering.assignments.get(n.id);
-    if (a) metaOf(n).application = a;
+    if (n.hidden) continue;
+    const app = appOf(n);
+    countByApp.set(app, (countByApp.get(app) ?? 0) + 1);
+    if (!parentOf.has(n.id)) pushTo(membersByApp, app, n);
   }
 
   // ---- one tile per application, one band per kind that has members.
@@ -112,8 +135,8 @@ export function layoutCanvas(nodes: Node[], edges: Edge[], opts: LayoutOptions =
     return id;
   };
   for (const app of clustering.applications) {
-    const members = working.filter((n) => !n.hidden && !parentOf.has(n.id) && (metaOf(topLevelOf(n)).application?.id ?? SHARED_ID) === app.id);
-    if (members.length === 0) continue;
+    const members = membersByApp.get(app.id);
+    if (!members?.length) continue;
     const tileId = idFor('application', app.id);
     const regions = new Set<string>();
     for (const m of members) { const r = regionOf(m); if (r) regions.add(r); }
@@ -129,7 +152,6 @@ export function layoutCanvas(nodes: Node[], edges: Edge[], opts: LayoutOptions =
       },
     };
     containers.push(tile);
-    const total = working.filter((n) => !n.hidden && (metaOf(topLevelOf(n)).application?.id ?? SHARED_ID) === app.id).length;
     const byBand = new Map<BandKind, Node[]>();
     for (const m of members) pushTo(byBand, bandFor(m), m);
     // One band is no band: a tile with members of a single kind holds them
@@ -158,28 +180,52 @@ export function layoutCanvas(nodes: Node[], edges: Edge[], opts: LayoutOptions =
         if (kind === 'platform') metaOf(m).compact = true;
       }
     }
+    const total = countByApp.get(app.id) ?? members.length;
     tile.data.config.subtitle = [
       `${total} resource${total === 1 ? '' : 's'}`,
       [...regions].sort().join(', ') || 'global',
     ].join(' · ');
   }
 
+  // A resource clustered into a tile remembers it, so the next layout keeps
+  // it there and the inspector can say why it is where it is. What the
+  // operator chose themselves is never overwritten.
+  for (const n of working) {
+    const a = clustering.assignments.get(n.id);
+    if (a && metaOf(n).application?.reason !== CHOSEN) metaOf(n).application = a;
+  }
+
   const all = [...working, ...containers];
   const allById = new Map(all.map((n) => [n.id, n]));
-  // Anything with children is a group; the layout reads parentNode.
-  const childrenOf = new Map<string, Node[]>();
   for (const [child, parent] of parentOf) {
     const c = allById.get(child);
-    if (!c || c.hidden || !allById.has(parent)) continue;
-    pushTo(childrenOf, parent, c);
+    const p = allById.get(parent);
+    if (c && !c.hidden && p) metaOf(p).isGroup = true;
   }
-  for (const parent of childrenOf.keys()) metaOf(allById.get(parent)!).isGroup = true;
-  for (const [child, parent] of parentOf) {
-    const c = allById.get(child);
-    if (c && !c.hidden && allById.has(parent)) { c.parentNode = parent; c.extent = 'parent'; }
+  for (const n of all) {
+    if (n.type === 'subnet' && parentOf.has(n.id)) metaOf(n).isGroup = true;
+    // Gateways, route tables and endpoints: the VPC's own plumbing, one line each.
+    if (n.type !== 'subnet' && allById.get(parentOf.get(n.id) || '')?.type === 'vpc') metaOf(n).compact = true;
+  }
+  // parentNode is what the layout reads, so set it before measuring.
+  for (const n of all) {
+    const parent = parentOf.get(n.id);
+    if (parent && allById.has(parent) && !n.hidden) { n.parentNode = parent; n.extent = 'parent'; }
+    else if (n.parentNode && goneIds.has(n.parentNode)) { delete n.parentNode; delete n.extent; }
   }
 
   layoutStackCanvas(all);
   assignHandles(all, edges);
-  return orderParentsFirst(all);
+  // A node that ended up exactly where it was keeps its identity, so the
+  // canvas re-renders the few that moved rather than all of them.
+  const settled = all.map((n) => {
+    const was = original.get(n.id);
+    if (!was || was === n) return n;
+    const same = was.parentNode === n.parentNode && was.extent === n.extent
+      && was.position.x === n.position.x && was.position.y === n.position.y
+      && (was.style?.width ?? null) === (n.style?.width ?? null) && (was.style?.height ?? null) === (n.style?.height ?? null)
+      && sameMeta(was.data?.meta, n.data?.meta);
+    return same ? was : n;
+  });
+  return orderParentsFirst(settled);
 }

@@ -13,15 +13,14 @@ import { Edge, Node } from 'reactflow';
 import { invoke } from '@tauri-apps/api/core';
 import { BASELINE_NAME_PREFIXES, BASELINE_TYPES, DiscoveredResource, formatBytes, shortType } from './accountExplorer';
 import { isResourceBasedConnection } from './rolePolicy';
-import { orderParentsFirst } from './nodeTree';
 import { isOpenToWorld } from './nodeName';
 import { Activity, Boxes, Cloud, Database, Globe, KeyRound, LucideIcon, Mail, Network, Settings, UserSquare, Vault } from 'lucide-react';
 import { Layer, layerFor } from './layers';
-import { clusterApplications, ClusterItem, SHARED_ID } from './applications';
+import type { BandKind } from './stackLayout';
 import {
-  assignHandles, bandFor, BandKind, BAND_ORDER, layoutStackCanvas,
   CELL_W, CELL_H, GROUP_HEADER, GROUP_PAD, GROUP_GAP, ADD_COLUMN_W, SUBNET_MIN_H, EMPTY_SUBNET_W,
 } from './stackLayout';
+import { layoutCanvas } from './autoLayout';
 
 // The grid constants moved to stackLayout.ts; re-exported for older callers.
 export { CELL_W, CELL_H, GROUP_HEADER, GROUP_PAD, GROUP_GAP, ADD_COLUMN_W, SUBNET_MIN_H, EMPTY_SUBNET_W };
@@ -355,7 +354,6 @@ export function enclosureFor(node: Node): EnclosureKind {
 }
 
 /** The VPC and what it is made of: these belong to whatever runs in them, and are never an application by themselves. */
-const NETWORK_PLUMBING: ReadonlySet<string> = new Set(['vpc', 'subnet', 'security-group', 'internet-gateway', 'nat-gateway', 'route-table', 'vpc-endpoint', 'elastic-ip']);
 
 /** Which layout band a node belongs to; global services join the busiest region. */
 export function regionBand(node: Node): string {
@@ -364,11 +362,6 @@ export function regionBand(node: Node): string {
 }
 
 /** Append to a map of lists without copying the list each time. */
-function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
-  const list = map.get(key);
-  if (list) list.push(value);
-  else map.set(key, [value]);
-}
 
 /**
  * Lowercase, hyphenated, trimmed. With `leadingLetter`, anything before the
@@ -520,113 +513,21 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
     }
   }
 
-  // ---- applications: every resource gets a home and a reason. VPCs and
-  // what is inside them travel together; roles are hidden but still vote.
-  const topLevelOf = (n: Node): Node => {
-    let cur = n;
-    for (let hops = 0; hops < 6 && parentOf.has(cur.id); hops++) cur = nodeById0.get(parentOf.get(cur.id)!) ?? cur;
-    return cur;
-  };
-  const nodeById0 = new Map(nodes.map((n) => [n.id, n]));
+  // ---- applications, tiles, bands and placement: utils/autoLayout.ts, the
+  // same arrangement a canvas built by commands gets. The import knows two
+  // things the canvas does not, so it hands them over: an item's AWS tags,
+  // and the connections that never become drawn edges but still vote.
   const tagsByNodeId = new Map<string, Record<string, string>>();
   for (const item of all) { const n = byArn.get(item.arn); if (n) tagsByNodeId.set(n.id, item.tags || {}); }
   for (const role of project.roles) { const n = byArn.get(role.arn); if (n) tagsByNodeId.set(n.id, role.tags || {}); }
-  const clusterItems: ClusterItem[] = nodes.map((n) => ({
-    id: n.id,
-    name: String(n.data?.label ?? n.id),
-    type: n.type || '',
-    tags: tagsByNodeId.get(n.id),
-    platform: bandFor(n) === 'platform' || NETWORK_PLUMBING.has(n.type || ''),
-    parent: parentOf.get(n.id),
-  }));
   const clusterLinks = project.connections.flatMap((c) => {
     const from = byArn.get(c.from_arn);
     const to = byArn.get(c.to_arn);
     return from && to ? [{ source: from.id, target: to.id }] : [];
   });
-  const clustering = clusterApplications(clusterItems, clusterLinks, project.project.name);
-  for (const n of nodes) {
-    const a = clustering.assignments.get(n.id);
-    if (a) metaOf(n).application = a;
-  }
-
-  // One tile per application, one band per kind that has members. A VPC
-  // is a member of its application's compute band; things inside the VPC
-  // stay inside it wherever it goes.
-  const containers: Node[] = [];
-  const regionsOf = new Map<string, Set<string>>();
-  for (const app of clustering.applications) {
-    const tileId = idFor('application', app.id);
-    const members = nodes.filter((n) => !n.hidden && !parentOf.has(n.id) && (metaOf(topLevelOf(n)).application?.id ?? SHARED_ID) === app.id);
-    if (members.length === 0) continue;
-    const regions = new Set<string>();
-    for (const m of members) { const r = regionBand(m); if (r) regions.add(r); }
-    regionsOf.set(tileId, regions);
-    const tile: Node = {
-      id: tileId,
-      type: 'application',
-      position: { x: 0, y: 0 },
-      data: {
-        label: app.name,
-        config: { name: app.name, subtitle: '' },
-        status: 'present',
-        meta: { isGroup: true, application: { id: app.id, name: app.name, reason: app.id === SHARED_ID ? 'used by more than one application' : 'application' } } as NodeMeta,
-      },
-    };
-    containers.push(tile);
-    // Every resource whose top-level ancestor is in this application,
-    // counted before the bands take over as parents.
-    const total = nodes.filter((n) => !n.hidden && n.type !== 'application' && n.type !== 'band'
-      && (metaOf(topLevelOf(n)).application?.id ?? SHARED_ID) === app.id).length;
-    const byBand = new Map<BandKind, Node[]>();
-    for (const m of members) pushTo(byBand, bandFor(m), m);
-    // One band is no band: a tile that is only a VPC, or only chips, holds
-    // its members directly rather than under a heading that repeats the tile.
-    if (byBand.size === 1) {
-      const [kind, list] = [...byBand.entries()][0];
-      tile.data.meta.band = kind;
-      for (const m of list) {
-        parentOf.set(m.id, tile.id);
-        if (kind === 'platform') metaOf(m).compact = true;
-      }
-    }
-    for (const kind of byBand.size === 1 ? [] : BAND_ORDER) {
-      const list = byBand.get(kind);
-      if (!list?.length) continue;
-      const band: Node = {
-        id: idFor('band', `${app.id}-${kind}`),
-        type: 'band',
-        position: { x: 0, y: 0 },
-        data: { label: kind, config: { name: kind }, status: 'present', meta: { isGroup: true, band: kind } as NodeMeta },
-      };
-      containers.push(band);
-      parentOf.set(band.id, tile.id);
-      for (const m of list) {
-        parentOf.set(m.id, band.id);
-        if (kind === 'platform') metaOf(m).compact = true;
-      }
-    }
-    tile.data.config.subtitle = [
-      `${total} resource${total === 1 ? '' : 's'}`,
-      [...regions].sort().join(', ') || 'global',
-    ].join(' · ');
-  }
-  nodes.push(...containers);
-
-  // Mark groups.
-  const childrenOf = new Map<string, Node[]>();
-  const nodeById = new Map(nodes.map((n) => [n.id, n]));
   for (const [child, parent] of parentOf) {
-    const c = nodeById.get(child);
-    const p = nodeById.get(parent);
-    if (!c || !p || c.hidden) continue;
-    pushTo(childrenOf, parent, c);
-  }
-  for (const parent of childrenOf.keys()) metaOf(nodeById.get(parent)!).isGroup = true;
-  for (const n of nodes) {
-    if (n.type === 'subnet' && parentOf.has(n.id)) metaOf(n).isGroup = true;
-    // Gateways, route tables and endpoints: the VPC's own plumbing, one line each.
-    if (n.type !== 'subnet' && nodeById.get(parentOf.get(n.id) || '')?.type === 'vpc') metaOf(n).compact = true;
+    const c = nodes.find((n: Node) => n.id === child);
+    if (c && !c.hidden) { c.parentNode = parent; c.extent = 'parent'; }
   }
 
   // ---- edges
@@ -705,17 +606,13 @@ export function buildCanvas(project: AccountProject): BuiltCanvas {
     });
   }
 
-  // ---- layout: parentNode is what the layout reads, so set it first.
-  for (const [child, parent] of parentOf) {
-    const c = nodeById.get(child);
-    if (c && !c.hidden) { c.parentNode = parent; c.extent = 'parent'; }
-  }
-  layoutStackCanvas(nodes);
-  assignHandles(nodes, edges);
-  void childrenOf;
-
-  // React Flow needs parents before children.
-  return { nodes: orderParentsFirst(nodes), edges, droppedConnections: dropped };
+  const laid = layoutCanvas(nodes, edges, {
+    projectName: project.project.name,
+    regionOf: regionBand,
+    tagsOf: (n) => tagsByNodeId.get(n.id),
+    links: clusterLinks,
+  });
+  return { nodes: laid, edges, droppedConnections: dropped };
 }
 
 function describeAttachment(item: ProjectItem): string {

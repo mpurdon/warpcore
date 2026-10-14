@@ -206,42 +206,35 @@ def _validate_iam_policies(config) -> List[ValidationError]:
 
 
 def _validate_vpc_config(config) -> List[ValidationError]:
-    """Validate VPC configuration."""
+    """What the schema cannot say about a shared VPC: that its CIDR parses.
+
+    Every other rule here is pydantic's (config/models.py): a VPC needs a
+    CIDR or IPAM but not both, IPAM needs a pool id and a netmask, and the
+    netmask is 16 to 28. Those raise at parse time, so this only checks
+    what a type cannot. Fields are optional, so each is read for None
+    rather than probed with hasattr, which on a model is always true.
+    """
     errors = []
-    
-    # A file that declares no shared VPC (every project the Visual Builder
-    # writes) has nothing to check here.
-    vpc_config = getattr(getattr(config, 'shared', None), 'vpc', None)
-    if vpc_config is not None:
-        if vpc_config.enabled:
-            # Check CIDR format
-            if hasattr(vpc_config, 'cidr'):
-                cidr = vpc_config.cidr
-                if not _is_valid_cidr(cidr):
-                    errors.append(ValidationError(
-                        field='shared.vpc.cidr',
-                        message=f'Invalid CIDR format: {cidr}',
-                        severity='error'
-                    ))
-            
-            # Check IPAM configuration
-            if vpc_config.ipam is not None and vpc_config.ipam.enabled:
-                if not hasattr(vpc_config.ipam, 'pool_id'):
-                    errors.append(ValidationError(
-                        field='shared.vpc.ipam',
-                        message='IPAM pool_id is required when IPAM is enabled',
-                        severity='error'
-                    ))
-                
-                if hasattr(vpc_config.ipam, 'netmask_length'):
-                    netmask = vpc_config.ipam.netmask_length
-                    if netmask < 16 or netmask > 28:
-                        errors.append(ValidationError(
-                            field='shared.vpc.ipam.netmask_length',
-                            message='Netmask length should be between 16 and 28',
-                            severity='warning'
-                        ))
-    
+
+    vpc_config = getattr(getattr(config, "shared", None), "vpc", None)
+    if vpc_config is None or not vpc_config.enabled:
+        return errors
+
+    ipam = vpc_config.ipam
+    using_ipam = ipam is not None and ipam.enabled
+    if vpc_config.cidr is not None and not _is_valid_cidr(vpc_config.cidr):
+        errors.append(ValidationError(
+            field='shared.vpc.cidr',
+            message=f'Invalid CIDR format: {vpc_config.cidr}',
+            severity='error',
+        ))
+    elif vpc_config.cidr is None and not using_ipam:
+        errors.append(ValidationError(
+            field='shared.vpc.cidr',
+            message='A VPC needs either a CIDR or an IPAM pool',
+            severity='error',
+        ))
+
     return errors
 
 

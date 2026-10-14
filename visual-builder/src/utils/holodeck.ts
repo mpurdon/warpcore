@@ -21,6 +21,8 @@ import { stackThumbnail, thumbnailDataUrl } from './thumbnail';
 export type HolodeckFamily = 'reference' | 'inspired' | 'classic' | 'starter' | 'designed';
 
 export interface FamilyInfo {
+  /** The hue its tag wears; one table, so a new family cannot be colourless. */
+  tone: 'emerald' | 'violet' | 'sky' | 'gray' | 'amber';
   id: HolodeckFamily;
   label: string;
   /** The fidelity tag on the card. */
@@ -29,11 +31,11 @@ export interface FamilyInfo {
 }
 
 export const FAMILIES: FamilyInfo[] = [
-  { id: 'reference', label: 'AWS reference architectures', tag: 'reference', description: "AWS's published patterns, drawn as they are usually built" },
-  { id: 'inspired', label: 'In the style of', tag: 'inspired by', description: 'Systems as described in a public talk or post, rendered on AWS. Never the real thing.' },
-  { id: 'classic', label: 'System design classics', tag: 'textbook', description: 'The interview and textbook systems, with the unhappy paths a diagram leaves out' },
-  { id: 'starter', label: 'Warpcore starters', tag: 'starter', description: 'Small agent systems to deploy with warpcore' },
-  { id: 'designed', label: 'Designed here', tag: 'designed', description: 'Systems designed in warpcore, kept beside the references with their scenarios' },
+  { id: 'reference', label: 'AWS reference architectures', tag: 'reference', tone: 'emerald', description: "AWS's published patterns, drawn as they are usually built" },
+  { id: 'inspired', label: 'In the style of', tag: 'inspired by', tone: 'violet', description: 'Systems as described in a public talk or post, rendered on AWS. Never the real thing.' },
+  { id: 'classic', label: 'System design classics', tag: 'textbook', tone: 'sky', description: 'The interview and textbook systems, with the unhappy paths a diagram leaves out' },
+  { id: 'starter', label: 'Warpcore starters', tag: 'starter', tone: 'gray', description: 'Small agent systems to deploy with warpcore' },
+  { id: 'designed', label: 'Designed here', tag: 'designed', tone: 'amber', description: 'Systems designed in warpcore, kept beside the references with their scenarios' },
 ];
 
 export interface HolodeckSource {

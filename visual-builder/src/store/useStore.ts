@@ -452,6 +452,8 @@ export interface StoreState {
   snapshotProject: () => ProjectState;
   /** Set by loadProject; the canvas fits the view once the new nodes are measured, then clears it. */
   fitPending: boolean;
+  /** Fit the view once React Flow has measured the nodes; see App.tsx. */
+  fitWhenMeasured: () => void;
   clearFitPending: () => void;
 
   // Application settings view. Replaces the workspace while open; the canvas
@@ -865,6 +867,7 @@ export const useStore = create<StoreState>((set, get) => ({
   loadProject: (project) => set({ ...projectPatch(project), holodeckPreview: false, previewStash: null, review: null, reviewByArn: new Map(), liveHealth: null, drift: null }),
   snapshotProject: () => snapshotOf(get()),
   fitPending: false,
+  fitWhenMeasured: () => set({ fitPending: true }),
   clearFitPending: () => set({ fitPending: false }),
 
   // Settings view

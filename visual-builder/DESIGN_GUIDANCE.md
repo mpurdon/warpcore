@@ -756,5 +756,17 @@ where the operator is placing something themselves. `canvas.move` is not
 offered to a model at all, and `canvas.addNode`'s x and y say in their
 own description that an arranged canvas does not need them.
 
-Rule: a command that changes what is on the canvas calls `redraw()`. A
-new command must never ask its caller for a position.
+The redraw is the dispatcher's, not each command's: after any `project`
+command whose run changed the nodes or the edges, the canvas is arranged
+again, so no command can forget and none has to remember. A command that
+places something itself (a drag) opts out with `keepsPlacement`.
+
+Grouping has one home: `meta.application` on the node, which is canvas
+state. The import works it out from tags, names and wiring; the operator
+overrides it by name and that choice (`reason: CHOSEN`) survives every
+later layout. It is deliberately not an AWS tag: the compiler reads
+`config.tags`, and moving a card between tiles must never show up in a
+deploy plan.
+
+Rule: a new command must never ask its caller for a position, and must
+never write a view choice into `config`.

@@ -551,7 +551,7 @@ export interface StepCard {
   detached?: boolean;
 }
 
-export function playbackMarks(scenario: Scenario, head: Playhead | null, check: ScenarioCheck, name: (id: string) => string = (id) => id): PlaybackMarks {
+export function playbackMarks(scenario: Scenario, head: Playhead | null, check: ScenarioCheck, name: (id: string) => string): PlaybackMarks {
   const numbers = new Map<string, number[]>();
   const push = (id: string, n: number) => numbers.set(id, [...(numbers.get(id) || []), n]);
   push(scenario.trigger.at, 0);

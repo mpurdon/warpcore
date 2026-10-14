@@ -15,6 +15,8 @@ import { formatTakes, modelledTimeMs, outcomeLabel, phaseDurationMs, stepFails }
 const SPEEDS = [1, 2, 4, 8];
 
 export const TRANSPORT_HEIGHT = 44;
+/** What the transport takes out of the canvas's bottom while it is up: itself and the gap under it. */
+export const TRANSPORT_SPACE = TRANSPORT_HEIGHT + 14;
 
 export default function ScenarioTransport({ bottomOffset }: { bottomOffset: number }) {
   const setPlaying = useStore((s) => s.setPlaying);
@@ -32,10 +34,13 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
   const head = sv?.head ?? null;
 
   // Follow on the canvas: keep the hop in view. The system view pans itself.
+  // Keep the request in view as it moves. Keyed by the ids, not by the
+  // focus object, which useScenarioView rebuilds whenever the canvas does.
+  const focusKey = sv?.focus ? `${sv.focus.at}` : null;
   useEffect(() => {
-    if (!follow || systemView || !sv?.focus) return;
-    canvas.fitToNodes([sv.focus.at, sv.focus.from].filter((x): x is string => Boolean(x)));
-  }, [follow, systemView, sv?.focus]);
+    if (!follow || systemView || !focusKey) return;
+    canvas.fitToNodes([focusKey]);
+  }, [follow, systemView, focusKey]);
 
   if (!sv || !head) return null;
   const { scenario, check } = sv;
@@ -52,7 +57,7 @@ export default function ScenarioTransport({ bottomOffset }: { bottomOffset: numb
   return (
     <div
       className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-chrome text-chrome-fg rounded-xl shadow-xl px-2 text-xs select-none"
-      style={{ bottom: bottomOffset + 14, height: TRANSPORT_HEIGHT, maxWidth: 'calc(100% - 48px)' }}
+      style={{ bottom: bottomOffset + (TRANSPORT_SPACE - TRANSPORT_HEIGHT), height: TRANSPORT_HEIGHT, maxWidth: 'calc(100% - 48px)' }}
       role="toolbar"
       aria-label="Scenario playback"
     >

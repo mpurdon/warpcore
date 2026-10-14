@@ -170,7 +170,7 @@ describe('playhead', () => {
     const { nodes, edges } = webhook();
     const s = scenario();
     const check = checkScenario(s, nodes, edges);
-    const travelling = playbackMarks(s, { ...start(), index: 2, phase: 'travel' }, check);
+    const travelling = playbackMarks(s, { ...start(), index: 2, phase: 'travel' }, check, (id) => id);
     expect(travelling.pulse).toEqual({ edgeId: 'e1', reverse: false, attempt: 0 });
     expect(travelling.state.get('api')).toBe('visited');
     expect(travelling.state.get('fn')).toBe('travelling');
@@ -178,13 +178,13 @@ describe('playhead', () => {
     expect(travelling.numbers.get('fn')).toEqual([3]);
     expect(travelling.numbers.get('api')).toEqual([0]);
 
-    const dwelling = playbackMarks(s, { ...start(), index: 2, phase: 'dwell' }, check);
+    const dwelling = playbackMarks(s, { ...start(), index: 2, phase: 'dwell' }, check, (id) => id);
     expect(dwelling.state.get('fn')).toBe('active');
     expect(dwelling.logging.has('logs-fn')).toBe(true);
     expect(dwelling.logEdges.has('e5')).toBe(true);
     expect(dwelling.pulse).toBeNull();
 
-    const idle = playbackMarks(s, null, check);
+    const idle = playbackMarks(s, null, check, (id) => id);
     expect(idle.state.size).toBe(0);
     expect(idle.numbers.get('events')).toEqual([5]);
   });
@@ -276,9 +276,9 @@ describe('failure paths', () => {
     const check = checkScenario(s, nodes, edges);
     expect(check.problems).toEqual([]);
     expect(check.notes).toEqual([]);
-    const during = playbackMarks(s, { scenarioId: s.id, index: 0, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, check);
+    const during = playbackMarks(s, { scenarioId: s.id, index: 0, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, check, (id) => id);
     expect(during.state.get('fn')).toBe('failing');
-    const after = playbackMarks(s, { scenarioId: s.id, index: 1, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, check);
+    const after = playbackMarks(s, { scenarioId: s.id, index: 1, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, check, (id) => id);
     expect(after.state.get('fn')).toBe('failed');
     expect(after.state.get('dlq')).toBe('active');
     // The dead-letter hop is the evidence for the last step.
@@ -286,11 +286,11 @@ describe('failure paths', () => {
 
     const r = recovers();
     const rc = checkScenario(r, nodes, edges);
-    const mid = playbackMarks(r, { scenarioId: r.id, index: 0, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, rc);
+    const mid = playbackMarks(r, { scenarioId: r.id, index: 0, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, rc, (id) => id);
     expect(mid.state.get('fn')).toBe('failing');
-    const last = playbackMarks(r, { scenarioId: r.id, index: 0, phase: 'dwell', attempt: 1, playing: true, speed: 1 }, rc);
+    const last = playbackMarks(r, { scenarioId: r.id, index: 0, phase: 'dwell', attempt: 1, playing: true, speed: 1 }, rc, (id) => id);
     expect(last.state.get('fn')).toBe('active');
-    const done = playbackMarks(r, { scenarioId: r.id, index: 1, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, rc);
+    const done = playbackMarks(r, { scenarioId: r.id, index: 1, phase: 'dwell', attempt: 0, playing: true, speed: 1 }, rc, (id) => id);
     expect(done.state.get('fn')).toBe('visited');
   });
 

@@ -36,12 +36,12 @@ import CommandPalette from './components/CommandPalette';
 import ActivityDrawer, { drawerHeightFor } from './components/ActivityDrawer';
 import WelcomeScreen from './components/WelcomeScreen';
 import HolodeckBanner from './components/HolodeckBanner';
-import ScenarioTransport, { TRANSPORT_HEIGHT } from './components/ScenarioTransport';
+import ScenarioTransport, { TRANSPORT_SPACE } from './components/ScenarioTransport';
 import SystemView from './components/SystemView';
 import { edgeView, isPlainEdge, ScenarioMarksContext, useLensView, useScenarioView } from './hooks/useCanvasView';
 import { fusedLevel, isStale, loadImportHistory, refreshDrift, refreshLive } from './utils/live';
 import { usePlaybackClock } from './hooks/usePlaybackClock';
-import { canvas, registerCanvas } from './utils/canvasActions';
+import { registerCanvas } from './utils/canvasActions';
 import { runFromUi } from './commands';
 import AssistantPanel from './components/AssistantPanel';
 import { startBridge } from './assistant/bridge';
@@ -64,7 +64,6 @@ const CONTAINER_Z = 0;
 const EDGE_Z = 1;
 const RESOURCE_Z = 2;
 
-// Minimap colours follow node status, the same semantics as the node tints.
 
 function Flow() {
   const {
@@ -97,7 +96,7 @@ function Flow() {
   const receiptCount = useStore((s) => s.receipts.length);
   const drawerHeight = drawerHeightFor(run, receiptCount, activityOpen);
   // The transport bar takes the bottom centre while a scenario plays; the zoom controls and the minimap move up out of its way.
-  const transportHeight = useStore((s) => (s.playhead ? TRANSPORT_HEIGHT + 14 : 0));
+  const transportHeight = useStore((s) => (s.playhead ? TRANSPORT_SPACE : 0));
   const drawerHeightRef = useRef(drawerHeight);
   drawerHeightRef.current = drawerHeight;
 
@@ -195,16 +194,6 @@ function Flow() {
 
   // The scenario on show and the lens re-flow, shared with the system view.
   const scenarioView = useScenarioView();
-  // Follow the playhead: as the request moves, keep the resource it is at
-  // (and the one it left) in view. Off when the operator turns it off on
-  // the transport bar, so they can look elsewhere while it plays.
-  const followPlayhead = useStore((s) => s.followPlayhead);
-  const focusAt = scenarioView?.focus?.at ?? null;
-  useEffect(() => {
-    if (!followPlayhead || !focusAt || !scenarioView?.head) return;
-    // The resource the request is at, with its card, always in view; the hop it came by is drawn by the pulse.
-    canvas.fitToNodes([focusAt]);
-  }, [followPlayhead, focusAt]); // eslint-disable-line react-hooks/exhaustive-deps
   const { emphasis, reflow } = useLensView();
   // The live lens: colours from the account's last word and the review,
   // and drift marks from the state check. Read on demand, kept for the

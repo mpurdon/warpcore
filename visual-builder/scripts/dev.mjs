@@ -6,11 +6,24 @@
 // launch, handed to Vite through the environment and to Tauri through
 // `--config`, which merges over tauri.conf.json for this run only.
 //
-// A port can be pinned with `npm run tauri:dev -- --port 1430`, or
-// WARPCORE_DEV_PORT, when something outside this process has to know it.
+// The usual 1430 is used when it is free, so documented URLs keep
+// working; a free port is chosen only when something else holds it. Pin
+// one with `npm run tauri:dev -- --port 1430` or WARPCORE_DEV_PORT.
 
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
+
+const USUAL = 1430;
+
+/** Whether this port is free right now. */
+function isFree(port) {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.unref();
+    probe.on('error', () => resolve(false));
+    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
+  });
+}
 
 /** A port the OS says is free right now. */
 function freePort() {
@@ -29,9 +42,12 @@ const args = process.argv.slice(2);
 const flag = args.indexOf('--port');
 const asked = flag >= 0 ? Number(args[flag + 1]) : Number(process.env.WARPCORE_DEV_PORT);
 const rest = flag >= 0 ? [...args.slice(0, flag), ...args.slice(flag + 2)] : args;
-const port = Number.isInteger(asked) && asked > 0 ? asked : await freePort();
+// The usual port when it is free, so the URL in the README and in a
+// browser check keeps working; a free one when something else has it, so
+// two Tauri apps never fight.
+const port = Number.isInteger(asked) && asked > 0 ? asked : (await isFree(USUAL)) ? USUAL : await freePort();
 
-console.log(`warpcore dev server on http://localhost:${port}`);
+console.log(`warpcore dev server on http://localhost:${port}${port === USUAL ? '' : ` (${USUAL} was taken)`}`);
 
 const child = spawn(
   'npx',

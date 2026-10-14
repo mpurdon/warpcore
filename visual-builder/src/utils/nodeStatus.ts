@@ -14,5 +14,5 @@ export const STATUS_META: Record<NodeStatus, { tone: Tone; label: string; pulse?
   present: { tone: 'muted', label: 'exists in the account · health unknown', hue: 'gray', dot: 'var(--c-gray-300)' },
 };
 
-/** The minimap's tint for a status: the hue's 200 step. */
+/** The minimap's tint for a status: the hue's 200 step, the same semantics as the node tints. */
 export const minimapColor = (status: NodeStatus): string => `var(--c-${STATUS_META[status].hue}-200)`;

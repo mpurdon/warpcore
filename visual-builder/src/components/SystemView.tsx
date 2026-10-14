@@ -30,7 +30,7 @@ function palette() {
 }
 type Palette = ReturnType<typeof palette>;
 
-function paintGround(scene: THREE.Scene, pal: Palette = palette()): void {
+function paintGround(scene: THREE.Scene, pal: Palette): void {
   scene.background = new THREE.Color(pal.ground);
   scene.fog = new THREE.Fog(pal.ground, 18, 40);
 }
@@ -106,7 +106,7 @@ function makeCurve(from: Card, to: Card): THREE.QuadraticBezierCurve3 {
   return new THREE.QuadraticBezierCurve3(a, mid, b);
 }
 
-function buildScene(layout: SystemLayout, pal: Palette = palette()): Built {
+function buildScene(layout: SystemLayout, pal: Palette): Built {
   const root = new THREE.Group();
   const cards = new Map<string, CardObject>();
   const links = new Map<string, LinkObject>();
@@ -242,7 +242,7 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     host.appendChild(labels.domElement);
 
     const scene = new THREE.Scene();
-    paintGround(scene);
+    paintGround(scene, palette());
     const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -260,9 +260,10 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     sun.shadow.bias = -0.0005;
     scene.add(sun);
 
-    const pulseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshStandardMaterial({ color: palette().blue, emissive: palette().blue, emissiveIntensity: 0.8 }));
+    const pulseBlue = palette().blue;
+    const pulseMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshStandardMaterial({ color: pulseBlue, emissive: pulseBlue, emissiveIntensity: 0.8 }));
     pulseMesh.visible = false;
-    pulseMesh.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: palette().blue, transparent: true, opacity: 0.18 })));
+    pulseMesh.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), new THREE.MeshBasicMaterial({ color: pulseBlue, transparent: true, opacity: 0.18 })));
     scene.add(pulseMesh);
 
     const state: SceneState = {
@@ -373,11 +374,21 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
   // is selected (selection rewrites the nodes array too).
   const layout = useMemo(() => layoutSystem(nodes, edges, reflow ?? {}), [nodes, edges, reflow]);
   const key = useMemo(() => layoutKey(layout), [layout]);
+  // The theme's colours: the ground, and the slabs baked when the scene was
+  // built. Everything else is re-coloured by the decorate pass below.
+  useEffect(() => {
+    const st = sceneRef.current;
+    if (!st?.built) return;
+    const pal = palette();
+    paintGround(st.scene, pal);
+    for (const slab of st.built.slabs) slab.mesh.material.color.set(cssColorHex(slab.token));
+  }, [themeVersion, key]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const st = sceneRef.current;
     if (!st) return;
     if (st.built) disposeBuilt(st.built);
-    st.built = buildScene(layout);
+    st.built = buildScene(layout, palette());
     st.scene.add(st.built.root);
     const b = layout.bounds;
     st.fit = () => {
@@ -404,8 +415,6 @@ export default function SystemView({ reflow }: { reflow: Reflow | null }) {
     const b = st?.built;
     if (!st || !b) return;
     const pal = palette();
-    paintGround(st.scene, pal);
-    for (const slab of b.slabs) slab.mesh.material.color.set(cssColorHex(slab.token));
     const sv = scenarioView;
     const head = sv?.head ?? null;
     const playing = Boolean(head);
