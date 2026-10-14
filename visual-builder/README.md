@@ -56,7 +56,11 @@ python packaging/build.py --sidecar   # from the repo root; `python3` on macOS/L
 npm run tauri:dev
 ```
 
-This will start both the Vite dev server and the Tauri application.
+This starts the Vite dev server and the Tauri application. The port is
+chosen free at launch and printed, so several Tauri apps (or several
+copies of this one) can run at once without fighting over 1430. Pin it
+with `npm run tauri:dev -- --port 1430` or `WARPCORE_DEV_PORT=1430` when
+something outside the process has to know where it is.
 
 ## Building
 

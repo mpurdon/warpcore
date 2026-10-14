@@ -13,7 +13,10 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: {
-    port: 1430,
+    // scripts/dev.mjs picks a port nobody is using and tells both Vite and
+    // Tauri, so two Tauri apps on one machine never fight over 1430. The
+    // fallback is for a bare `npm run dev` without the wrapper.
+    port: Number(process.env.WARPCORE_DEV_PORT) || 1430,
     // Tauri's devUrl points at this exact port; failing loudly beats Vite
     // quietly moving to 1421 and the app window loading nothing.
     strictPort: true,
